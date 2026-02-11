@@ -140,11 +140,13 @@ function App() {
         </div>
 
         {/* Events Section */}
-        <div className="bg-gc-card rounded-lg border border-gc-border">
-          <div className="px-6 py-4 border-b border-gc-border">
+        <div className="bg-gc-card rounded-lg border border-gc-border overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 400px)', minHeight: '500px' }}>
+          <div className="px-6 py-4 border-b border-gc-border flex-shrink-0">
             <h2 className="text-xl font-semibold">Real-time Events</h2>
           </div>
-          <EventList events={events} />
+          <div className="flex-1 overflow-y-auto">
+            <EventList events={events} />
+          </div>
         </div>
       </main>
     </div>
