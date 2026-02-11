@@ -166,8 +166,3 @@ npm test          # Run tests
 ## License
 
 MIT
-
-## Credits
-
-Inspired by [Crabwalk](https://github.com/luccast/crabwalk) by @luccasveg
-Built for [Clawdbot](https://github.com/clawdbot/clawdbot)
