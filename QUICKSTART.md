@@ -5,7 +5,7 @@
 ```bash
 cd guardclaw
 npm start
-```
+```text
 
 GuardClaw 会自动：
 - ✅ 连接到 Clawdbot Gateway
@@ -43,7 +43,7 @@ curl http://localhost:3001/api/events/history?limit=10 | jq
 
 # 实时日志
 tail -f guardclaw.log
-```
+```text
 
 ## 健康检查
 
@@ -55,7 +55,7 @@ tail -f guardclaw.log
   "pollerMode": "event-only",  // 当前模式
   "warnings": [...]       // 如果有问题会显示建议
 }
-```
+```text
 
 ## 安全分析后端
 
@@ -66,7 +66,7 @@ GuardClaw 支持多种 AI 后端分析命令风险：
 # .env
 SAFEGUARD_BACKEND=lmstudio
 LMSTUDIO_URL=http://localhost:1234/v1
-```
+```text
 
 **优点**: 免费、隐私、低延迟
 **缺点**: 需要下载模型（~4GB）
@@ -78,7 +78,7 @@ LMSTUDIO_URL=http://localhost:1234/v1
 # .env
 SAFEGUARD_BACKEND=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
-```
+```text
 
 **优点**: 最高准确度
 **缺点**: 需要 API key、有费用
@@ -87,7 +87,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 # .env
 SAFEGUARD_BACKEND=fallback
-```
+```text
 
 **优点**: 零延迟、零成本
 **缺点**: 仅模式匹配，不够智能
@@ -98,7 +98,7 @@ SAFEGUARD_BACKEND=fallback
 ```bash
 # 使用 fallback 模式快速测试
 SAFEGUARD_BACKEND=fallback npm start
-```
+```text
 
 ### 场景 2: 本地生产
 ```bash
@@ -107,13 +107,13 @@ SAFEGUARD_BACKEND=fallback npm start
 # 2. 启动 Server (http://localhost:1234)
 # 3. 启动 GuardClaw
 SAFEGUARD_BACKEND=lmstudio npm start
-```
+```text
 
 ### 场景 3: 云端生产
 ```bash
 # 使用 Claude API
 SAFEGUARD_BACKEND=anthropic npm start
-```
+```text
 
 ## Web Dashboard
 
@@ -128,9 +128,9 @@ SAFEGUARD_BACKEND=anthropic npm start
 ## 故障排查
 
 ### ❌ 无法连接 Gateway
-```
+```text
 ❌ Connection failed: Connection timeout
-```
+```text
 
 **解决**:
 ```bash
@@ -141,12 +141,12 @@ clawdbot status
 cat .env | grep CLAWDBOT_URL
 
 # 应该是: ws://127.0.0.1:18789
-```
+```text
 
 ### ⚠️ 降级到事件模式
-```
+```text
 ⚠️  sessions.history not supported by Gateway
-```
+```text
 
 **原因**: 你的 Clawdbot Gateway 版本不支持历史 API
 
@@ -155,18 +155,21 @@ cat .env | grep CLAWDBOT_URL
 - **选项 2**: 接受事件模式（仍然很有用！）
 
 ### 🔴 分析失败
-```
+
+```text
 LM Studio analysis failed: fetch failed
-```
+```text
 
 **解决**:
+
 ```bash
 # 检查 LM Studio Server 是否运行
 curl http://localhost:1234/v1/models
 
 # 或切换到 fallback 模式
 SAFEGUARD_BACKEND=fallback npm restart
-```
+```text
+
 
 ## 下一步
 
@@ -179,7 +182,7 @@ SAFEGUARD_BACKEND=fallback npm restart
 ```bash
 # Ctrl+C 或
 npm run stop
-```
+```text
 
 ---
 

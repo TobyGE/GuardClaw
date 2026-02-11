@@ -1,28 +1,41 @@
 # GuardClaw 🛡️🐾
 
-**Local LLM-Powered Generative Safety for AI Agents**
+## Local LLM-Powered Generative Safety for AI Agents
 
-GuardClaw brings **generative AI safety analysis** to your AI agents using **local LLMs** (LM Studio, Ollama). Every command, file operation, and chat message is analyzed by a local language model that understands context, intent, and risk—**without sending any data to the cloud**.
+GuardClaw brings **generative AI safety analysis** to your AI agents using
+**local LLMs** (LM Studio, Ollama). Every command, file operation, and chat
+message is analyzed by a local language model that understands context,
+intent, and risk—**without sending any data to the cloud**.
 
 ## 🌟 Core Feature: Generative Safety Powered by LM Studio
 
-Unlike traditional rule-based security tools, GuardClaw uses **LM Studio** to run local language models that provide intelligent, context-aware safety analysis:
+Unlike traditional rule-based security tools, GuardClaw uses **LM Studio** to
+run local language models that provide intelligent, context-aware safety
+analysis:
 
-- 🧠 **Context-Aware Analysis** - Understands the full context of commands, not just pattern matching
-- 🔒 **100% Local via LM Studio** - All analysis runs on your machine through LM Studio's local inference server
-- 🎯 **Intent Understanding** - Distinguishes between `echo "password=test"` (safe) and actual credential leaks
-- 📊 **Risk Scoring 0-10** - Nuanced risk assessment with detailed reasoning from your local LLM
-- 💬 **Natural Language Explanations** - Every decision comes with human-readable reasoning
-- ⚡ **Real-time Protection** - Analyzes exec commands, file operations, and chat messages as they happen
+- 🧠 **Context-Aware Analysis** - Understands the full context of commands,
+  not just pattern matching
+- 🔒 **100% Local via LM Studio** - All analysis runs on your machine through
+  LM Studio's local inference server
+- 🎯 **Intent Understanding** - Distinguishes between `echo "password=test"`
+  (safe) and actual credential leaks
+- 📊 **Risk Scoring 0-10** - Nuanced risk assessment with detailed reasoning
+  from your local LLM
+- 💬 **Natural Language Explanations** - Every decision comes with
+  human-readable reasoning
+- ⚡ **Real-time Protection** - Analyzes exec commands, file operations, and
+  chat messages as they happen
 
-**Why LM Studio + Local LLMs?**
+### Why LM Studio + Local LLMs?
+
 - ✅ **Zero Cloud Costs** - No API fees, runs completely offline
 - ✅ **Complete Privacy** - Your commands and data never leave your machine
 - ✅ **Model Flexibility** - Use any GGUF model (Llama, Mistral, Qwen, etc.)
 - ✅ **Fast Inference** - No network latency, instant analysis
 - ✅ **Easy Setup** - Download LM Studio, load a model, done!
 
-**Recommended Models for LM Studio:**
+### Recommended Models for LM Studio
+
 - `llama-3.1-8b` - Fast and accurate for most use cases
 - `mistral-7b` - Excellent reasoning capabilities
 - `qwen-2.5-7b` - Strong multilingual support
@@ -32,14 +45,17 @@ Unlike traditional rule-based security tools, GuardClaw uses **LM Studio** to ru
 
 - 📊 **Real-time Monitoring** - Live event stream of all agent activities
 - 🛡️ **Generative Safety Analysis** - Every action analyzed by your local LLM
-- 🔍 **Detailed Insights** - Risk scores, categories, and reasoning for each event
-- 📝 **Complete Audit Trail** - Full execution history with security annotations
+- 🔍 **Detailed Insights** - Risk scores, categories, and reasoning for each
+  event
+- 📝 **Complete Audit Trail** - Full execution history with security
+  annotations
 
 ## Screenshot
 
 ![GuardClaw Dashboard](docs/screenshots/dashboard.jpg)
 
-*Real-time monitoring dashboard showing event statistics, live event stream with security analysis powered by LM Studio*
+Real-time monitoring dashboard showing event statistics, live event stream
+with security analysis powered by LM Studio
 
 ## Quick Start (TL;DR)
 
@@ -53,7 +69,8 @@ guardclaw start
 
 Open browser: `http://localhost:3001`
 
-That's it! GuardClaw will connect to your local Clawdbot Gateway at `ws://127.0.0.1:18789`.
+That's it! GuardClaw will connect to your local Clawdbot Gateway at
+`ws://127.0.0.1:18789`.
 
 ## Installation
 
@@ -75,9 +92,11 @@ npm link
 
 ## Configuration
 
-GuardClaw works out of the box with sensible defaults. For custom configuration:
+GuardClaw works out of the box with sensible defaults. For custom
+configuration:
 
-**Option 1: Environment variables**
+### Option 1: Environment variables
+
 ```bash
 export CLAWDBOT_URL=ws://127.0.0.1:18789
 export CLAWDBOT_TOKEN=your_token_here
@@ -85,8 +104,10 @@ export ANTHROPIC_API_KEY=your_claude_key_here
 export PORT=3001
 ```
 
-**Option 2: .env file**
+### Option 2: .env file
+
 Create `.env` in your current directory:
+
 ```env
 CLAWDBOT_URL=ws://127.0.0.1:18789
 CLAWDBOT_TOKEN=your_token_here
@@ -94,7 +115,8 @@ ANTHROPIC_API_KEY=your_claude_key_here
 PORT=3001
 ```
 
-**Option 3: Command-line flags**
+### Option 3: Command-line flags
+
 ```bash
 guardclaw start --port 3002 --clawdbot-url ws://192.168.1.100:18789
 ```
@@ -118,31 +140,36 @@ guardclaw help
 guardclaw version
 ```
 
-Once running, open `http://localhost:3001` in your browser to access the monitoring dashboard.
+Once running, open `http://localhost:3001` in your browser to access the
+monitoring dashboard.
 
 ## Features
 
 ### 1. Enhanced Trace Viewer
+
 - Real-time visualization of all agent activities
 - Detailed breakdown of tool calls (exec, Read, Write, API calls)
 - Nested execution context (parent-child relationships)
 - Timeline view with filtering
 
 ### 2. LLM-based Safeguard
+
 Every command is analyzed by an LLM before execution:
+
 - **Risk Score (0-10)**: Automatic risk assessment
 - **Safety Categories**: File operations, network, system changes
 - **Auto-block**: Prevents dangerous operations (rm -rf /, shutdown, etc.)
 - **Smart approval**: User confirmation for medium-risk operations
 
 ### 3. Safety Levels
+
 - 🟢 **Safe (0-3)**: Execute immediately
 - 🟡 **Warning (4-7)**: Show warning, require acknowledgment
 - 🔴 **Dangerous (8-10)**: Require explicit confirmation with details
 
 ## Architecture
 
-```
+```text
 ┌─────────────┐
 │  Clawdbot   │
 │   Gateway   │
@@ -150,8 +177,8 @@ Every command is analyzed by an LLM before execution:
        │ WebSocket
        ▼
 ┌─────────────┐      ┌──────────────┐
-│  GuardClaw  │◄────►│ Claude API   │
-│   Server    │      │ (Safeguard)  │
+│  GuardClaw  │◄────►│ LM Studio    │
+│   Server    │      │ (Local LLM)  │
 └──────┬──────┘      └──────────────┘
        │ HTTP/WS
        ▼
@@ -163,22 +190,28 @@ Every command is analyzed by an LLM before execution:
 
 ## Safety Examples
 
-**Safe command:**
+### Safe command
+
 ```bash
 ls -la ~/documents
 ```
+
 Risk: 2/10 - Read-only directory listing ✅
 
-**Warning command:**
+### Warning command
+
 ```bash
 rm important-file.txt
 ```
+
 Risk: 6/10 - File deletion, requires confirmation ⚠️
 
-**Dangerous command:**
+### Dangerous command
+
 ```bash
 rm -rf /
 ```
+
 Risk: 10/10 - BLOCKED automatically 🚫
 
 ## Development
@@ -193,7 +226,7 @@ npm test          # Run tests
 
 - **Backend**: Node.js + Express + WebSocket
 - **Frontend**: React + Vite + ReactFlow
-- **AI Safety**: Claude API (Anthropic)
+- **AI Safety**: LM Studio (local LLM inference)
 - **Real-time**: Server-Sent Events (SSE)
 
 ## License
