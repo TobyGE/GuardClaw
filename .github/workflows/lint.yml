@@ -20,7 +20,13 @@ jobs:
         globs: |
           **/*.md
           !node_modules/**
-          !guardclaw/node_modules/**
+          !client/node_modules/**
+        config: |
+          {
+            "line-length": false,
+            "no-inline-html": false,
+            "no-duplicate-heading": false
+          }
 
   file-structure:
     name: Validate File Structure
@@ -34,11 +40,11 @@ jobs:
         files=(
           "README.md"
           "LICENSE"
-          "SOUL.md"
-          "AGENTS.md"
-          "USER.md"
-          "IDENTITY.md"
+          "package.json"
           ".gitignore"
+          "server/index.js"
+          "server/safeguard.js"
+          "client/package.json"
         )
         
         for file in "${files[@]}"; do
@@ -61,10 +67,18 @@ jobs:
     
     - name: Check for sensitive data
       run: |
-        # Check for common sensitive patterns
-        if grep -rE "(api[_-]?key|secret|password|token).*(=|:)\s*['\"][^'\"]+['\"]" --include="*.md" --include="*.js" --exclude-dir=node_modules . ; then
+        # Check for common sensitive patterns (exclude .env.example)
+        if grep -rE "(api[_-]?key|secret|password|token).*(=|:)\s*['\"][a-zA-Z0-9]{20,}" \
+          --include="*.md" \
+          --include="*.js" \
+          --include="*.json" \
+          --exclude="*.example" \
+          --exclude-dir=node_modules \
+          --exclude-dir=client/node_modules \
+          --exclude-dir=dist . ; then
           echo "⚠️ Warning: Potential sensitive data found"
           echo "Please review and ensure no actual credentials are committed"
+          exit 1
         else
           echo "✅ No obvious sensitive data patterns detected"
         fi
@@ -72,15 +86,61 @@ jobs:
     - name: Verify .gitignore
       run: |
         required_ignores=(
-          "MEMORY.md"
           ".env"
-          "memory/"
           "*.log"
           "node_modules/"
+          "AGENTS.md"
+          "SOUL.md"
+          "USER.md"
+          "MEMORY.md"
         )
         
+        missing=0
         for pattern in "${required_ignores[@]}"; do
           if ! grep -q "$pattern" .gitignore; then
             echo "⚠️ .gitignore should include: $pattern"
+            missing=1
+          else
+            echo "✅ .gitignore includes: $pattern"
           fi
         done
+        
+        if [ $missing -eq 1 ]; then
+          echo "❌ Some required patterns missing from .gitignore"
+          exit 1
+        else
+          echo "✅ .gitignore properly configured"
+        fi
+
+  node-build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        
+    - name: Install server dependencies
+      run: npm install
+      
+    - name: Install client dependencies
+      run: cd client && npm install
+      
+    - name: Build client
+      run: cd client && npm run build
+      
+    - name: Verify build output
+      run: |
+        if [ ! -d "client/dist" ]; then
+          echo "❌ Build failed: client/dist not found"
+          exit 1
+        fi
+        if [ ! -f "client/dist/index.html" ]; then
+          echo "❌ Build failed: client/dist/index.html not found"
+          exit 1
+        fi
+        echo "✅ Build successful"

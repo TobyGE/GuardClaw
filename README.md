@@ -1,12 +1,39 @@
 # GuardClaw 🛡️🐾
 
-**AI Agent Safety Monitor with LLM-based Command Safeguard**
+**Local LLM-Powered Generative Safety for AI Agents**
 
-GuardClaw is an enhanced monitoring tool for Clawdbot agents that provides:
-- 📊 **Detailed Trace Visualization** - See every tool call, command, and API request
-- 🛡️ **LLM Safety Guard** - Analyze commands before execution to prevent dangerous operations
-- ⏸️ **Interactive Approval** - Pause and request confirmation for high-risk operations
-- 📝 **Complete Audit Log** - Full execution history with rollback capability
+GuardClaw brings **generative AI safety analysis** to your AI agents using **local LLMs** (LM Studio, Ollama). Every command, file operation, and chat message is analyzed by a local language model that understands context, intent, and risk—**without sending any data to the cloud**.
+
+## 🌟 Core Feature: Generative Safety Powered by LM Studio
+
+Unlike traditional rule-based security tools, GuardClaw uses **LM Studio** to run local language models that provide intelligent, context-aware safety analysis:
+
+- 🧠 **Context-Aware Analysis** - Understands the full context of commands, not just pattern matching
+- 🔒 **100% Local via LM Studio** - All analysis runs on your machine through LM Studio's local inference server
+- 🎯 **Intent Understanding** - Distinguishes between `echo "password=test"` (safe) and actual credential leaks
+- 📊 **Risk Scoring 0-10** - Nuanced risk assessment with detailed reasoning from your local LLM
+- 💬 **Natural Language Explanations** - Every decision comes with human-readable reasoning
+- ⚡ **Real-time Protection** - Analyzes exec commands, file operations, and chat messages as they happen
+
+**Why LM Studio + Local LLMs?**
+- ✅ **Zero Cloud Costs** - No API fees, runs completely offline
+- ✅ **Complete Privacy** - Your commands and data never leave your machine
+- ✅ **Model Flexibility** - Use any GGUF model (Llama, Mistral, Qwen, etc.)
+- ✅ **Fast Inference** - No network latency, instant analysis
+- ✅ **Easy Setup** - Download LM Studio, load a model, done!
+
+**Recommended Models for LM Studio:**
+- `llama-3.1-8b` - Fast and accurate for most use cases
+- `mistral-7b` - Excellent reasoning capabilities
+- `qwen-2.5-7b` - Strong multilingual support
+- `openai/gpt-oss-20b` - Balanced performance and quality
+
+## What GuardClaw Does
+
+- 📊 **Real-time Monitoring** - Live event stream of all agent activities
+- 🛡️ **Generative Safety Analysis** - Every action analyzed by your local LLM
+- 🔍 **Detailed Insights** - Risk scores, categories, and reasoning for each event
+- 📝 **Complete Audit Trail** - Full execution history with security annotations
 
 ## Screenshot
 
