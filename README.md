@@ -33,8 +33,8 @@ npm install -g guardclaw@latest
 ### From Source
 
 ```bash
-git clone https://github.com/TobyGE/guardclaw.git
-cd guardclaw
+git clone https://github.com/TobyGE/GuardClaw.git
+cd GuardClaw
 npm install
 npm run build
 npm link

@@ -41,7 +41,7 @@ Configuration:
   Create a .env file in your current directory or use environment variables.
   See .env.example for reference.
 
-More info: https://github.com/TobyGE/guardclaw
+More info: https://github.com/TobyGE/GuardClaw
   `);
 }
 
