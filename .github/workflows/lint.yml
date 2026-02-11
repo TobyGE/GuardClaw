@@ -1,0 +1,86 @@
+name: Lint & Validate
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Markdown Lint
+      uses: DavidAnson/markdownlint-cli2-action@v13
+      with:
+        globs: |
+          **/*.md
+          !node_modules/**
+          !guardclaw/node_modules/**
+
+  file-structure:
+    name: Validate File Structure
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check required files
+      run: |
+        files=(
+          "README.md"
+          "LICENSE"
+          "SOUL.md"
+          "AGENTS.md"
+          "USER.md"
+          "IDENTITY.md"
+          ".gitignore"
+        )
+        
+        for file in "${files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Missing required file: $file"
+            exit 1
+          else
+            echo "✅ Found: $file"
+          fi
+        done
+        
+        echo "✅ All required files present"
+
+  privacy-check:
+    name: Privacy & Security Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check for sensitive data
+      run: |
+        # Check for common sensitive patterns
+        if grep -rE "(api[_-]?key|secret|password|token).*(=|:)\s*['\"][^'\"]+['\"]" --include="*.md" --include="*.js" --exclude-dir=node_modules . ; then
+          echo "⚠️ Warning: Potential sensitive data found"
+          echo "Please review and ensure no actual credentials are committed"
+        else
+          echo "✅ No obvious sensitive data patterns detected"
+        fi
+        
+    - name: Verify .gitignore
+      run: |
+        required_ignores=(
+          "MEMORY.md"
+          ".env"
+          "memory/"
+          "*.log"
+          "node_modules/"
+        )
+        
+        for pattern in "${required_ignores[@]}"; do
+          if ! grep -q "$pattern" .gitignore; then
+            echo "⚠️ .gitignore should include: $pattern"
+          fi
+        done

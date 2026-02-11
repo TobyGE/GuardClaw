@@ -1,0 +1,36 @@
+{
+  "name": "guardclaw",
+  "version": "0.1.0",
+  "description": "AI Agent Safety Monitor with LLM-based Command Safeguard",
+  "main": "server/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "server:dev": "nodemon server/index.js",
+    "client:dev": "cd client && vite",
+    "build": "cd client && vite build",
+    "start": "node server/index.js",
+    "test": "echo \"Tests coming soon\" && exit 0"
+  },
+  "keywords": [
+    "clawdbot",
+    "agent",
+    "monitoring",
+    "safety",
+    "ai",
+    "llm"
+  ],
+  "author": "YG",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "dotenv": "^16.4.1",
+    "@anthropic-ai/sdk": "^0.27.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3",
+    "concurrently": "^8.2.2"
+  }
+}
