@@ -8,6 +8,12 @@ GuardClaw is an enhanced monitoring tool for Clawdbot agents that provides:
 - ⏸️ **Interactive Approval** - Pause and request confirmation for high-risk operations
 - 📝 **Complete Audit Log** - Full execution history with rollback capability
 
+## Screenshot
+
+![GuardClaw Dashboard](docs/screenshots/dashboard.jpg)
+
+*Real-time monitoring dashboard showing event statistics, live event stream with security analysis powered by LM Studio*
+
 ## Quick Start (TL;DR)
 
 Runtime: Node ≥18
