@@ -5,3 +5,14 @@ node_modules/
 dist/
 .cache/
 *.pid
+
+# Workspace files (personal configuration)
+AGENTS.md
+SOUL.md
+USER.md
+IDENTITY.md
+TOOLS.md
+HEARTBEAT.md
+BOOTSTRAP.md
+memory/
+MEMORY.md

@@ -8,6 +8,85 @@ GuardClaw is an enhanced monitoring tool for Clawdbot agents that provides:
 - ⏸️ **Interactive Approval** - Pause and request confirmation for high-risk operations
 - 📝 **Complete Audit Log** - Full execution history with rollback capability
 
+## Quick Start (TL;DR)
+
+Runtime: Node ≥18
+
+```bash
+npm install -g guardclaw@latest
+
+guardclaw start
+```
+
+Open browser: `http://localhost:3001`
+
+That's it! GuardClaw will connect to your local Clawdbot Gateway at `ws://127.0.0.1:18789`.
+
+## Installation
+
+### Global Install (Recommended)
+
+```bash
+npm install -g guardclaw@latest
+```
+
+### From Source
+
+```bash
+git clone https://github.com/TobyGE/clawd-workspace.git
+cd clawd-workspace
+npm install
+npm run build
+npm link
+```
+
+## Configuration
+
+GuardClaw works out of the box with sensible defaults. For custom configuration:
+
+**Option 1: Environment variables**
+```bash
+export CLAWDBOT_URL=ws://127.0.0.1:18789
+export CLAWDBOT_TOKEN=your_token_here
+export ANTHROPIC_API_KEY=your_claude_key_here
+export PORT=3001
+```
+
+**Option 2: .env file**
+Create `.env` in your current directory:
+```env
+CLAWDBOT_URL=ws://127.0.0.1:18789
+CLAWDBOT_TOKEN=your_token_here
+ANTHROPIC_API_KEY=your_claude_key_here
+PORT=3001
+```
+
+**Option 3: Command-line flags**
+```bash
+guardclaw start --port 3002 --clawdbot-url ws://192.168.1.100:18789
+```
+
+## Usage
+
+```bash
+# Start GuardClaw server
+guardclaw start
+
+# Start on custom port
+guardclaw start --port 3002
+
+# Connect to remote Clawdbot Gateway
+guardclaw start --clawdbot-url ws://192.168.1.100:18789 --clawdbot-token your_token
+
+# Show help
+guardclaw help
+
+# Show version
+guardclaw version
+```
+
+Once running, open `http://localhost:3001` in your browser to access the monitoring dashboard.
+
 ## Features
 
 ### 1. Enhanced Trace Viewer
@@ -48,31 +127,6 @@ Every command is analyzed by an LLM before execution:
 │  (React)    │
 └─────────────┘
 ```
-
-## Installation
-
-```bash
-npm install
-npm run build
-npm start
-```
-
-## Configuration
-
-Create `.env`:
-```env
-CLAWDBOT_URL=ws://127.0.0.1:18789
-CLAWDBOT_TOKEN=your_token_here
-ANTHROPIC_API_KEY=your_claude_key_here
-PORT=3001
-```
-
-## Usage
-
-1. Start GuardClaw server: `npm start`
-2. Open browser: `http://localhost:3001`
-3. Connect to Clawdbot Gateway
-4. Monitor all agent activities with real-time safety analysis
 
 ## Safety Examples
 
