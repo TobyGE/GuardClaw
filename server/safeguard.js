@@ -47,15 +47,7 @@ export class SafeguardService {
     }
     this.cacheStats.misses++;
 
-    // Fast path: use rules for simple/obvious commands
-    const quickAnalysis = this.quickAnalysis(command);
-    if (quickAnalysis) {
-      this.cacheStats.ruleCalls++;
-      this.addToCache(command, quickAnalysis);
-      return quickAnalysis;
-    }
-
-    // Complex commands: use AI backend
+    // Always use LM Studio (no rule-based shortcuts)
     this.cacheStats.aiCalls++;
     let result;
     
@@ -96,15 +88,7 @@ export class SafeguardService {
     }
     this.cacheStats.misses++;
 
-    // Fast path: use rules for obvious safe/dangerous actions
-    const quickAnalysis = this.quickAnalyzeToolAction(action);
-    if (quickAnalysis) {
-      this.cacheStats.ruleCalls++;
-      this.addToCache(cacheKey, quickAnalysis);
-      return quickAnalysis;
-    }
-
-    // Complex actions: use AI backend
+    // Always use LM Studio (no rule-based shortcuts)
     this.cacheStats.aiCalls++;
     let result;
     
@@ -144,15 +128,7 @@ export class SafeguardService {
     }
     this.cacheStats.misses++;
     
-    // Quick rules-based check
-    const quickCheck = this.quickAnalyzeChatContent(text);
-    if (quickCheck) {
-      this.cacheStats.ruleCalls++;
-      this.addToCache(cacheKey, quickCheck);
-      return quickCheck;
-    }
-    
-    // AI analysis for content security
+    // Always use LM Studio for chat content analysis (no rule-based shortcuts)
     this.cacheStats.aiCalls++;
     let result;
     
