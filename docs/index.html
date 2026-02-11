@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GuardClaw - Local LLM-Powered Generative Safety for AI Agents. Monitor and protect your AI agents with intelligent security analysis powered by LM Studio.">
+    <meta name="keywords" content="AI safety, LLM, local LLM, LM Studio, agent monitoring, security, privacy, GuardClaw">
+    <title>GuardClaw 🛡️ - Local LLM-Powered AI Agent Safety</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            padding: 60px 0;
+            text-align: center;
+            color: white;
+        }
+
+        .logo {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .tagline {
+            font-size: 1.5rem;
+            opacity: 0.95;
+            margin-bottom: 40px;
+            font-weight: 300;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 50px;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: white;
+            color: #667eea;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 2px solid white;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+
+        /* Main Content */
+        main {
+            background: white;
+            border-radius: 30px 30px 0 0;
+            padding: 80px 0;
+        }
+
+        section {
+            padding: 60px 0;
+        }
+
+        h2 {
+            font-size: 2.5rem;
+            margin-bottom: 40px;
+            text-align: center;
+            color: #2d3748;
+        }
+
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .feature-card p {
+            color: #4a5568;
+            line-height: 1.8;
+        }
+
+        /* Screenshot */
+        .screenshot-container {
+            text-align: center;
+            margin: 60px 0;
+        }
+
+        .screenshot {
+            max-width: 100%;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .screenshot:hover {
+            transform: scale(1.02);
+        }
+
+        /* Quick Start */
+        .quick-start {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 80px 0;
+            margin: 60px 0;
+            border-radius: 20px;
+        }
+
+        .quick-start h2 {
+            color: white;
+        }
+
+        .code-block {
+            background: rgba(0,0,0,0.3);
+            padding: 30px;
+            border-radius: 15px;
+            margin: 30px auto;
+            max-width: 600px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            line-height: 1.8;
+            backdrop-filter: blur(10px);
+        }
+
+        .code-block code {
+            color: #a7f3d0;
+        }
+
+        /* Stats */
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            margin: 60px 0;
+        }
+
+        .stat {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 1.1rem;
+            color: #718096;
+        }
+
+        /* Footer */
+        footer {
+            background: #2d3748;
+            color: white;
+            padding: 40px 0;
+            text-align: center;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: #a7f3d0;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .footer-links a:hover {
+            color: white;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .tagline {
+                font-size: 1.2rem;
+            }
+
+            h2 {
+                font-size: 2rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Highlight boxes */
+        .highlight-box {
+            background: linear-gradient(135deg, #fef3c7 0%, #fef9e7 100%);
+            border-left: 5px solid #f59e0b;
+            padding: 30px;
+            border-radius: 10px;
+            margin: 40px 0;
+        }
+
+        .highlight-box h3 {
+            color: #d97706;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header / Hero -->
+    <header>
+        <div class="container">
+            <div class="logo">🛡️🐾</div>
+            <h1>GuardClaw</h1>
+            <p class="tagline">Local LLM-Powered Generative Safety for AI Agents</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/TobyGE/GuardClaw" class="btn btn-primary" target="_blank">
+                    ⭐ View on GitHub
+                </a>
+                <a href="#quick-start" class="btn btn-secondary">
+                    🚀 Get Started
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+        <div class="container">
+            <!-- Intro -->
+            <section>
+                <h2>Intelligent AI Agent Safety, 100% Local</h2>
+                <p style="text-align: center; font-size: 1.2rem; max-width: 800px; margin: 0 auto; color: #4a5568;">
+                    GuardClaw brings <strong>generative AI safety analysis</strong> to your AI agents using 
+                    <strong>LM Studio</strong>. Every command, file operation, and chat message is analyzed by a 
+                    local language model that understands context, intent, and risk—without sending any data to the cloud.
+                </p>
+            </section>
+
+            <!-- Screenshot -->
+            <section class="screenshot-container">
+                <img src="screenshots/dashboard.jpg" alt="GuardClaw Dashboard" class="screenshot">
+                <p style="margin-top: 20px; color: #718096;">
+                    Real-time monitoring dashboard with LM Studio-powered security analysis
+                </p>
+            </section>
+
+            <!-- Why GuardClaw -->
+            <section class="highlight-box">
+                <h3>🌟 Why Local LLMs?</h3>
+                <ul style="line-height: 2; color: #4a5568; margin-left: 20px;">
+                    <li><strong>100% Private</strong> - Your commands never leave your machine</li>
+                    <li><strong>Zero Cloud Costs</strong> - No API fees, runs completely offline</li>
+                    <li><strong>Context-Aware</strong> - Understands intent, not just patterns</li>
+                    <li><strong>Instant Analysis</strong> - No network latency</li>
+                    <li><strong>Model Freedom</strong> - Use any GGUF model you prefer</li>
+                </ul>
+            </section>
+
+            <!-- Features -->
+            <section>
+                <h2>Core Features</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🧠</div>
+                        <h3>Generative Safety Analysis</h3>
+                        <p>LM Studio analyzes every command with full context understanding. Distinguishes between 
+                        <code>echo "password=test"</code> (safe) and actual credential leaks.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon">📊</div>
+                        <h3>Real-time Monitoring</h3>
+                        <p>Live event stream showing all agent activities. See exec commands, file operations, 
+                        and chat messages with instant risk scoring (0-10 scale).</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon">🔒</div>
+                        <h3>Complete Privacy</h3>
+                        <p>All analysis happens locally via LM Studio. Your data never touches the cloud. 
+                        Perfect for sensitive projects and enterprise environments.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3>Fast & Lightweight</h3>
+                        <p>Analysis in 1-2 seconds with efficient models. No network delays. Runs on your existing 
+                        hardware with LM Studio.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon">🎯</div>
+                        <h3>Intent Understanding</h3>
+                        <p>Unlike rule-based tools, GuardClaw understands what commands actually do. Smart enough 
+                        to know <code>ls -la</code> is safe but <code>rm -rf /</code> is dangerous.</p>
+                    </div>
+
+                    <div class="feature-card">
+                        <div class="feature-icon">📝</div>
+                        <h3>Complete Audit Trail</h3>
+                        <p>Full execution history with security annotations. Every decision comes with detailed 
+                        reasoning from the LLM.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats -->
+            <section class="stats">
+                <div class="stat">
+                    <div class="stat-number">100%</div>
+                    <div class="stat-label">Local & Private</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">0-10</div>
+                    <div class="stat-label">Risk Scoring</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">~2s</div>
+                    <div class="stat-label">Analysis Time</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">$0</div>
+                    <div class="stat-label">Cloud Costs</div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Quick Start -->
+        <section class="quick-start" id="quick-start">
+            <div class="container">
+                <h2>Get Started in 2 Minutes</h2>
+                <div class="code-block">
+                    <code>
+# 1. Install GuardClaw<br>
+npm install -g guardclaw@latest<br>
+<br>
+# 2. Start monitoring<br>
+guardclaw start<br>
+<br>
+# 3. Open dashboard<br>
+http://localhost:3001
+                    </code>
+                </div>
+                <p style="text-align: center; margin-top: 30px; font-size: 1.1rem;">
+                    That's it! GuardClaw will connect to your Clawdbot Gateway and start monitoring.
+                </p>
+                <div style="text-align: center; margin-top: 30px;">
+                    <a href="https://github.com/TobyGE/GuardClaw#installation" class="btn btn-primary" target="_blank">
+                        📖 Full Installation Guide
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <div class="container">
+            <!-- Recommended Models -->
+            <section>
+                <h2>Recommended LM Studio Models</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <h3>🏆 llama-3.1-8b</h3>
+                        <p><strong>Best overall</strong><br>
+                        Fast and accurate for most use cases. ~4GB RAM.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>⚡ mistral-7b</h3>
+                        <p><strong>Excellent reasoning</strong><br>
+                        Great at understanding complex commands. ~4GB RAM.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🌐 qwen-2.5-7b</h3>
+                        <p><strong>Multilingual</strong><br>
+                        Strong support for multiple languages. ~4GB RAM.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Use Cases -->
+            <section>
+                <h2>Perfect For</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🏢</div>
+                        <h3>Enterprise Teams</h3>
+                        <p>Keep sensitive data on-premise. No cloud API dependencies. Full audit trail for compliance.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🔬</div>
+                        <h3>Researchers</h3>
+                        <p>Monitor AI agent behavior in real-time. Understand decision-making processes with detailed analysis.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">👨‍💻</div>
+                        <h3>Developers</h3>
+                        <p>Catch risky commands before they execute. Debug agent behavior with complete event logs.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- How It Works -->
+            <section>
+                <h2>How It Works</h2>
+                <div style="max-width: 800px; margin: 0 auto;">
+                    <div class="feature-card" style="text-align: left;">
+                        <h3 style="color: #667eea; margin-bottom: 20px;">Architecture</h3>
+                        <pre style="background: #f7fafc; padding: 20px; border-radius: 10px; overflow-x: auto;">
+┌─────────────┐
+│  Clawdbot   │  Your AI Agent
+│   Gateway   │
+└──────┬──────┘
+       │ WebSocket
+       ▼
+┌─────────────┐      ┌──────────────┐
+│  GuardClaw  │◄────►│  LM Studio   │
+│   Server    │      │ (Local LLM)  │
+└──────┬──────┘      └──────────────┘
+       │ HTTP/WS
+       ▼
+┌─────────────┐
+│   Web UI    │  http://localhost:3001
+│  Dashboard  │
+└─────────────┘
+                        </pre>
+                        <ol style="margin-top: 20px; line-height: 2; color: #4a5568;">
+                            <li>GuardClaw connects to your Clawdbot Gateway</li>
+                            <li>Every command/action is captured in real-time</li>
+                            <li>LM Studio analyzes each event for security risks</li>
+                            <li>Results appear instantly in the web dashboard</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 GuardClaw. Open Source under MIT License.</p>
+            <div class="footer-links">
+                <a href="https://github.com/TobyGE/GuardClaw" target="_blank">GitHub</a>
+                <a href="https://github.com/TobyGE/GuardClaw/issues" target="_blank">Issues</a>
+                <a href="https://github.com/TobyGE/GuardClaw#readme" target="_blank">Documentation</a>
+                <a href="https://lmstudio.ai" target="_blank">LM Studio</a>
+                <a href="https://github.com/openclaw/openclaw" target="_blank">OpenClaw</a>
+            </div>
+            <p style="margin-top: 20px; opacity: 0.7;">
+                Inspired by <a href="https://github.com/openclaw/openclaw" style="color: #a7f3d0;">OpenClaw</a>
+            </p>
+        </div>
+    </footer>
+
+    <!-- Smooth Scroll -->
+    <script>
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
