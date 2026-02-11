@@ -162,7 +162,8 @@ app.post('/api/disconnect', (req, res) => {
 
 app.get('/api/events/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
-  res.json(eventStore.getRecentEvents(limit));
+  const events = eventStore.getRecentEvents(limit);
+  res.json({ events: events.reverse() }); // Reverse so newest first
 });
 
 app.post('/api/safeguard/analyze', async (req, res) => {

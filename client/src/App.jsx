@@ -61,7 +61,7 @@ function App() {
     connectToBackend();
 
     // Set up SSE for real-time updates
-    const eventSource = new EventSource('/api/events/stream');
+    const eventSource = new EventSource('/api/events');
     
     eventSource.onmessage = (e) => {
       try {
