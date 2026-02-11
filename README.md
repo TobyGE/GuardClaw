@@ -166,3 +166,7 @@ npm test          # Run tests
 ## License
 
 MIT
+
+## Credits
+
+Inspired by [OpenClaw](https://github.com/openclaw/openclaw)
