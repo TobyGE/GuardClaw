@@ -27,7 +27,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TobyGE/clawd-workspace.git"
+    "url": "https://github.com/TobyGE/guardclaw.git"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -33,8 +33,8 @@ npm install -g guardclaw@latest
 ### From Source
 
 ```bash
-git clone https://github.com/TobyGE/clawd-workspace.git
-cd clawd-workspace
+git clone https://github.com/TobyGE/guardclaw.git
+cd guardclaw
 npm install
 npm run build
 npm link
