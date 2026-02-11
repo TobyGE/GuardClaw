@@ -2,9 +2,12 @@ node_modules/
 .env
 .DS_Store
 *.log
-dist/
 .cache/
 *.pid
+
+# Allow client/dist for now (placeholder page)
+# TODO: Remove when real build process is added
+# dist/
 
 # Workspace files (personal configuration)
 AGENTS.md

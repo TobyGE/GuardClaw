@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GuardClaw 🛡️ - AI Agent Safety Monitor</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 60px 40px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 20px;
+      font-weight: 700;
+    }
+    .emoji {
+      font-size: 4rem;
+      margin-bottom: 30px;
+      display: block;
+    }
+    p {
+      font-size: 1.2rem;
+      line-height: 1.8;
+      margin-bottom: 30px;
+      opacity: 0.9;
+    }
+    .status {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 20px;
+      border-radius: 10px;
+      margin: 30px 0;
+    }
+    .status h2 {
+      font-size: 1.5rem;
+      margin-bottom: 15px;
+      color: #a7f3d0;
+    }
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .status-item:last-child {
+      border-bottom: none;
+    }
+    .status-label {
+      font-weight: 600;
+    }
+    .status-value {
+      font-family: 'Courier New', monospace;
+      color: #a7f3d0;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(167, 243, 208, 0.2);
+      color: #a7f3d0;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin: 5px;
+    }
+    .features {
+      text-align: left;
+      margin-top: 30px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 25px;
+      border-radius: 10px;
+    }
+    .features h3 {
+      margin-bottom: 15px;
+      color: #fbbf24;
+    }
+    .features ul {
+      list-style: none;
+    }
+    .features li {
+      padding: 8px 0;
+      padding-left: 25px;
+      position: relative;
+    }
+    .features li:before {
+      content: "🛡️";
+      position: absolute;
+      left: 0;
+    }
+    a {
+      color: #a7f3d0;
+      text-decoration: none;
+      font-weight: 600;
+      border-bottom: 2px solid transparent;
+      transition: border-color 0.3s;
+    }
+    a:hover {
+      border-bottom-color: #a7f3d0;
+    }
+    .footer {
+      margin-top: 30px;
+      opacity: 0.7;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <span class="emoji">🛡️🐾</span>
+    <h1>GuardClaw</h1>
+    <p>AI Agent Safety Monitor with LLM-based Command Safeguard</p>
+    
+    <div class="status">
+      <h2>✅ Server Status</h2>
+      <div class="status-item">
+        <span class="status-label">Backend:</span>
+        <span class="status-value">Running</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Port:</span>
+        <span class="status-value">3001</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Frontend UI:</span>
+        <span class="status-value">Coming Soon</span>
+      </div>
+    </div>
+
+    <div>
+      <span class="badge">📊 Trace Viewer</span>
+      <span class="badge">🛡️ Safety Guard</span>
+      <span class="badge">⏸️ Interactive Approval</span>
+      <span class="badge">📝 Audit Log</span>
+    </div>
+
+    <div class="features">
+      <h3>🚀 What GuardClaw Does</h3>
+      <ul>
+        <li><strong>Real-time monitoring</strong> of all agent activities</li>
+        <li><strong>LLM-based risk analysis</strong> for every command</li>
+        <li><strong>Auto-block dangerous operations</strong> (rm -rf /, shutdown, etc.)</li>
+        <li><strong>Interactive approval</strong> for medium-risk commands</li>
+        <li><strong>Complete audit trail</strong> with execution history</li>
+      </ul>
+    </div>
+
+    <p style="margin-top: 30px;">
+      The web dashboard is under development.<br>
+      Backend APIs are ready at <code style="background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">http://localhost:3001/api</code>
+    </p>
+
+    <div class="footer">
+      <p>
+        <a href="https://github.com/TobyGE/GuardClaw" target="_blank">View on GitHub</a> •
+        Inspired by <a href="https://github.com/openclaw/openclaw" target="_blank">OpenClaw</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    // Check server connectivity
+    fetch('/api/status')
+      .then(res => res.json())
+      .then(data => {
+        console.log('GuardClaw server is running:', data);
+      })
+      .catch(err => {
+        console.log('Server check:', err.message);
+      });
+  </script>
+</body>
+</html>
