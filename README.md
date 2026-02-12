@@ -57,20 +57,47 @@ analysis:
 Real-time monitoring dashboard showing event statistics, live event stream
 with security analysis powered by LM Studio
 
+## Prerequisites ⚠️
+
+Before installing GuardClaw, you need:
+
+### 1. **LM Studio** (Required for local AI analysis)
+
+Download and install [LM Studio](https://lmstudio.ai):
+- **macOS/Windows/Linux** - Free download from lmstudio.ai
+- Load a model (recommended: `mistral-7b-instruct`, `llama-3.1-8b`, or `qwen-2.5-7b`)
+- Start the local server (default: `http://localhost:1234`)
+
+**Why?** GuardClaw uses LM Studio's local LLM to analyze command safety with zero cloud costs and complete privacy.
+
+### 2. **Clawdbot Gateway** (Required for monitoring)
+
+Install [Clawdbot](https://github.com/clawdbot/clawdbot):
+```bash
+npm install -g clawdbot@latest
+clawdbot gateway start
+```
+
+### 3. **Node.js ≥18** (Required runtime)
+
+Check your version: `node --version`
+
+---
+
 ## Quick Start (TL;DR)
 
-Runtime: Node ≥18
+**Step 1**: Start LM Studio server (http://localhost:1234)
 
+**Step 2**: Install and start GuardClaw
 ```bash
 npm install -g guardclaw@latest
-
 guardclaw start
 ```
 
-Open browser: `http://localhost:3001`
+**Step 3**: Open browser → `http://localhost:3001`
 
 That's it! GuardClaw will connect to your local Clawdbot Gateway at
-`ws://127.0.0.1:18789`.
+`ws://127.0.0.1:18789` and analyze commands via LM Studio.
 
 ## Installation
 

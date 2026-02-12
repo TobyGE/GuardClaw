@@ -4,6 +4,7 @@ import EventList from './components/EventList';
 
 function App() {
   const [connected, setConnected] = useState(false);
+  const [llmStatus, setLlmStatus] = useState(null);
   const [stats, setStats] = useState({
     totalEvents: 0,
     safeCommands: 0,
@@ -18,12 +19,15 @@ function App() {
       try {
         const response = await fetch('/api/status');
         if (response.ok) {
-          setConnected(true);
+          const data = await response.json();
+          setConnected(data.connected);
+          setLlmStatus(data.llmStatus);
           fetchEvents();
         }
       } catch (error) {
         console.error('Failed to connect:', error);
         setConnected(false);
+        setLlmStatus(null);
       }
     };
 
@@ -107,8 +111,26 @@ function App() {
                   : 'bg-gc-danger/20 text-gc-danger'
               }`}
             >
-              {connected ? '✓ Connected' : '✗ Disconnected'}
+              {connected ? '✓ Gateway' : '✗ Gateway'}
             </span>
+            {llmStatus && (
+              <span
+                className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium ${
+                  llmStatus.connected
+                    ? 'bg-gc-safe/20 text-gc-safe'
+                    : llmStatus.backend === 'fallback'
+                    ? 'bg-gray-500/20 text-gray-400'
+                    : 'bg-gc-danger/20 text-gc-danger'
+                }`}
+                title={llmStatus.message}
+              >
+                {llmStatus.connected
+                  ? `✓ ${llmStatus.backend.toUpperCase()}${llmStatus.models > 0 ? ` (${llmStatus.models})` : ''}`
+                  : llmStatus.backend === 'fallback'
+                  ? '⚠ Fallback'
+                  : `✗ ${llmStatus.backend.toUpperCase()}`}
+              </span>
+            )}
           </div>
         </div>
       </header>

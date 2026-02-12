@@ -78,10 +78,11 @@ app.get('/api/events', (req, res) => {
 });
 
 // API endpoints
-app.get('/api/status', (req, res) => {
+app.get('/api/status', async (req, res) => {
   const connectionStats = clawdbotClient.getConnectionStats();
   const pollerStats = sessionPoller.getStats();
   const cacheStats = safeguardService.getCacheStats();
+  const llmStatus = await safeguardService.testConnection();
   
   res.json({
     // Connection status
@@ -101,14 +102,15 @@ app.get('/api/status', (req, res) => {
     safeguardEnabled: safeguardService.enabled,
     safeguardBackend: safeguardService.backend,
     safeguardCache: cacheStats,
+    llmStatus,
     
     // Health
     healthy: clawdbotClient.connected && pollerStats.consecutiveErrors < 3,
-    warnings: getSystemWarnings(connectionStats, pollerStats)
+    warnings: getSystemWarnings(connectionStats, pollerStats, llmStatus)
   });
 });
 
-function getSystemWarnings(connectionStats, pollerStats) {
+function getSystemWarnings(connectionStats, pollerStats, llmStatus) {
   const warnings = [];
   
   if (!connectionStats.connected) {
@@ -124,6 +126,26 @@ function getSystemWarnings(connectionStats, pollerStats) {
       level: 'warning',
       message: `Connection unstable (${connectionStats.reconnectAttempts} reconnect attempts)`,
       suggestion: 'Check network connectivity'
+    });
+  }
+  
+  if (llmStatus && !llmStatus.connected && llmStatus.backend !== 'fallback') {
+    warnings.push({
+      level: 'error',
+      message: `${llmStatus.backend.toUpperCase()} not connected`,
+      suggestion: llmStatus.backend === 'lmstudio' 
+        ? 'Start LM Studio and load a model, or set SAFEGUARD_BACKEND=fallback'
+        : llmStatus.backend === 'ollama'
+        ? 'Start Ollama service, or set SAFEGUARD_BACKEND=fallback'
+        : 'Check API credentials'
+    });
+  }
+  
+  if (llmStatus && llmStatus.connected && llmStatus.models === 0 && llmStatus.backend === 'lmstudio') {
+    warnings.push({
+      level: 'warning',
+      message: 'LM Studio connected but no models loaded',
+      suggestion: 'Load a model in LM Studio for AI-powered analysis'
     });
   }
   

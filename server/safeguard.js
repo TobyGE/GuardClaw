@@ -730,4 +730,90 @@ Respond ONLY with valid JSON, no markdown formatting.`;
   isBlocked(analysis) {
     return analysis.riskScore >= 8 || analysis.allowed === false;
   }
+
+  async testConnection() {
+    if (!this.enabled || this.backend === 'fallback') {
+      return {
+        connected: false,
+        backend: this.backend,
+        message: 'Safeguard backend is disabled or using fallback mode'
+      };
+    }
+
+    try {
+      if (this.backend === 'lmstudio') {
+        const url = `${this.config.lmstudioUrl}/v1/models`;
+        const response = await fetch(url, { 
+          method: 'GET',
+          signal: AbortSignal.timeout(5000) // 5 second timeout
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const modelCount = data.data?.length || 0;
+        
+        return {
+          connected: true,
+          backend: 'lmstudio',
+          url: this.config.lmstudioUrl,
+          models: modelCount,
+          message: modelCount > 0 ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} loaded)` : 'Connected but no models loaded'
+        };
+      }
+
+      if (this.backend === 'ollama') {
+        const url = `${this.config.ollamaUrl}/api/tags`;
+        const response = await fetch(url, {
+          method: 'GET',
+          signal: AbortSignal.timeout(5000)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const modelCount = data.models?.length || 0;
+        
+        return {
+          connected: true,
+          backend: 'ollama',
+          url: this.config.ollamaUrl,
+          models: modelCount,
+          message: `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)`
+        };
+      }
+
+      if (this.backend === 'anthropic') {
+        return {
+          connected: !!this.client,
+          backend: 'anthropic',
+          message: this.client ? 'API key configured' : 'API key missing'
+        };
+      }
+
+      return {
+        connected: false,
+        backend: this.backend,
+        message: 'Unknown backend type'
+      };
+    } catch (error) {
+      return {
+        connected: false,
+        backend: this.backend,
+        error: error.message,
+        message: `Failed to connect: ${error.message}`
+      };
+    }
+  }
+
+  getCacheStats() {
+    return {
+      ...this.cacheStats,
+      cacheSize: this.cache.size
+    };
+  }
 }
