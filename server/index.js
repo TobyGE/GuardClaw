@@ -6,6 +6,7 @@ import { ClawdbotClient } from './clawdbot-client.js';
 import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
 import { SessionPoller } from './session-poller.js';
+import { logger } from './logger.js';
 
 dotenv.config();
 
@@ -26,17 +27,17 @@ const clawdbotClient = new ClawdbotClient(
     reconnectDelay: 5000,
     maxReconnectDelay: 30000,
     onConnect: () => {
-      console.log('[GuardClaw] 🎉 Connection established');
+      logger.info('🎉 Connection established');
       // Restart session poller on reconnect
       if (sessionPoller.polling) {
         sessionPoller.testPermissions();
       }
     },
     onDisconnect: () => {
-      console.log('[GuardClaw] 💔 Connection lost');
+      logger.warn('💔 Connection lost');
     },
     onReconnecting: (attempt, delay) => {
-      console.log(`[GuardClaw] 🔄 Reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
+      logger.info(`🔄 Reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
     }
   }
 );
