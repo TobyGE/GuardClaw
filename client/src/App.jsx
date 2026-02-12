@@ -128,6 +128,15 @@ function App() {
       details.push({ label: 'Models Loaded', value: llmStatus.models });
     }
     
+    if (llmStatus.modelNames && llmStatus.modelNames.length > 0) {
+      llmStatus.modelNames.forEach((name, idx) => {
+        details.push({ 
+          label: idx === 0 ? 'Model Names' : '', 
+          value: name 
+        });
+      });
+    }
+    
     if (llmStatus.error) {
       details.push({ label: 'Error', value: llmStatus.error });
     }

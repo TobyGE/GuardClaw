@@ -754,12 +754,14 @@ Respond ONLY with valid JSON, no markdown formatting.`;
         
         const data = await response.json();
         const modelCount = data.data?.length || 0;
+        const modelNames = data.data?.map(m => m.id) || [];
         
         return {
           connected: true,
           backend: 'lmstudio',
           url: this.config.lmstudioUrl,
           models: modelCount,
+          modelNames,
           message: modelCount > 0 ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} loaded)` : 'Connected but no models loaded'
         };
       }
@@ -777,12 +779,14 @@ Respond ONLY with valid JSON, no markdown formatting.`;
         
         const data = await response.json();
         const modelCount = data.models?.length || 0;
+        const modelNames = data.models?.map(m => m.name) || [];
         
         return {
           connected: true,
           backend: 'ollama',
           url: this.config.ollamaUrl,
           models: modelCount,
+          modelNames,
           message: `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)`
         };
       }
