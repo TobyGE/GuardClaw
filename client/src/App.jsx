@@ -113,7 +113,7 @@ function App() {
   };
 
   const getLlmDetails = () => {
-    if (!llmStatus) return [];
+    if (!llmStatus) return { details: [], modelList: [] };
     const details = [
       { label: 'Backend', value: llmStatus.backend },
       { label: 'Status', value: llmStatus.connected ? 'Connected' : 'Disconnected' },
@@ -128,20 +128,14 @@ function App() {
       details.push({ label: 'Models Loaded', value: llmStatus.models });
     }
     
-    if (llmStatus.modelNames && llmStatus.modelNames.length > 0) {
-      llmStatus.modelNames.forEach((name, idx) => {
-        details.push({ 
-          label: idx === 0 ? 'Model Names' : '', 
-          value: name 
-        });
-      });
-    }
-    
     if (llmStatus.error) {
       details.push({ label: 'Error', value: llmStatus.error });
     }
     
-    return details;
+    return { 
+      details, 
+      modelList: llmStatus.modelNames || [] 
+    };
   };
 
   return (
@@ -157,7 +151,8 @@ function App() {
         isOpen={showLlmModal}
         onClose={() => setShowLlmModal(false)}
         title="LLM Backend"
-        details={getLlmDetails()}
+        details={getLlmDetails().details}
+        modelList={getLlmDetails().modelList}
       />
 
       {/* Header */}
@@ -190,7 +185,7 @@ function App() {
                 }`}
               >
                 {llmStatus.connected
-                  ? `✓ LLM${llmStatus.models > 0 ? ` (${llmStatus.models})` : ''}`
+                  ? `✓ LLM`
                   : llmStatus.backend === 'fallback'
                   ? '⚠ Fallback'
                   : `✗ LLM`}

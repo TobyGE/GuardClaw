@@ -1,4 +1,8 @@
-function ConnectionModal({ isOpen, onClose, title, details }) {
+import { useState } from 'react';
+
+function ConnectionModal({ isOpen, onClose, title, details, modelList }) {
+  const [modelsExpanded, setModelsExpanded] = useState(false);
+
   if (!isOpen) return null;
 
   return (
@@ -21,14 +25,48 @@ function ConnectionModal({ isOpen, onClose, title, details }) {
         </div>
         
         <div className="space-y-3">
-          {details.map((item, idx) => (
-            <div key={idx} className="flex flex-col">
-              <span className="text-sm text-gc-text-secondary">{item.label}</span>
-              <span className="text-gc-text font-mono text-sm break-all">
-                {item.value}
-              </span>
-            </div>
-          ))}
+          {details.map((item, idx) => {
+            // Special handling for Models Loaded with dropdown
+            if (item.label === 'Models Loaded' && modelList && modelList.length > 0) {
+              return (
+                <div key={idx} className="flex flex-col">
+                  <button
+                    onClick={() => setModelsExpanded(!modelsExpanded)}
+                    className="flex items-center justify-between text-left w-full"
+                  >
+                    <span className="text-sm text-gc-text-secondary">{item.label}</span>
+                    <span className="text-gc-text text-sm flex items-center gap-2">
+                      {item.value}
+                      <span className="text-gc-text-secondary">
+                        {modelsExpanded ? '▼' : '▶'}
+                      </span>
+                    </span>
+                  </button>
+                  {modelsExpanded && (
+                    <div className="mt-2 ml-4 space-y-1">
+                      {modelList.map((model, midx) => (
+                        <div 
+                          key={midx} 
+                          className="text-sm text-gc-text-secondary font-mono py-1 border-l-2 border-gc-primary/30 pl-3"
+                        >
+                          {model}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            
+            return (
+              <div key={idx} className="flex flex-col">
+                <span className="text-sm text-gc-text-secondary">{item.label}</span>
+                <span className="text-gc-text font-mono text-sm break-all">
+                  {item.value}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         <button
