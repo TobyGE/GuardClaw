@@ -238,7 +238,7 @@ GuardClaw is available under a **Dual License**:
 
 See [LICENSE](LICENSE) file for full details.
 
-**Commercial use?** Contact: [YOUR_EMAIL_HERE]
+**Commercial use?** Contact via [GitHub Issues](https://github.com/TobyGE/GuardClaw/issues)
 
 ## Credits
 
