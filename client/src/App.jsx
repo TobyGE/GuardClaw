@@ -5,6 +5,7 @@ import EventList from './components/EventList';
 function App() {
   const [connected, setConnected] = useState(false);
   const [llmStatus, setLlmStatus] = useState(null);
+  const [daysSinceInstall, setDaysSinceInstall] = useState(0);
   const [stats, setStats] = useState({
     totalEvents: 0,
     safeCommands: 0,
@@ -22,6 +23,7 @@ function App() {
           const data = await response.json();
           setConnected(data.connected);
           setLlmStatus(data.llmStatus);
+          setDaysSinceInstall(data.install?.daysSinceInstall || 0);
           fetchEvents();
         }
       } catch (error) {
@@ -101,7 +103,14 @@ function App() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <span className="text-3xl">🛡️</span>
-            <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
+            <div>
+              <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
+              {daysSinceInstall > 0 && (
+                <p className="text-xs text-gc-text-secondary mt-0.5">
+                  守护 {daysSinceInstall} 天
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex items-center space-x-2">
             <span

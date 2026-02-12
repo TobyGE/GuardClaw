@@ -7,6 +7,7 @@ import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
 import { SessionPoller } from './session-poller.js';
 import { logger } from './logger.js';
+import { installTracker } from './install-tracker.js';
 
 dotenv.config();
 
@@ -84,6 +85,7 @@ app.get('/api/status', async (req, res) => {
   const pollerStats = sessionPoller.getStats();
   const cacheStats = safeguardService.getCacheStats();
   const llmStatus = await safeguardService.testConnection();
+  const installStats = installTracker.getStats();
   
   res.json({
     // Connection status
@@ -104,6 +106,9 @@ app.get('/api/status', async (req, res) => {
     safeguardBackend: safeguardService.backend,
     safeguardCache: cacheStats,
     llmStatus,
+    
+    // Install tracking
+    install: installStats,
     
     // Health
     healthy: clawdbotClient.connected && pollerStats.consecutiveErrors < 3,
