@@ -742,7 +742,9 @@ Respond ONLY with valid JSON, no markdown formatting.`;
 
     try {
       if (this.backend === 'lmstudio') {
-        const url = `${this.config.lmstudioUrl}/v1/models`;
+        // LM Studio URL should already include /v1, so just append /models
+        const baseUrl = this.config.lmstudioUrl.replace(/\/+$/, ''); // Remove trailing slashes
+        const url = `${baseUrl}/models`;
         const response = await fetch(url, { 
           method: 'GET',
           signal: AbortSignal.timeout(5000) // 5 second timeout
