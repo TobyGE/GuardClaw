@@ -54,8 +54,12 @@ analysis:
 
 ![GuardClaw Dashboard](docs/screenshots/dashboard.jpg)
 
-Real-time monitoring dashboard showing event statistics, live event stream
-with security analysis powered by LM Studio
+**Dashboard Features:**
+- 📊 **Real-time Stats** - Days protected, total events, safe commands, warnings, and blocked operations
+- 🌓 **Light/Dark Mode** - Toggle between themes with one click
+- 🔗 **Connection Status** - Click Gateway/LLM badges to view detailed connection info
+- 📋 **Live Event Stream** - Security analysis with risk scores and reasoning
+- 🔍 **Expandable Details** - Click events to see full command analysis
 
 ## Prerequisites ⚠️
 
