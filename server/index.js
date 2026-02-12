@@ -570,11 +570,41 @@ app.listen(PORT, () => {
     console.log('');
     
     clawdbotClient.connect()
-      .then(() => {
+      .then(async () => {
         console.log('');
         console.log('✅ Connected successfully!');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log(`🛡️  Safeguard: ${safeguardService.backend.toUpperCase()}`);
+        
+        // Test LM Studio / LLM backend connection
+        console.log('');
+        console.log('🔍 Testing LLM backend connection...');
+        const llmStatus = await safeguardService.testConnection();
+        
+        if (llmStatus.connected) {
+          console.log(`✅ ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);
+          if (llmStatus.modelNames && llmStatus.modelNames.length > 0) {
+            console.log(`   📦 Models: ${llmStatus.modelNames.join(', ')}`);
+          }
+        } else {
+          console.log(`❌ ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);
+          if (llmStatus.backend === 'lmstudio') {
+            console.log('');
+            console.log('💡 LM Studio Setup:');
+            console.log('   1. Download and install LM Studio from https://lmstudio.ai/');
+            console.log('   2. Load a model (recommended: Mistral-7B-Instruct or Phi-2)');
+            console.log('   3. Start the Local Server (default: http://localhost:1234)');
+            console.log('   4. Or set SAFEGUARD_BACKEND=fallback in .env');
+            console.log('');
+            console.log('   GuardClaw will use pattern-matching fallback until LM Studio connects.');
+          } else if (llmStatus.backend === 'ollama') {
+            console.log('');
+            console.log('💡 Ollama Setup:');
+            console.log('   1. Install Ollama from https://ollama.ai/');
+            console.log('   2. Run: ollama run llama3');
+            console.log('   3. Or set SAFEGUARD_BACKEND=fallback in .env');
+          }
+        }
         
         // Start session poller in audit mode (scan history every 30s)
         const pollInterval = parseInt(process.env.POLL_INTERVAL) || 30000; // 30 seconds

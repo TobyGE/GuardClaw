@@ -2,6 +2,8 @@
 
 GuardClaw 支持使用本地 LLM 进行命令安全分析，无需调用云端 API！
 
+**🔍 启动时自动扫描：** GuardClaw 会在启动时主动测试 Gateway 和 LM Studio 的连接状态，并显示详细的连接信息。
+
 ## 设置 LM Studio
 
 ### 1. 下载并安装 LM Studio
@@ -57,6 +59,37 @@ LMSTUDIO_MODEL=auto
 
 ```bash
 npm start
+```
+
+启动时，你应该看到类似这样的输出：
+
+```
+🔌 Connecting to Clawdbot Gateway...
+   URL: ws://127.0.0.1:18789
+
+✅ Connected successfully!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛡️  Safeguard: LMSTUDIO
+
+🔍 Testing LLM backend connection...
+✅ LMSTUDIO: Connected (1 model loaded)
+   📦 Models: mistral-7b-instruct-v0.2
+
+🎯 GuardClaw is now monitoring your agents!
+```
+
+如果 LM Studio 未运行或未加载模型，会显示：
+
+```
+❌ LMSTUDIO: Failed to connect: fetch failed
+
+💡 LM Studio Setup:
+   1. Download and install LM Studio from https://lmstudio.ai/
+   2. Load a model (recommended: Mistral-7B-Instruct or Phi-2)
+   3. Start the Local Server (default: http://localhost:1234)
+   4. Or set SAFEGUARD_BACKEND=fallback in .env
+
+   GuardClaw will use pattern-matching fallback until LM Studio connects.
 ```
 
 ## 测试分析
