@@ -366,7 +366,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
           messages: [
             {
               role: 'system',
-              content: 'You are a security analyst. Analyze agent actions and respond ONLY with valid JSON.'
+              content: 'You are a security analyst. Respond ONLY with a JSON object. Do NOT use <think> tags or any other text. Just output the JSON directly.'
             },
             {
               role: 'user',
@@ -374,7 +374,8 @@ Respond ONLY with valid JSON, no markdown formatting.`;
             }
           ],
           temperature: 0.1,
-          max_tokens: 500
+          max_tokens: 300,
+          stop: ['<think>', '\n\n\n']
         })
       });
 
@@ -585,7 +586,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
           messages: [
             {
               role: 'system',
-              content: 'You are a security analyst. Analyze shell commands and respond ONLY with valid JSON.'
+              content: 'You are a security analyst. Respond ONLY with a JSON object. Do NOT use <think> tags or any other text. Just output the JSON directly.'
             },
             {
               role: 'user',
@@ -593,7 +594,8 @@ Respond ONLY with valid JSON, no markdown formatting.`;
             }
           ],
           temperature: 0.1,
-          max_tokens: 500
+          max_tokens: 300,
+          stop: ['<think>', '\n\n\n']
         })
       });
 
@@ -676,8 +678,21 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       // Clean up response - remove <think> tags and other markers
       let cleanContent = content;
       
-      // Remove <think>...</think> tags (used by some models like Qwen)
+      // Remove closed <think>...</think> tags (used by some models like Qwen)
       cleanContent = cleanContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+      
+      // Remove unclosed <think> tags and everything after them (model didn't finish thinking)
+      // If we see an unclosed <think>, the model is still thinking and hasn't output JSON yet
+      if (cleanContent.includes('<think>')) {
+        // Check if there's JSON before the <think> tag
+        const beforeThink = cleanContent.substring(0, cleanContent.indexOf('<think>'));
+        if (beforeThink.trim().includes('{')) {
+          cleanContent = beforeThink;
+        } else {
+          // No JSON before <think>, model output is incomplete - use fallback
+          throw new Error('Model output incomplete (unclosed <think> tag)');
+        }
+      }
       
       // Remove markdown code blocks
       cleanContent = cleanContent.replace(/```json\s*/gi, '');
