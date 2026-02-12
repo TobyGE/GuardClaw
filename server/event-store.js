@@ -1,8 +1,19 @@
+import fs from 'fs';
+import path from 'path';
+
 export class EventStore {
   constructor(maxEvents = 10000) {
     this.events = [];
     this.maxEvents = maxEvents;
     this.listeners = [];
+    this.dataDir = path.join(process.cwd(), '.guardclaw');
+    this.eventsFile = path.join(this.dataDir, 'events.json');
+    
+    // Load events from disk on startup
+    this.loadEvents();
+    
+    // Auto-save every 30 seconds
+    this.saveInterval = setInterval(() => this.saveEvents(), 30000);
   }
 
   addEvent(event) {
@@ -15,6 +26,11 @@ export class EventStore {
 
     // Notify all listeners
     this.notifyListeners(event);
+    
+    // Save immediately for important events (high risk or blocked)
+    if (event.safeguard?.riskScore >= 7 || event.safeguard?.allowed === false) {
+      this.saveEvents();
+    }
   }
 
   getRecentEvents(limit = 100) {
@@ -62,6 +78,7 @@ export class EventStore {
 
   clear() {
     this.events = [];
+    this.saveEvents();
   }
 
   getStats() {
@@ -77,5 +94,46 @@ export class EventStore {
       blocked,
       safetyRate: total > 0 ? ((total - highRisk) / total * 100).toFixed(1) : 100
     };
+  }
+
+  loadEvents() {
+    try {
+      if (fs.existsSync(this.eventsFile)) {
+        const data = fs.readFileSync(this.eventsFile, 'utf8');
+        const parsed = JSON.parse(data);
+        this.events = parsed.events || [];
+        console.log(`[EventStore] Loaded ${this.events.length} events from disk`);
+      } else {
+        console.log('[EventStore] No existing events file, starting fresh');
+      }
+    } catch (error) {
+      console.error('[EventStore] Failed to load events:', error.message);
+      this.events = [];
+    }
+  }
+
+  saveEvents() {
+    try {
+      // Ensure data directory exists
+      if (!fs.existsSync(this.dataDir)) {
+        fs.mkdirSync(this.dataDir, { recursive: true });
+      }
+
+      // Save events to disk
+      const data = {
+        savedAt: new Date().toISOString(),
+        count: this.events.length,
+        events: this.events
+      };
+      fs.writeFileSync(this.eventsFile, JSON.stringify(data, null, 2));
+    } catch (error) {
+      console.error('[EventStore] Failed to save events:', error.message);
+    }
+  }
+
+  shutdown() {
+    // Save on shutdown
+    this.saveEvents();
+    clearInterval(this.saveInterval);
   }
 }

@@ -105,9 +105,9 @@ function App() {
             <span className="text-3xl">🛡️</span>
             <div>
               <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
-              {daysSinceInstall > 0 && (
+              {daysSinceInstall >= 0 && (
                 <p className="text-xs text-gc-text-secondary mt-0.5">
-                  守护 {daysSinceInstall} 天
+                  守护 {daysSinceInstall} 天 🛡️
                 </p>
               )}
             </div>
