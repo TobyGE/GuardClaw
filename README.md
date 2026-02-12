@@ -231,7 +231,14 @@ npm test          # Run tests
 
 ## License
 
-MIT
+GuardClaw is available under a **Dual License**:
+
+- **FREE** for personal, educational, research, and open-source use
+- **PAID commercial license** required for business/commercial use
+
+See [LICENSE](LICENSE) file for full details.
+
+**Commercial use?** Contact: [YOUR_EMAIL_HERE]
 
 ## Credits
 
