@@ -606,6 +606,44 @@ app.listen(PORT, () => {
           }
         }
         
+        // Fetch Gateway information
+        console.log('');
+        console.log('🔍 Fetching Gateway information...');
+        try {
+          // Get active sessions
+          const sessionsResponse = await clawdbotClient.request('sessions.list', {
+            activeMinutes: 60,
+            limit: 10
+          });
+          
+          const sessions = sessionsResponse.sessions || sessionsResponse || [];
+          console.log(`✅ Gateway Status:`);
+          console.log(`   📊 Active Sessions: ${sessions.length}`);
+          
+          if (sessions.length > 0) {
+            console.log(`   🤖 Agents:`);
+            for (const session of sessions.slice(0, 5)) {
+              const label = session.label || session.key || 'unknown';
+              const agentId = session.agentId || 'default';
+              const lastActive = session.lastActiveAt 
+                ? new Date(session.lastActiveAt).toLocaleTimeString()
+                : 'unknown';
+              console.log(`      - ${label} (${agentId}) - last active: ${lastActive}`);
+            }
+            
+            if (sessions.length > 5) {
+              console.log(`      ... and ${sessions.length - 5} more`);
+            }
+          } else {
+            console.log(`   💤 No active sessions (agents will appear here when they start)`);
+          }
+        } catch (error) {
+          console.log(`⚠️  Could not fetch Gateway info: ${error.message}`);
+          if (error.message.includes('scope') || error.message.includes('admin')) {
+            console.log(`   💡 Grant operator.admin scope to your token for full visibility`);
+          }
+        }
+        
         // Start session poller in audit mode (scan history every 30s)
         const pollInterval = parseInt(process.env.POLL_INTERVAL) || 30000; // 30 seconds
         sessionPoller.start(pollInterval);

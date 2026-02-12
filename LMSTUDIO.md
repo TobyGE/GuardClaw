@@ -75,8 +75,22 @@ npm start
 ✅ LMSTUDIO: Connected (1 model loaded)
    📦 Models: mistral-7b-instruct-v0.2
 
+🔍 Fetching Gateway information...
+✅ Gateway Status:
+   📊 Active Sessions: 2
+   🤖 Agents:
+      - agent:main:main (main) - last active: 3:45:23 PM
+      - agent:helper:sub (helper) - last active: 3:42:15 PM
+
 🎯 GuardClaw is now monitoring your agents!
 ```
+
+**启动时主动扫描的内容：**
+
+1. **Gateway 连接** - 建立 WebSocket 连接
+2. **LM Studio 连接** - 测试本地 LLM 可用性和已加载的模型
+3. **活跃会话** - 获取当前运行的 agent 列表
+4. **权限检查** - 验证 API 访问权限
 
 如果 LM Studio 未运行或未加载模型，会显示：
 
@@ -111,6 +125,31 @@ curl https://api.com      # 应该是 3-4/10 (safe-warning)
 rm -rf /tmp/*            # 应该是 7-8/10 (danger)
 sudo rm -rf /            # 应该是 10/10 (blocked)
 ```
+
+## 启动时主动扫描
+
+GuardClaw 在启动时会主动扫描并显示以下信息：
+
+### 1. Gateway 连接状态
+- WebSocket 连接是否成功
+- 连接的 Gateway URL
+
+### 2. LM Studio / LLM 后端状态
+- 是否可以连接到 LM Studio
+- 已加载的模型列表
+- 连接失败时的设置指引
+
+### 3. Gateway 信息
+- 当前活跃的 session 数量
+- 正在运行的 agent 列表
+- 每个 agent 的最后活跃时间
+
+### 4. 权限检查
+- 是否具有 `operator.admin` 权限
+- 是否可以访问 `sessions.list` 和 `chat.history` API
+- 缺少权限时会提示如何配置
+
+这样你在启动时就能立即知道系统的完整状态，而不需要等到第一次分析时才发现问题。
 
 ## 故障排查
 
