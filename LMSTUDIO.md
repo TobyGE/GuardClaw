@@ -4,6 +4,27 @@ GuardClaw 支持使用本地 LLM 进行命令安全分析，无需调用云端 A
 
 **🔍 启动时自动扫描：** GuardClaw 会在启动时主动测试 Gateway 和 LM Studio 的连接状态，并显示详细的连接信息。
 
+---
+
+> ⚠️ **重要提示：模型选择很关键！**
+>
+> 太小的模型（<3B参数）可能无法可靠地输出 JSON 格式，导致分析失败。
+>
+> **推荐：**
+> - ✅ `llama-3.1-8b-instruct` (最佳)
+> - ✅ `mistral-7b-instruct-v0.2` (推荐)
+> - ✅ `phi-3-mini-4k` (低资源备选)
+>
+> **不推荐：**
+> - ❌ `qwen3-1.7b` (太小)
+> - ❌ `tinyllama-1.1b` (太小)
+>
+> 如果你的机器无法运行大模型，请使用 `SAFEGUARD_BACKEND=fallback` (基于规则的快速分析)。
+>
+> 遇到问题？查看 [故障排查文档](docs/LMSTUDIO-TROUBLESHOOTING.md)
+
+---
+
 ## 设置 LM Studio
 
 ### 1. 下载并安装 LM Studio
@@ -18,20 +39,27 @@ GuardClaw 支持使用本地 LLM 进行命令安全分析，无需调用云端 A
 
 **推荐模型（按性能排序）：**
 
-**最佳性能：**
+**✅ 最佳性能（推荐）：**
 
-- `TheBloke/Mistral-7B-Instruct-v0.2-GGUF` (7B, ~4GB)
-- `TheBloke/Llama-2-13B-Chat-GGUF` (13B, ~8GB)
+- `llama-3.1-8b-instruct` (8B, ~8GB) - **强烈推荐！** 快速且准确
+- `mistral-7b-instruct-v0.2` (7B, ~6GB) - 优秀的推理能力
+- `qwen-2.5-7b-instruct` (7B, ~6GB) - 强大的多语言支持
 
-**平衡选择：**
+**⚠️ 低资源选择（可能不稳定）：**
 
-- `TheBloke/Phi-2-GGUF` (2.7B, ~2GB) - 轻量但智能
-- `TheBloke/TinyLlama-1.1B-Chat-GGUF` (1.1B, ~1GB) - 超快速
+- `phi-3-mini-4k` (3B, ~4GB) - 轻量但功能完整
+- `gemma-2b-it` (2B, ~2GB) - Google 的小型模型
 
-**最强大（需要好显卡）：**
+**❌ 不推荐（太小，无法可靠输出 JSON）：**
 
-- `TheBloke/CodeLlama-34B-Instruct-GGUF` (34B, ~20GB)
-- `TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF` (47B, ~26GB)
+- ❌ `qwen3-1.7b` (1.7B) - 经常输出不完整或格式错误
+- ❌ `tinyllama-1.1b` (1.1B) - 准确度太低
+- ❌ embedding 模型 - 不是对话模型
+
+**最强大（需要好显卡/大内存）：**
+
+- `llama-3.1-70b-instruct` (70B, ~40GB)
+- `mixtral-8x7b-instruct` (47B, ~26GB)
 
 **提示：** 下载 `Q4_K_M` 或 `Q5_K_M` 量化版本，平衡质量和速度。
 
