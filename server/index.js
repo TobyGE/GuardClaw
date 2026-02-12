@@ -582,9 +582,33 @@ app.listen(PORT, () => {
         const llmStatus = await safeguardService.testConnection();
         
         if (llmStatus.connected) {
-          console.log(`✅ ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);
+          if (llmStatus.canInfer) {
+            console.log(`✅ ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);
+          } else {
+            console.log(`⚠️  ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);
+          }
+          
+          if (llmStatus.activeModel) {
+            console.log(`   🎯 Active Model: ${llmStatus.activeModel}`);
+          }
           if (llmStatus.modelNames && llmStatus.modelNames.length > 0) {
-            console.log(`   📦 Models: ${llmStatus.modelNames.join(', ')}`);
+            console.log(`   📦 Available Models: ${llmStatus.modelNames.join(', ')}`);
+          }
+          
+          if (!llmStatus.canInfer) {
+            console.log('');
+            console.log('⚠️  Model not loaded for inference!');
+            console.log('');
+            console.log('💡 To fix this in LM Studio:');
+            console.log('   1. Open LM Studio');
+            console.log('   2. Click on a model in the list');
+            console.log('   3. Click "Load Model" button');
+            console.log('   4. Wait for it to load into memory');
+            console.log('   5. The "Local Server" tab should show the model as loaded');
+            console.log('');
+            console.log(`   Current error: ${llmStatus.inferError || 'unknown'}`);
+            console.log('');
+            console.log('   GuardClaw will use pattern-matching fallback until model is loaded.');
           }
         } else {
           console.log(`❌ ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);

@@ -346,6 +346,15 @@ Respond ONLY with valid JSON, no markdown formatting.`;
   async analyzeWithLMStudioPrompt(prompt) {
     const url = `${this.config.lmstudioUrl}/chat/completions`;
 
+    // Auto-detect model if set to "auto"
+    let modelToUse = this.config.lmstudioModel;
+    if (modelToUse === 'auto') {
+      modelToUse = await this.getFirstAvailableLMStudioModel();
+      if (!modelToUse) {
+        throw new Error('No models available in LM Studio');
+      }
+    }
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -353,7 +362,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: this.config.lmstudioModel,
+          model: modelToUse,
           messages: [
             {
               role: 'system',
@@ -370,7 +379,8 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       });
 
       if (!response.ok) {
-        throw new Error(`LM Studio API error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -555,6 +565,15 @@ Respond ONLY with valid JSON, no markdown formatting.`;
     const prompt = this.createAnalysisPrompt(command);
     const url = `${this.config.lmstudioUrl}/chat/completions`;
 
+    // Auto-detect model if set to "auto"
+    let modelToUse = this.config.lmstudioModel;
+    if (modelToUse === 'auto') {
+      modelToUse = await this.getFirstAvailableLMStudioModel();
+      if (!modelToUse) {
+        throw new Error('No models available in LM Studio');
+      }
+    }
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -562,7 +581,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: this.config.lmstudioModel,
+          model: modelToUse,
           messages: [
             {
               role: 'system',
@@ -579,7 +598,8 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       });
 
       if (!response.ok) {
-        throw new Error(`LM Studio API error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -653,10 +673,21 @@ Respond ONLY with valid JSON, no markdown formatting.`;
 
   parseAnalysisResponse(content, command) {
     try {
-      // Try to extract JSON from the response
-      let jsonMatch = content.match(/\{[\s\S]*\}/);
+      // Clean up response - remove <think> tags and other markers
+      let cleanContent = content;
+      
+      // Remove <think>...</think> tags (used by some models like Qwen)
+      cleanContent = cleanContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
+      
+      // Remove markdown code blocks
+      cleanContent = cleanContent.replace(/```json\s*/gi, '');
+      cleanContent = cleanContent.replace(/```\s*/gi, '');
+      
+      // Try to extract JSON from the cleaned response
+      let jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        jsonMatch = [content];
+        // If no JSON found, maybe the whole content is JSON
+        jsonMatch = [cleanContent.trim()];
       }
 
       const analysis = JSON.parse(jsonMatch[0]);
@@ -673,7 +704,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       };
     } catch (error) {
       console.error('[SafeguardService] Failed to parse response:', error);
-      console.error('  Response:', content);
+      console.error('  Response (first 500 chars):', content.substring(0, 500));
       return this.fallbackAnalysis(command);
     }
   }
@@ -731,6 +762,41 @@ Respond ONLY with valid JSON, no markdown formatting.`;
     return analysis.riskScore >= 8 || analysis.allowed === false;
   }
 
+  async getFirstAvailableLMStudioModel() {
+    try {
+      const baseUrl = this.config.lmstudioUrl.replace(/\/+$/, '');
+      const url = `${baseUrl}/models`;
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000)
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      const models = data.data || [];
+      
+      // Filter out embedding models, prefer chat models
+      const chatModels = models.filter(m => !m.id.includes('embedding'));
+      
+      if (chatModels.length > 0) {
+        return chatModels[0].id;
+      }
+      
+      // Fallback to any model if no chat model found
+      if (models.length > 0) {
+        return models[0].id;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[SafeguardService] Failed to get LM Studio models:', error.message);
+      return null;
+    }
+  }
+
   async testConnection() {
     if (!this.enabled || this.backend === 'fallback') {
       return {
@@ -758,13 +824,54 @@ Respond ONLY with valid JSON, no markdown formatting.`;
         const modelCount = data.data?.length || 0;
         const modelNames = data.data?.map(m => m.id) || [];
         
+        // Show configured model or auto-selected model
+        let activeModel = this.config.lmstudioModel;
+        if (activeModel === 'auto' && modelNames.length > 0) {
+          const autoModel = await this.getFirstAvailableLMStudioModel();
+          activeModel = autoModel ? `auto → ${autoModel}` : 'auto (no chat model found)';
+        }
+        
+        // Test if model can actually perform inference
+        let canInfer = false;
+        let inferError = null;
+        try {
+          const testModel = activeModel.includes('→') ? activeModel.split('→')[1].trim() : activeModel;
+          const testResponse = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: testModel,
+              messages: [{ role: 'user', content: 'test' }],
+              max_tokens: 1
+            }),
+            signal: AbortSignal.timeout(10000)
+          });
+          
+          if (testResponse.ok) {
+            canInfer = true;
+          } else {
+            const errorData = await testResponse.json();
+            inferError = errorData.error?.message || `HTTP ${testResponse.status}`;
+          }
+        } catch (error) {
+          inferError = error.message;
+        }
+        
+        let message = modelCount > 0 ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)` : 'Connected but no models available';
+        if (!canInfer && modelCount > 0) {
+          message += ' - ⚠️ Model not loaded for inference';
+        }
+        
         return {
           connected: true,
           backend: 'lmstudio',
           url: this.config.lmstudioUrl,
           models: modelCount,
           modelNames,
-          message: modelCount > 0 ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} loaded)` : 'Connected but no models loaded'
+          activeModel,
+          canInfer,
+          inferError,
+          message
         };
       }
 
