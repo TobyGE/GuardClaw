@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import StatCard from './components/StatCard';
 import EventList from './components/EventList';
+import ConnectionModal from './components/ConnectionModal';
 
 function App() {
   const [connected, setConnected] = useState(false);
   const [llmStatus, setLlmStatus] = useState(null);
+  const [connectionStats, setConnectionStats] = useState(null);
   const [daysSinceInstall, setDaysSinceInstall] = useState(0);
   const [stats, setStats] = useState({
     totalEvents: 0,
@@ -13,6 +15,8 @@ function App() {
     blocked: 0,
   });
   const [events, setEvents] = useState([]);
+  const [showGatewayModal, setShowGatewayModal] = useState(false);
+  const [showLlmModal, setShowLlmModal] = useState(false);
 
   useEffect(() => {
     // Connect to backend WebSocket/SSE
@@ -23,6 +27,7 @@ function App() {
           const data = await response.json();
           setConnected(data.connected);
           setLlmStatus(data.llmStatus);
+          setConnectionStats(data.connectionStats);
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
           fetchEvents();
         }
@@ -96,8 +101,56 @@ function App() {
     };
   }, []);
 
+  const getGatewayDetails = () => {
+    if (!connectionStats) return [];
+    return [
+      { label: 'Status', value: connected ? 'Connected' : 'Disconnected' },
+      { label: 'URL', value: connectionStats.url || 'ws://127.0.0.1:18789' },
+      { label: 'Connected Since', value: connectionStats.connectedAt ? new Date(connectionStats.connectedAt).toLocaleString() : 'N/A' },
+      { label: 'Reconnect Attempts', value: connectionStats.reconnectAttempts || 0 },
+      { label: 'Total Reconnects', value: connectionStats.totalReconnects || 0 },
+    ];
+  };
+
+  const getLlmDetails = () => {
+    if (!llmStatus) return [];
+    const details = [
+      { label: 'Backend', value: llmStatus.backend },
+      { label: 'Status', value: llmStatus.connected ? 'Connected' : 'Disconnected' },
+      { label: 'Message', value: llmStatus.message },
+    ];
+    
+    if (llmStatus.url) {
+      details.push({ label: 'URL', value: llmStatus.url });
+    }
+    
+    if (llmStatus.models !== undefined) {
+      details.push({ label: 'Models Loaded', value: llmStatus.models });
+    }
+    
+    if (llmStatus.error) {
+      details.push({ label: 'Error', value: llmStatus.error });
+    }
+    
+    return details;
+  };
+
   return (
     <div className="min-h-screen bg-gc-bg">
+      {/* Modals */}
+      <ConnectionModal
+        isOpen={showGatewayModal}
+        onClose={() => setShowGatewayModal(false)}
+        title="Gateway Connection"
+        details={getGatewayDetails()}
+      />
+      <ConnectionModal
+        isOpen={showLlmModal}
+        onClose={() => setShowLlmModal(false)}
+        title="LLM Backend"
+        details={getLlmDetails()}
+      />
+
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -106,32 +159,33 @@ function App() {
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </div>
           <div className="flex items-center space-x-2">
-            <span
-              className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium ${
+            <button
+              onClick={() => setShowGatewayModal(true)}
+              className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
                 connected
                   ? 'bg-gc-safe/20 text-gc-safe'
                   : 'bg-gc-danger/20 text-gc-danger'
               }`}
             >
               {connected ? '✓ Gateway' : '✗ Gateway'}
-            </span>
+            </button>
             {llmStatus && (
-              <span
-                className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium ${
+              <button
+                onClick={() => setShowLlmModal(true)}
+                className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
                   llmStatus.connected
                     ? 'bg-gc-safe/20 text-gc-safe'
                     : llmStatus.backend === 'fallback'
                     ? 'bg-gray-500/20 text-gray-400'
                     : 'bg-gc-danger/20 text-gc-danger'
                 }`}
-                title={`${llmStatus.backend}: ${llmStatus.message}`}
               >
                 {llmStatus.connected
                   ? `✓ LLM${llmStatus.models > 0 ? ` (${llmStatus.models})` : ''}`
                   : llmStatus.backend === 'fallback'
                   ? '⚠ Fallback'
                   : `✗ LLM`}
-              </span>
+              </button>
             )}
           </div>
         </div>
