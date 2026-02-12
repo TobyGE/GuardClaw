@@ -17,6 +17,20 @@ function App() {
   const [events, setEvents] = useState([]);
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved !== null ? saved === 'true' : true; // Default to dark
+  });
+
+  useEffect(() => {
+    // Apply dark mode class to document
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('darkMode', darkMode);
+  }, [darkMode]);
 
   useEffect(() => {
     // Connect to backend WebSocket/SSE
@@ -163,6 +177,13 @@ function App() {
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </div>
           <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
+              title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {darkMode ? '☀️' : '🌙'}
+            </button>
             <button
               onClick={() => setShowGatewayModal(true)}
               className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${

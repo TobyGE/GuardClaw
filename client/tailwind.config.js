@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,15 +8,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        'gc-bg': '#0a0e1a',
-        'gc-card': '#1a1f2e',
-        'gc-border': '#2d3548',
-        'gc-text': '#e2e8f0',
-        'gc-text-dim': '#94a3b8',
-        'gc-safe': '#10b981',
-        'gc-warning': '#f59e0b',
-        'gc-danger': '#ef4444',
-        'gc-primary': '#6366f1',
+        'gc-bg': 'var(--gc-bg)',
+        'gc-card': 'var(--gc-card)',
+        'gc-border': 'var(--gc-border)',
+        'gc-text': 'var(--gc-text)',
+        'gc-text-secondary': 'var(--gc-text-secondary)',
+        'gc-text-dim': 'var(--gc-text-secondary)',
+        'gc-safe': 'var(--gc-safe)',
+        'gc-warning': 'var(--gc-warning)',
+        'gc-danger': 'var(--gc-danger)',
+        'gc-primary': 'var(--gc-primary)',
       },
     },
   },
