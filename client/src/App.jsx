@@ -103,14 +103,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <span className="text-3xl">🛡️</span>
-            <div>
-              <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
-              {daysSinceInstall >= 0 && (
-                <p className="text-xs text-gc-text-secondary mt-0.5">
-                  守护 {daysSinceInstall} 天 🛡️
-                </p>
-              )}
-            </div>
+            <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </div>
           <div className="flex items-center space-x-2">
             <span
@@ -147,7 +140,12 @@ function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+          <StatCard
+            title="DAYS PROTECTED"
+            value={daysSinceInstall}
+            color="text-blue-400"
+          />
           <StatCard
             title="TOTAL EVENTS"
             value={stats.totalEvents}
