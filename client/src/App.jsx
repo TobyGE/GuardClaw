@@ -122,13 +122,13 @@ function App() {
                     ? 'bg-gray-500/20 text-gray-400'
                     : 'bg-gc-danger/20 text-gc-danger'
                 }`}
-                title={llmStatus.message}
+                title={`${llmStatus.backend}: ${llmStatus.message}`}
               >
                 {llmStatus.connected
-                  ? `✓ ${llmStatus.backend.toUpperCase()}${llmStatus.models > 0 ? ` (${llmStatus.models})` : ''}`
+                  ? `✓ LLM${llmStatus.models > 0 ? ` (${llmStatus.models})` : ''}`
                   : llmStatus.backend === 'fallback'
                   ? '⚠ Fallback'
-                  : `✗ ${llmStatus.backend.toUpperCase()}`}
+                  : `✗ LLM`}
               </span>
             )}
           </div>
