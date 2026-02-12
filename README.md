@@ -111,6 +111,17 @@ That's it! GuardClaw will connect to your local Clawdbot Gateway at
 npm install -g guardclaw@latest
 ```
 
+### Update to Latest Version
+
+```bash
+guardclaw update
+```
+
+Or manually:
+```bash
+npm update -g guardclaw
+```
+
 ### From Source
 
 ```bash

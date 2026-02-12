@@ -17,6 +17,7 @@ function showHelp() {
 
 Usage:
   guardclaw start [options]    Start the GuardClaw server
+  guardclaw update            Update GuardClaw to latest version
   guardclaw help              Show this help message
   guardclaw version           Show version
 
@@ -34,6 +35,7 @@ Environment variables:
 
 Examples:
   guardclaw start
+  guardclaw update
   guardclaw start --port 3002
   guardclaw start --clawdbot-url ws://192.168.1.100:18789
 
@@ -49,6 +51,48 @@ function showVersion() {
   const packagePath = join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   console.log(`GuardClaw v${pkg.version}`);
+}
+
+function updateGuardClaw() {
+  console.log('🔄 Updating GuardClaw to latest version...\n');
+  
+  // Detect package manager
+  let packageManager = 'npm';
+  try {
+    spawn('pnpm', ['--version'], { stdio: 'ignore' });
+    packageManager = 'pnpm';
+  } catch (e) {
+    // npm is default
+  }
+
+  console.log(`📦 Using ${packageManager}...\n`);
+
+  const updateCmd = packageManager === 'npm' 
+    ? ['install', '-g', 'guardclaw@latest']
+    : ['add', '-g', 'guardclaw@latest'];
+
+  const child = spawn(packageManager, updateCmd, {
+    stdio: 'inherit',
+    shell: true
+  });
+
+  child.on('exit', (code) => {
+    if (code === 0) {
+      console.log('\n✅ GuardClaw updated successfully!');
+      console.log('💡 Restart your server to use the new version:\n');
+      console.log('   guardclaw start\n');
+    } else {
+      console.error(`\n❌ Update failed with code ${code}`);
+      console.error(`💡 Try manually: ${packageManager} ${updateCmd.join(' ')}\n`);
+      process.exit(code);
+    }
+  });
+
+  child.on('error', (err) => {
+    console.error('❌ Failed to update:', err.message);
+    console.error(`💡 Try manually: ${packageManager} ${updateCmd.join(' ')}\n`);
+    process.exit(1);
+  });
 }
 
 function startServer() {
@@ -112,6 +156,10 @@ function startServer() {
 switch (command) {
   case 'start':
     startServer();
+    break;
+  case 'update':
+  case 'upgrade':
+    updateGuardClaw();
     break;
   case 'version':
   case '--version':
