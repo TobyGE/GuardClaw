@@ -34,7 +34,7 @@ jobs:
           cd client && npm install
 
       - name: Build client
-        run: npm run build
+        run: cd client && npm run build
         env:
           GITHUB_PAGES: true
 
