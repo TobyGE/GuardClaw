@@ -128,6 +128,7 @@ npm update -g guardclaw
 git clone https://github.com/TobyGE/GuardClaw.git
 cd GuardClaw
 npm install
+npm install --prefix client
 npm run build
 npm link
 ```
