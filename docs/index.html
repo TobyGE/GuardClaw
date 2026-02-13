@@ -6,6 +6,41 @@
     <meta name="description" content="GuardClaw - Local LLM-Powered Security for AI Agents">
     <title>GuardClaw - Local LLM Security for AI Agents</title>
     <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f9fafb;
+            --bg-header: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+            --text-primary: #18181b;
+            --text-secondary: #4b5563;
+            --text-tertiary: #6b7280;
+            --border-color: #e5e7eb;
+            --accent-color: #3b82f6;
+            --card-bg: #ffffff;
+            --code-bg: #1e293b;
+            --code-border: #334155;
+            --code-text: #e2e8f0;
+            --inline-code-bg: #f1f5f9;
+            --inline-code-text: #0f172a;
+        }
+
+        body.dark-mode {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-header: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #94a3b8;
+            --border-color: #334155;
+            --accent-color: #60a5fa;
+            --card-bg: #1e293b;
+            --code-bg: #0f172a;
+            --code-border: #1e293b;
+            --code-text: #e2e8f0;
+            --inline-code-bg: #334155;
+            --inline-code-text: #e2e8f0;
+        }
+    </style>
+    <style>
         * {
             margin: 0;
             padding: 0;
@@ -15,8 +50,9 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
             line-height: 1.6;
-            color: #e4e4e7;
-            background: #09090b;
+            color: var(--text-primary);
+            background: var(--bg-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
 
         .container {
@@ -27,8 +63,9 @@
 
         /* Header */
         header {
-            padding: 80px 0 60px;
-            border-bottom: 1px solid #27272a;
+            padding: 100px 0 80px;
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border-color);
         }
 
         .header-content {
@@ -39,19 +76,21 @@
         }
 
         .logo {
-            font-size: 3rem;
+            font-size: 4rem;
         }
 
         h1 {
-            font-size: 2.5rem;
-            font-weight: 600;
-            color: #fff;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
         }
 
         .subtitle {
-            font-size: 1.25rem;
-            color: #a1a1aa;
-            margin-bottom: 30px;
+            font-size: 1.35rem;
+            color: var(--text-tertiary);
+            margin-bottom: 40px;
+            max-width: 700px;
         }
 
         .header-buttons {
@@ -60,56 +99,67 @@
         }
 
         .btn {
-            padding: 12px 28px;
+            padding: 14px 32px;
             text-decoration: none;
-            border-radius: 6px;
-            font-weight: 500;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
             display: inline-block;
             transition: all 0.2s;
         }
 
         .btn-primary {
-            background: #fff;
-            color: #09090b;
+            background: var(--text-primary);
+            color: var(--bg-primary);
         }
 
         .btn-primary:hover {
-            background: #e4e4e7;
+            opacity: 0.9;
         }
 
         .btn-secondary {
-            background: #27272a;
-            color: #fff;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
         }
 
         .btn-secondary:hover {
-            background: #3f3f46;
+            opacity: 0.8;
         }
 
         /* Main */
         section {
-            padding: 60px 0;
-            border-bottom: 1px solid #27272a;
+            padding: 80px 0;
+            border-bottom: 1px solid var(--border-color);
         }
 
         h2 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: #fff;
-            margin-bottom: 20px;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 30px;
+            text-align: center;
         }
 
         p {
-            color: #a1a1aa;
+            color: var(--text-secondary);
             line-height: 1.8;
+            font-size: 1.05rem;
+        }
+
+        section > .container > p {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto 40px;
         }
 
         /* Screenshot */
         .screenshot {
             width: 100%;
             border-radius: 8px;
-            border: 1px solid #27272a;
+            border: 1px solid var(--border-color);
             margin: 30px 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
         /* Features */
@@ -121,33 +171,42 @@
         }
 
         .feature {
-            padding: 30px;
-            background: #18181b;
-            border: 1px solid #27272a;
-            border-radius: 8px;
+            padding: 35px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .feature:hover {
+            border-color: var(--accent-color);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
         }
 
         .feature h3 {
-            font-size: 1.1rem;
+            font-size: 1.15rem;
             font-weight: 600;
-            color: #fff;
+            color: var(--text-primary);
             margin-bottom: 12px;
         }
 
         .feature-icon {
-            font-size: 1.8rem;
-            margin-bottom: 15px;
+            font-size: 2.5rem;
+            margin-bottom: 20px;
         }
 
         /* Code */
         .code-block {
-            background: #18181b;
-            border: 1px solid #27272a;
-            border-radius: 8px;
-            padding: 25px;
-            margin: 30px 0;
+            background: var(--code-bg);
+            border: 2px solid var(--code-border);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 40px auto;
+            max-width: 700px;
             font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 0.95rem;
+            font-size: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
         .code-block code {
@@ -155,31 +214,41 @@
         }
 
         .comment {
-            color: #71717a;
+            color: #94a3b8;
         }
 
         /* Stats */
         .stats {
             display: flex;
             justify-content: space-around;
-            margin: 40px 0;
+            margin: 50px 0 30px;
             flex-wrap: wrap;
+            gap: 20px;
         }
 
         .stat {
             text-align: center;
-            padding: 20px;
+            padding: 30px 40px;
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 2px solid var(--border-color);
+            flex: 1;
+            min-width: 150px;
         }
 
         .stat-number {
-            font-size: 2.5rem;
-            font-weight: 600;
-            color: #fff;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--accent-color);
         }
 
         .stat-label {
-            color: #71717a;
+            color: var(--text-tertiary);
             margin-top: 8px;
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
         }
 
         /* Models */
@@ -191,39 +260,45 @@
         }
 
         .model {
-            padding: 20px;
-            background: #18181b;
-            border: 1px solid #27272a;
-            border-radius: 8px;
+            padding: 25px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .model:hover {
+            border-color: var(--accent-color);
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.2);
         }
 
         .model h3 {
-            font-size: 1rem;
+            font-size: 1.05rem;
             font-weight: 600;
-            color: #fff;
-            margin-bottom: 8px;
+            color: var(--text-primary);
+            margin-bottom: 10px;
         }
 
         .model-desc {
-            color: #71717a;
-            font-size: 0.9rem;
+            color: var(--text-tertiary);
+            font-size: 0.95rem;
         }
 
         /* Footer */
         footer {
             padding: 40px 0;
             text-align: center;
-            color: #71717a;
+            color: var(--text-tertiary);
         }
 
         footer a {
-            color: #a1a1aa;
+            color: var(--text-secondary);
             text-decoration: none;
             margin: 0 15px;
         }
 
         footer a:hover {
-            color: #fff;
+            color: var(--text-primary);
         }
 
         /* List */
@@ -234,13 +309,48 @@
 
         ul li {
             padding: 8px 0;
-            color: #a1a1aa;
+            color: var(--text-secondary);
         }
 
         ul li:before {
             content: "→ ";
-            color: #71717a;
+            color: var(--text-tertiary);
             margin-right: 8px;
+        }
+
+        /* Inline code */
+        code {
+            background: var(--inline-code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+            color: var(--inline-code-text);
+        }
+
+        /* Theme toggle button */
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.5rem;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .theme-toggle:hover {
+            transform: scale(1.1);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
         }
 
         @media (max-width: 768px) {
@@ -260,6 +370,11 @@
     </style>
 </head>
 <body>
+    <!-- Theme Toggle Button -->
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+        <span id="themeIcon">🌙</span>
+    </button>
+
     <!-- Header -->
     <header>
         <div class="container">
@@ -274,13 +389,6 @@
             </div>
         </div>
     </header>
-
-    <!-- Screenshot -->
-    <section>
-        <div class="container">
-            <img src="screenshots/dashboard.jpg" alt="GuardClaw Dashboard" class="screenshot">
-        </div>
-    </section>
 
     <!-- Intro -->
     <section>
@@ -333,7 +441,25 @@
                     <h3>Fast Analysis</h3>
                     <p>~1-2s response time with efficient models. No network latency.</p>
                 </div>
+                <div class="feature">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Zero Configuration</h3>
+                    <p>Works out of the box. Just install, point to LM Studio, and start monitoring.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Detailed Insights</h3>
+                    <p>See command intent, risk analysis, and reasoning behind every security decision.</p>
+                </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Screenshot -->
+    <section>
+        <div class="container">
+            <h2>Dashboard Preview</h2>
+            <img src="screenshots/dashboard.jpg" alt="GuardClaw Dashboard" class="screenshot">
         </div>
     </section>
 
@@ -382,18 +508,39 @@ http://localhost:3001
     <section>
         <div class="container">
             <h2>How It Works</h2>
-            <div class="code-block">
-                <code style="color: #a1a1aa;">
-Clawdbot Gateway → GuardClaw → LM Studio (local)<br>
-                 ↓<br>
-            Web Dashboard (localhost:3001)
+            <div class="code-block" style="max-width: 900px;">
+                <code style="color: var(--code-text); line-height: 2.2;">
+<span style="color: #10b981;">┌─────────────────┐</span><br>
+<span style="color: #10b981;">│</span> Clawdbot Agent <span style="color: #10b981;">│</span><br>
+<span style="color: #10b981;">└────────┬────────┘</span><br>
+         <span style="color: #10b981;">│</span> exec, file ops, messages<br>
+         <span style="color: #10b981;">▼</span><br>
+<span style="color: #60a5fa;">┌─────────────────┐</span><br>
+<span style="color: #60a5fa;">│</span> Clawdbot Gateway<span style="color: #60a5fa;">│</span> <span class="comment">← WebSocket connection</span><br>
+<span style="color: #60a5fa;">└────────┬────────┘</span><br>
+         <span style="color: #60a5fa;">│</span><br>
+         <span style="color: #60a5fa;">▼</span><br>
+<span style="color: #f59e0b;">┌─────────────────┐</span><br>
+<span style="color: #f59e0b;">│</span>   GuardClaw    <span style="color: #f59e0b;">│</span> <span class="comment">← Monitors & analyzes</span><br>
+<span style="color: #f59e0b;">└────────┬────────┘</span><br>
+         <span style="color: #f59e0b;">│</span> sends command for risk analysis<br>
+         <span style="color: #f59e0b;">▼</span><br>
+<span style="color: #ec4899;">┌─────────────────┐</span><br>
+<span style="color: #ec4899;">│</span>   LM Studio    <span style="color: #ec4899;">│</span> <span class="comment">← Local LLM (100% private)</span><br>
+<span style="color: #ec4899;">└────────┬────────┘</span><br>
+         <span style="color: #ec4899;">│</span> returns risk score (0-10)<br>
+         <span style="color: #ec4899;">▼</span><br>
+<span style="color: #8b5cf6;">┌─────────────────┐</span><br>
+<span style="color: #8b5cf6;">│</span>  Web Dashboard  <span style="color: #8b5cf6;">│</span> <span class="comment">← Real-time monitoring</span><br>
+<span style="color: #8b5cf6;">│</span> localhost:3001  <span style="color: #8b5cf6;">│</span><br>
+<span style="color: #8b5cf6;">└─────────────────┘</span>
                 </code>
             </div>
             <ul>
-                <li>GuardClaw monitors Clawdbot Gateway events</li>
-                <li>Every command sent to LM Studio for analysis</li>
-                <li>Risk score (0-10) displayed in real-time dashboard</li>
-                <li>All processing happens locally on your machine</li>
+                <li>GuardClaw monitors Clawdbot Gateway events via WebSocket</li>
+                <li>Every command sent to LM Studio for intelligent risk analysis</li>
+                <li>Risk score (0-10) + reasoning displayed in real-time dashboard</li>
+                <li>All processing happens locally on your machine - zero cloud</li>
             </ul>
         </div>
     </section>
@@ -409,5 +556,31 @@ Clawdbot Gateway → GuardClaw → LM Studio (local)<br>
             </p>
         </div>
     </footer>
+
+    <script>
+        // Theme toggle functionality
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const body = document.body;
+
+        // Check for saved theme preference or default to light mode
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        if (currentTheme === 'dark') {
+            body.classList.add('dark-mode');
+            themeIcon.textContent = '☀️';
+        }
+
+        themeToggle.addEventListener('click', () => {
+            body.classList.toggle('dark-mode');
+            
+            if (body.classList.contains('dark-mode')) {
+                themeIcon.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                themeIcon.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            }
+        });
+    </script>
 </body>
 </html>
