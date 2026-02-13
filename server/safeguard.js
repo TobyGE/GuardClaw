@@ -4,11 +4,10 @@ export class SafeguardService {
   constructor(apiKey, backend = 'fallback', config = {}) {
     this.backend = backend || process.env.SAFEGUARD_BACKEND || 'fallback';
     this.config = {
-      lmstudioUrl: config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://localhost:1234/v1',
+      lmstudioUrl: this.normalizeLMStudioUrl(config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://localhost:1234/v1'),
       lmstudioModel: config.lmstudioModel || process.env.LMSTUDIO_MODEL || 'auto',
       ollamaUrl: config.ollamaUrl || process.env.OLLAMA_URL || 'http://localhost:11434',
-      ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3',
-      ...config
+      ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3'
     };
 
     // Analysis cache (command -> result, 1 hour TTL)
@@ -26,6 +25,15 @@ export class SafeguardService {
     }
 
     console.log(`[SafeguardService] Backend: ${this.backend} ${this.enabled ? '(enabled)' : '(disabled)'}`);
+  }
+
+  normalizeLMStudioUrl(url) {
+    if (!url) return 'http://localhost:1234/v1';
+    url = url.replace(/\/+$/, '');
+    if (!url.endsWith('/v1')) {
+      url += '/v1';
+    }
+    return url;
   }
 
   async analyzeAction(action) {

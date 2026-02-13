@@ -3,8 +3,8 @@
 // Falls back to event-only mode if we don't have operator.admin scope
 
 export class SessionPoller {
-  constructor(clawdbotClient, safeguardService, eventStore) {
-    this.client = clawdbotClient;
+  constructor(openclawClient, safeguardService, eventStore) {
+    this.client = openclawClient;
     this.safeguard = safeguardService;
     this.eventStore = eventStore;
     this.seenCommands = new Set();

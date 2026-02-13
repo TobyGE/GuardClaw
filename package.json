@@ -16,7 +16,7 @@
     "test": "echo \"Tests coming soon\" && exit 0"
   },
   "keywords": [
-    "clawdbot",
+    "openclaw",
     "agent",
     "monitoring",
     "safety",

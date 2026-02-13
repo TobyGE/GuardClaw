@@ -20,9 +20,9 @@ app.use(express.json());
 app.use(express.static('client/dist'));
 
 // Services
-const clawdbotClient = new ClawdbotClient(
-  process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789',
-  process.env.CLAWDBOT_TOKEN,
+const openclawClient = new ClawdbotClient(
+  process.env.OPENCLAW_URL || process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789',
+  process.env.OPENCLAW_TOKEN || process.env.CLAWDBOT_TOKEN,
   {
     autoReconnect: true,
     reconnectDelay: 5000,
@@ -57,7 +57,7 @@ const safeguardService = new SafeguardService(
 const eventStore = new EventStore();
 
 const sessionPoller = new SessionPoller(
-  clawdbotClient,
+  openclawClient,
   safeguardService,
   eventStore
 );
@@ -81,7 +81,7 @@ app.get('/api/events', (req, res) => {
 
 // API endpoints
 app.get('/api/status', async (req, res) => {
-  const connectionStats = clawdbotClient.getConnectionStats();
+  const connectionStats = openclawClient.getConnectionStats();
   const pollerStats = sessionPoller.getStats();
   const cacheStats = safeguardService.getCacheStats();
   const llmStatus = await safeguardService.testConnection();
@@ -89,7 +89,7 @@ app.get('/api/status', async (req, res) => {
   
   res.json({
     // Connection status
-    connected: clawdbotClient.connected,
+    connected: openclawClient.connected,
     connectionStats,
     
     // Poller status
@@ -111,7 +111,7 @@ app.get('/api/status', async (req, res) => {
     install: installStats,
     
     // Health
-    healthy: clawdbotClient.connected && pollerStats.consecutiveErrors < 3,
+    healthy: openclawClient.connected && pollerStats.consecutiveErrors < 3,
     warnings: getSystemWarnings(connectionStats, pollerStats, llmStatus)
   });
 });
@@ -122,8 +122,8 @@ function getSystemWarnings(connectionStats, pollerStats, llmStatus) {
   if (!connectionStats.connected) {
     warnings.push({
       level: 'error',
-      message: 'Not connected to Clawdbot Gateway',
-      suggestion: 'Check if Clawdbot is running and CLAWDBOT_URL is correct'
+      message: 'Not connected to OpenClaw Gateway',
+      suggestion: 'Check if OpenClaw is running and OPENCLAW_URL is correct'
     });
   }
   
@@ -176,7 +176,7 @@ function getSystemWarnings(connectionStats, pollerStats, llmStatus) {
 
 app.post('/api/connect', async (req, res) => {
   try {
-    await clawdbotClient.connect();
+    await openclawClient.connect();
     res.json({ status: 'connected' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -184,7 +184,7 @@ app.post('/api/connect', async (req, res) => {
 });
 
 app.post('/api/disconnect', (req, res) => {
-  clawdbotClient.disconnect();
+  openclawClient.disconnect();
   res.json({ status: 'disconnected' });
 });
 
@@ -205,7 +205,7 @@ app.post('/api/safeguard/analyze', async (req, res) => {
 });
 
 // Event handling
-clawdbotClient.onEvent(async (event) => {
+openclawClient.onEvent(async (event) => {
   // Debug: log ALL events to see what we're getting
   const eventType = event.event || event.type;
   
@@ -563,13 +563,13 @@ app.listen(PORT, () => {
   console.log(`🔧 API:       http://localhost:${PORT}/api/status`);
   console.log('');
   
-  // Auto-connect to Clawdbot
+  // Auto-connect to OpenClaw
   if (process.env.AUTO_CONNECT !== 'false') {
-    console.log('🔌 Connecting to Clawdbot Gateway...');
-    console.log(`   URL: ${process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789'}`);
+    console.log('🔌 Connecting to OpenClaw Gateway...');
+    console.log(`   URL: ${process.env.OPENCLAW_URL || process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789'}`);
     console.log('');
     
-    clawdbotClient.connect()
+    openclawClient.connect()
       .then(async () => {
         console.log('');
         console.log('✅ Connected successfully!');
@@ -635,7 +635,7 @@ app.listen(PORT, () => {
         console.log('🔍 Fetching Gateway information...');
         try {
           // Get active sessions
-          const sessionsResponse = await clawdbotClient.request('sessions.list', {
+          const sessionsResponse = await openclawClient.request('sessions.list', {
             activeMinutes: 60,
             limit: 10
           });
@@ -679,14 +679,14 @@ app.listen(PORT, () => {
         console.error('');
         console.error('❌ Initial connection failed:', err.message);
         console.error('');
-        if (clawdbotClient.autoReconnect) {
+        if (openclawClient.autoReconnect) {
           console.log('🔄 Auto-reconnect enabled - will retry automatically');
           console.log('');
         } else {
           console.error('💡 Troubleshooting:');
-          console.error('   1. Check if Clawdbot Gateway is running');
-          console.error('   2. Verify CLAWDBOT_URL in .env');
-          console.error('   3. Verify CLAWDBOT_TOKEN is correct');
+          console.error('   1. Check if OpenClaw Gateway is running');
+          console.error('   2. Verify OPENCLAW_URL in .env');
+          console.error('   3. Verify OPENCLAW_TOKEN is correct');
           console.error('');
         }
       });
@@ -704,7 +704,7 @@ process.on('SIGINT', () => {
   console.log('');
   
   sessionPoller.stop();
-  clawdbotClient.disconnect();
+  openclawClient.disconnect();
   
   console.log('✅ Shutdown complete');
   console.log('');
@@ -717,7 +717,7 @@ process.on('SIGTERM', () => {
   console.log('');
   
   sessionPoller.stop();
-  clawdbotClient.disconnect();
+  openclawClient.disconnect();
   
   process.exit(0);
 });

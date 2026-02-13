@@ -23,13 +23,13 @@ Usage:
 
 Options:
   --port <port>              Port to run on (default: 3001)
-  --clawdbot-url <url>       Clawdbot Gateway URL (default: ws://127.0.0.1:18789)
-  --clawdbot-token <token>   Clawdbot authentication token
+  --openclaw-url <url>       OpenClaw Gateway URL (default: ws://127.0.0.1:18789)
+  --openclaw-token <token>   OpenClaw authentication token
   --anthropic-key <key>      Anthropic API key for safeguard
 
 Environment variables:
-  CLAWDBOT_URL              Clawdbot Gateway WebSocket URL
-  CLAWDBOT_TOKEN            Clawdbot authentication token
+  OPENCLAW_URL              OpenClaw Gateway WebSocket URL
+  OPENCLAW_TOKEN            OpenClaw authentication token
   ANTHROPIC_API_KEY         Anthropic API key
   PORT                      Server port
 
@@ -37,7 +37,7 @@ Examples:
   guardclaw start
   guardclaw update
   guardclaw start --port 3002
-  guardclaw start --clawdbot-url ws://192.168.1.100:18789
+  guardclaw start --openclaw-url ws://192.168.1.100:18789
 
 Configuration:
   Create a .env file in your current directory or use environment variables.
@@ -105,11 +105,13 @@ function startServer() {
       case '--port':
         env.PORT = args[++i];
         break;
+      case '--openclaw-url':
       case '--clawdbot-url':
-        env.CLAWDBOT_URL = args[++i];
+        env.OPENCLAW_URL = args[++i];
         break;
+      case '--openclaw-token':
       case '--clawdbot-token':
-        env.CLAWDBOT_TOKEN = args[++i];
+        env.OPENCLAW_TOKEN = args[++i];
         break;
       case '--anthropic-key':
         env.ANTHROPIC_API_KEY = args[++i];
@@ -118,12 +120,14 @@ function startServer() {
   }
 
   // Check for required environment variables
-  if (!env.CLAWDBOT_TOKEN && !env.CLAWDBOT_URL?.includes('127.0.0.1')) {
-    console.warn('⚠️  No CLAWDBOT_TOKEN set. This may be required for remote connections.');
+  const openclawToken = env.OPENCLAW_TOKEN || env.CLAWDBOT_TOKEN;
+  const openclawUrl = env.OPENCLAW_URL || env.CLAWDBOT_URL;
+  if (!openclawToken && !openclawUrl?.includes('127.0.0.1')) {
+    console.warn('⚠️  No OPENCLAW_TOKEN set. This may be required for remote connections.');
   }
 
   console.log('🛡️  Starting GuardClaw...');
-  console.log(`📡 Connecting to: ${env.CLAWDBOT_URL || 'ws://127.0.0.1:18789'}`);
+  console.log(`📡 Connecting to: ${openclawUrl || 'ws://127.0.0.1:18789'}`);
   console.log(`🌐 Web UI will be available at: http://localhost:${env.PORT || 3001}`);
   console.log('');
 
