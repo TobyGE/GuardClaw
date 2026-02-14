@@ -7,6 +7,7 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [llmStatus, setLlmStatus] = useState(null);
   const [connectionStats, setConnectionStats] = useState(null);
+  const [backends, setBackends] = useState(null);
   const [daysSinceInstall, setDaysSinceInstall] = useState(0);
   const [stats, setStats] = useState({
     totalEvents: 0,
@@ -42,6 +43,7 @@ function App() {
           setConnected(data.connected);
           setLlmStatus(data.llmStatus);
           setConnectionStats(data.connectionStats);
+          setBackends(data.backends || null);
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
           fetchEvents();
         }
@@ -184,16 +186,32 @@ function App() {
             >
               {darkMode ? '☀️' : '🌙'}
             </button>
-            <button
-              onClick={() => setShowGatewayModal(true)}
-              className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
-                connected
-                  ? 'bg-gc-safe/20 text-gc-safe'
-                  : 'bg-gc-danger/20 text-gc-danger'
-              }`}
-            >
-              {connected ? '✓ Gateway' : '✗ Gateway'}
-            </button>
+            {backends && Object.keys(backends).length > 0 ? (
+              Object.entries(backends).map(([name, stats]) => (
+                <button
+                  key={name}
+                  onClick={() => setShowGatewayModal(true)}
+                  className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
+                    stats.connected
+                      ? 'bg-gc-safe/20 text-gc-safe'
+                      : 'bg-gc-danger/20 text-gc-danger'
+                  }`}
+                >
+                  {stats.connected ? '✓' : '✗'} {name}
+                </button>
+              ))
+            ) : (
+              <button
+                onClick={() => setShowGatewayModal(true)}
+                className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
+                  connected
+                    ? 'bg-gc-safe/20 text-gc-safe'
+                    : 'bg-gc-danger/20 text-gc-danger'
+                }`}
+              >
+                {connected ? '✓ Gateway' : '✗ Gateway'}
+              </button>
+            )}
             {llmStatus && (
               <button
                 onClick={() => setShowLlmModal(true)}

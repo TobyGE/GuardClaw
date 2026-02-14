@@ -74,13 +74,28 @@ Download and install [LM Studio](https://lmstudio.ai):
 
 **Why?** GuardClaw uses LM Studio's local LLM to analyze command safety with zero cloud costs and complete privacy.
 
-### 2. **Clawdbot Gateway** (Required for monitoring)
+### 2. **An Agent Backend** (at least one required)
 
-Install [Clawdbot](https://github.com/clawdbot/clawdbot):
+GuardClaw supports multiple agent backends. You need at least one:
+
+**Option A: OpenClaw Gateway**
+
+Install [OpenClaw](https://github.com/openclaw/openclaw):
 ```bash
 npm install -g clawdbot@latest
 clawdbot gateway start
 ```
+
+**Option B: Nanobot**
+
+Install [nanobot](https://github.com/HKUDS/nanobot) (v0.1.3+):
+```bash
+pip install nanobot-ai
+nanobot gateway
+```
+
+Nanobot's built-in monitoring server starts automatically on port `18790`
+when you run `nanobot gateway`. No extra configuration needed.
 
 ### 3. **Node.js ≥18** (Required runtime)
 
@@ -100,8 +115,8 @@ guardclaw start
 
 **Step 3**: Open browser → `http://localhost:3001`
 
-That's it! GuardClaw will connect to your local Clawdbot Gateway at
-`ws://127.0.0.1:18789` and analyze commands via LM Studio.
+That's it! GuardClaw auto-detects running backends (OpenClaw on `:18789`,
+nanobot on `:18790`) and analyzes commands via LM Studio.
 
 ## Installation
 
@@ -133,6 +148,72 @@ npm run build
 npm link
 ```
 
+## Using with Nanobot
+
+GuardClaw monitors nanobot tool executions (shell commands, file writes, web
+requests, etc.) with the same safety analysis and risk scoring as OpenClaw
+agents.
+
+### Quick Start (nanobot)
+
+```bash
+# Terminal 1: Start nanobot gateway (monitoring server starts on :18790)
+nanobot gateway
+
+# Terminal 2: Start GuardClaw
+cd GuardClaw
+npm start
+
+# Terminal 3 (optional): Send a message to trigger tool use
+nanobot agent -m "list the files in my home directory"
+```
+
+Open `http://localhost:3001` — you'll see nanobot's tool calls appear in the
+dashboard with risk scores.
+
+### How It Works
+
+When `nanobot gateway` starts, a lightweight WebSocket monitoring server
+runs on port `18790`. It wraps nanobot's tool registry to emit events
+before and after each tool execution:
+
+```
+nanobot executes tool
+        │
+        ▼
+┌──────────────────┐       ┌─────────────┐
+│  MonitoringServer │──────►│  GuardClaw   │
+│  (ws://...:18790) │       │  Dashboard   │
+└──────────────────┘       └─────────────┘
+  tool.started               risk analysis
+  tool.completed             event display
+```
+
+Every tool call (exec, read_file, write_file, web_fetch, message, etc.)
+is captured and analyzed. GuardClaw normalizes nanobot events to the same
+format as OpenClaw events, so the entire analysis pipeline works unchanged.
+
+### Backend Selection
+
+The `BACKEND` environment variable controls which agent(s) to monitor:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (default) | Connects to both OpenClaw and nanobot; uses whichever is running |
+| `openclaw` | Only connect to OpenClaw Gateway |
+| `nanobot` | Only connect to nanobot monitoring server |
+
+```bash
+# Monitor only nanobot
+BACKEND=nanobot npm start
+
+# Monitor only OpenClaw
+BACKEND=openclaw npm start
+
+# Monitor both (default)
+npm start
+```
+
 ## Configuration
 
 GuardClaw works out of the box with sensible defaults. For custom
@@ -141,8 +222,10 @@ configuration:
 ### Option 1: Environment variables
 
 ```bash
-export CLAWDBOT_URL=ws://127.0.0.1:18789
-export CLAWDBOT_TOKEN=your_token_here
+export BACKEND=auto                          # auto | openclaw | nanobot
+export OPENCLAW_URL=ws://127.0.0.1:18789
+export OPENCLAW_TOKEN=your_token_here
+export NANOBOT_URL=ws://127.0.0.1:18790
 export ANTHROPIC_API_KEY=your_claude_key_here
 export PORT=3001
 ```
@@ -152,8 +235,10 @@ export PORT=3001
 Create `.env` in your current directory:
 
 ```env
-CLAWDBOT_URL=ws://127.0.0.1:18789
-CLAWDBOT_TOKEN=your_token_here
+BACKEND=auto
+OPENCLAW_URL=ws://127.0.0.1:18789
+OPENCLAW_TOKEN=your_token_here
+NANOBOT_URL=ws://127.0.0.1:18790
 ANTHROPIC_API_KEY=your_claude_key_here
 PORT=3001
 ```
@@ -213,22 +298,24 @@ Every command is analyzed by an LLM before execution:
 ## Architecture
 
 ```text
-┌─────────────┐
-│  Clawdbot   │
-│   Gateway   │
-└──────┬──────┘
-       │ WebSocket
-       ▼
-┌─────────────┐      ┌──────────────┐
-│  GuardClaw  │◄────►│ LM Studio    │
-│   Server    │      │ (Local LLM)  │
-└──────┬──────┘      └──────────────┘
-       │ HTTP/WS
-       ▼
-┌─────────────┐
-│  Web UI     │
-│  (React)    │
-└─────────────┘
+┌─────────────┐     ┌─────────────┐
+│  OpenClaw   │     │   nanobot   │
+│  Gateway    │     │   gateway   │
+│  (:18789)   │     │  (:18790)   │
+└──────┬──────┘     └──────┬──────┘
+       │ WebSocket         │ WebSocket
+       └────────┬──────────┘
+                ▼
+       ┌─────────────┐      ┌──────────────┐
+       │  GuardClaw  │◄────►│ LM Studio    │
+       │   Server    │      │ (Local LLM)  │
+       └──────┬──────┘      └──────────────┘
+              │ HTTP/SSE
+              ▼
+       ┌─────────────┐
+       │  Web UI     │
+       │  (React)    │
+       └─────────────┘
 ```
 
 ## Safety Examples
