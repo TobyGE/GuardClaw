@@ -265,43 +265,7 @@ function App() {
             >
               {darkMode ? '☀️' : '🌙'}
             </button>
-            {backends && Object.keys(backends).length > 0 && (
-              Object.entries(backends).map(([name, stats]) => {
-                const icon = name === 'openclaw' ? '🔗' : name === 'nanobot' ? '🤖' : '🔧';
-                return (
-                  <div
-                    key={name}
-                    className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium ${
-                      stats.connected
-                        ? 'bg-gc-safe/20 text-gc-safe'
-                        : 'bg-gc-danger/20 text-gc-danger'
-                    }`}
-                    title={`${name}: ${stats.connected ? 'connected' : 'disconnected'}`}
-                  >
-                    <span className="mr-1">{icon}</span>
-                    {stats.connected ? '✓' : '✗'}
-                  </div>
-                );
-              })
-            )}
-            {llmStatus && (
-              <button
-                onClick={() => setShowLlmModal(true)}
-                className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
-                  llmStatus.connected
-                    ? 'bg-gc-safe/20 text-gc-safe'
-                    : llmStatus.backend === 'fallback'
-                    ? 'bg-gray-500/20 text-gray-400'
-                    : 'bg-gc-danger/20 text-gc-danger'
-                }`}
-              >
-                {llmStatus.connected
-                  ? `✓ LLM`
-                  : llmStatus.backend === 'fallback'
-                  ? '⚠ Fallback'
-                  : `✗ LLM`}
-              </button>
-            )}
+            {/* Removed status indicators - now shown in backend selector below */}
           </div>
         </div>
       </header>
@@ -358,30 +322,36 @@ function App() {
                     : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
                 }`}
               >
-                🌐 All
+                All
               </button>
               {backends && backends.openclaw && (
                 <button
                   onClick={() => setBackendFilter('openclaw')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     backendFilter === 'openclaw'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
                   }`}
                 >
-                  🔗 OpenClaw
+                  <span className={`w-2 h-2 rounded-full ${
+                    backends.openclaw.connected ? 'bg-green-500' : 'bg-red-500'
+                  }`}></span>
+                  <span>OpenClaw</span>
                 </button>
               )}
               {backends && backends.nanobot && (
                 <button
                   onClick={() => setBackendFilter('nanobot')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     backendFilter === 'nanobot'
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
                   }`}
                 >
-                  🤖 Nanobot
+                  <span className={`w-2 h-2 rounded-full ${
+                    backends.nanobot.connected ? 'bg-green-500' : 'bg-red-500'
+                  }`}></span>
+                  <span>Nanobot</span>
                 </button>
               )}
             </div>
@@ -400,7 +370,7 @@ function App() {
                 Real-time Events
                 {backendFilter !== 'all' && (
                   <span className="ml-2 text-sm text-gc-text-dim">
-                    ({backendFilter === 'openclaw' ? '🔗 OpenClaw' : '🤖 Nanobot'})
+                    ({backendFilter === 'openclaw' ? 'OpenClaw' : 'Nanobot'})
                   </span>
                 )}
               </h2>
