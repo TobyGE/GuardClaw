@@ -590,9 +590,15 @@ async function handleAgentEvent(event) {
     return; // Don't process as normal event
   }
 
-  // Track streaming events for detailed step analysis
+  // Track streaming events for detailed step analysis BEFORE filtering
+  // This needs to see all delta events to build the complete picture
   const sessionKey = event.payload?.sessionKey || 'default';
   const session = streamingTracker.trackEvent(event);
+  
+  // Debug: log session keys
+  if (eventType === 'chat' || eventType === 'agent') {
+    console.log(`[GuardClaw] Event type: ${eventType}, sessionKey: ${sessionKey}, session has ${session.steps.length} steps`);
+  }
 
   // Debug logging
   if (Math.random() < 0.05) {
@@ -608,9 +614,10 @@ async function handleAgentEvent(event) {
   // Parse and enrich event
   const eventDetails = parseEventDetails(event);
 
-  // Filter out noisy intermediate events
+  // Filter out noisy intermediate events for storage
+  // BUT: streaming tracker already saw them above
   if (shouldSkipEvent(eventDetails)) {
-    return;
+    return; // Don't store delta events, but streaming tracker already captured them
   }
 
   const storedEvent = {
@@ -629,39 +636,36 @@ async function handleAgentEvent(event) {
 
   // Get recent steps for this session
   const recentSteps = streamingTracker.getSessionSteps(sessionKey, 20);
+  if (recentSteps.length > 0) {
+    console.log(`[GuardClaw] Found ${recentSteps.length} streaming steps for session ${sessionKey}`);
+  }
   
-  // Analyze recent completed steps
+  // Analyze recent steps (completed or in-progress)
   const analyzedSteps = [];
   for (const step of recentSteps) {
-    if (!step.analyzed && step.endTime && step.type !== 'text') {
-      // Analyze this step
-      const stepAnalysis = await analyzeStreamingStep(step);
-      step.analyzed = true;
-      step.safeguard = stepAnalysis;
+    // Analyze steps that haven't been analyzed yet
+    if (!step.analyzed && !step.safeguard) {
+      // Only analyze completed steps OR steps with enough content
+      const shouldAnalyze = step.endTime || (step.content && step.content.length > 20);
       
-      analyzedSteps.push({
-        id: step.id,
-        type: step.type,
-        timestamp: step.timestamp,
-        duration: step.duration,
-        content: step.content?.substring(0, 200) || '', // Truncate for display
-        toolName: step.toolName,
-        command: step.command,
-        safeguard: stepAnalysis
-      });
-    } else if (step.safeguard) {
-      // Already analyzed, just include it
-      analyzedSteps.push({
-        id: step.id,
-        type: step.type,
-        timestamp: step.timestamp,
-        duration: step.duration,
-        content: step.content?.substring(0, 200) || '',
-        toolName: step.toolName,
-        command: step.command,
-        safeguard: step.safeguard
-      });
+      if (shouldAnalyze) {
+        const stepAnalysis = await analyzeStreamingStep(step);
+        step.analyzed = true;
+        step.safeguard = stepAnalysis;
+      }
     }
+    
+    // Include all steps (analyzed or not)
+    analyzedSteps.push({
+      id: step.id,
+      type: step.type,
+      timestamp: step.timestamp,
+      duration: step.duration,
+      content: step.content?.substring(0, 200) || '', // Truncate for display
+      toolName: step.toolName,
+      command: step.command,
+      safeguard: step.safeguard || null
+    });
   }
   
   storedEvent.streamingSteps = analyzedSteps;

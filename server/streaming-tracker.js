@@ -47,83 +47,79 @@ export class StreamingTracker {
   handleAgentEvent(session, event, payload) {
     const data = payload.data || {};
     const stream = payload.stream;
+    const runId = payload.runId || 'unknown';
 
-    // Start of a new message
-    if (stream === 'message_start' || data.type === 'message_start') {
-      session.currentMessage = {
-        id: data.id || `msg-${Date.now()}`,
-        startTime: Date.now(),
-        steps: []
-      };
-    }
-
-    // Content blocks (thinking, tool_use, text)
-    if (data.type === 'content_block_start') {
-      const block = data.content_block || {};
-      const step = {
-        id: `${session.currentMessage?.id || 'unknown'}-${session.steps.length}`,
-        timestamp: Date.now(),
-        type: block.type, // 'thinking', 'tool_use', 'text'
-        content: '',
-        metadata: {}
-      };
-
-      if (block.type === 'tool_use') {
-        step.toolName = block.name;
-        step.toolId = block.id;
-        step.metadata.tool = block.name;
+    // OpenClaw format: stream can be 'thinking', 'tool', 'assistant', etc.
+    // Start a new step for each stream type if needed
+    
+    if (stream === 'thinking' && data.delta) {
+      // Thinking stream
+      let currentThinking = session.steps.find(s => s.runId === runId && s.type === 'thinking' && !s.endTime);
+      if (!currentThinking) {
+        currentThinking = {
+          id: `${runId}-thinking-${session.steps.length}`,
+          timestamp: Date.now(),
+          type: 'thinking',
+          content: '',
+          runId: runId,
+          metadata: {}
+        };
+        session.steps.push(currentThinking);
       }
-
-      session.steps.push(step);
-      session.currentMessage?.steps.push(step);
-    }
-
-    // Content deltas (streaming content)
-    if (data.type === 'content_block_delta') {
-      const delta = data.delta || {};
-      const index = data.index;
+      currentThinking.content += data.delta || '';
+    } else if (stream === 'tool' && data.name) {
+      // Tool use stream
+      let currentTool = session.steps.find(s => s.toolId === data.id && !s.endTime);
+      if (!currentTool) {
+        currentTool = {
+          id: `${runId}-tool-${session.steps.length}`,
+          timestamp: Date.now(),
+          type: 'tool_use',
+          toolName: data.name,
+          toolId: data.id,
+          content: '',
+          runId: runId,
+          metadata: { tool: data.name }
+        };
+        session.steps.push(currentTool);
+      }
       
-      if (session.steps.length > 0) {
-        const currentStep = session.steps[session.steps.length - 1];
-        
-        if (delta.type === 'thinking_delta') {
-          currentStep.content += delta.thinking || '';
-          currentStep.type = 'thinking';
-        } else if (delta.type === 'text_delta') {
-          currentStep.content += delta.text || '';
-          currentStep.type = 'text';
-        } else if (delta.type === 'input_json_delta') {
-          currentStep.content += delta.partial_json || '';
-          currentStep.type = 'tool_use';
-        }
+      // Accumulate tool input JSON
+      if (data.delta) {
+        currentTool.content += data.delta;
       }
+      
+      // Finalize tool when complete
+      if (data.input) {
+        currentTool.parsedInput = data.input;
+        currentTool.metadata.input = data.input;
+        currentTool.endTime = Date.now();
+        currentTool.duration = currentTool.endTime - currentTool.timestamp;
+      }
+    } else if (stream === 'assistant' && data.delta) {
+      // Assistant text stream
+      let currentText = session.steps.find(s => s.runId === runId && s.type === 'text' && !s.endTime);
+      if (!currentText) {
+        currentText = {
+          id: `${runId}-text-${session.steps.length}`,
+          timestamp: Date.now(),
+          type: 'text',
+          content: '',
+          runId: runId,
+          metadata: {}
+        };
+        session.steps.push(currentText);
+      }
+      currentText.content += data.delta || '';
     }
 
-    // Content block stop (finalize)
-    if (data.type === 'content_block_stop') {
-      if (session.steps.length > 0) {
-        const currentStep = session.steps[session.steps.length - 1];
-        currentStep.endTime = Date.now();
-        currentStep.duration = currentStep.endTime - currentStep.timestamp;
-        
-        // Parse tool input if it's a tool_use step
-        if (currentStep.type === 'tool_use' && currentStep.content) {
-          try {
-            currentStep.parsedInput = JSON.parse(currentStep.content);
-            currentStep.metadata.input = currentStep.parsedInput;
-          } catch (e) {
-            console.warn('[StreamingTracker] Failed to parse tool input:', e.message);
-          }
+    // Finalize steps when stream ends
+    if (data.type === 'message_stop' || stream === 'final') {
+      for (const step of session.steps) {
+        if (step.runId === runId && !step.endTime) {
+          step.endTime = Date.now();
+          step.duration = step.endTime - step.timestamp;
         }
-      }
-    }
-
-    // Message stop (end of message)
-    if (stream === 'message_stop' || data.type === 'message_stop') {
-      if (session.currentMessage) {
-        session.currentMessage.endTime = Date.now();
-        session.currentMessage.duration = session.currentMessage.endTime - session.currentMessage.startTime;
-        session.currentMessage = null;
       }
     }
   }
