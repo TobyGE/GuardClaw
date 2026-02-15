@@ -107,37 +107,27 @@ Check your version: `node --version`
 
 **Step 1**: Start LM Studio server (http://localhost:1234)
 
-**Step 2**: Install and start GuardClaw
+**Step 2**: Clone and install GuardClaw
 ```bash
-npm install -g guardclaw@latest
+git clone https://github.com/TobyGE/GuardClaw.git
+cd GuardClaw
+npm install
+npm link  # Makes 'guardclaw' command available globally
+```
+
+**Step 3**: Start GuardClaw
+```bash
 guardclaw start
 ```
 
-**Step 3**: Open browser → `http://localhost:3001`
+**Step 4**: Open browser → `http://localhost:3001`
 
 That's it! GuardClaw auto-detects running backends (OpenClaw on `:18789`,
 nanobot on `:18790`) and analyzes commands via LM Studio.
 
 ## Installation
 
-### Global Install (Recommended)
-
-```bash
-npm install -g guardclaw@latest
-```
-
-### Update to Latest Version
-
-```bash
-guardclaw update
-```
-
-Or manually:
-```bash
-npm update -g guardclaw
-```
-
-### From Source
+### From Source (Recommended)
 
 ```bash
 git clone https://github.com/TobyGE/GuardClaw.git
@@ -146,6 +136,27 @@ npm install
 npm install --prefix client
 npm run build
 npm link
+```
+
+The `npm link` command creates a global symlink, making the `guardclaw` command available system-wide.
+
+### Update to Latest Version
+
+```bash
+cd GuardClaw
+git pull
+npm install
+```
+
+### Alternative: Install Locally Without Global Command
+
+If you don't want to use `npm link`:
+
+```bash
+git clone https://github.com/TobyGE/GuardClaw.git
+cd GuardClaw
+npm install
+npm start  # Or use npm scripts directly
 ```
 
 ## Using with Nanobot
