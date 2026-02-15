@@ -35,10 +35,12 @@ export class ApprovalHandler {
     const approvalId = payload.approvalId || payload.id;
     const command = payload.command || payload.args?.join(' ') || 'unknown';
     const agentId = payload.agentId || 'unknown';
+    const sessionKey = payload.sessionKey || event.sessionKey || 'agent:main:main';
     
     console.log(`\n[ApprovalHandler] 🔔 Approval request: ${approvalId}`);
     console.log(`[ApprovalHandler]    Command: ${command}`);
     console.log(`[ApprovalHandler]    Agent: ${agentId}`);
+    console.log(`[ApprovalHandler]    Session: ${sessionKey}`);
     
     this.stats.total++;
     
@@ -80,21 +82,42 @@ export class ApprovalHandler {
         reason = `Auto-blocked: High risk (${analysis.riskScore}/10). ${analysis.reasoning}`;
         this.stats.autoBlocked++;
         console.log(`[ApprovalHandler] 🚫 AUTO-BLOCKED (risk ${analysis.riskScore})`);
+        
+        // Notify user about the block
+        await this.notifyUser(sessionKey, {
+          action: 'blocked',
+          command,
+          analysis,
+          reason: 'High risk command automatically blocked by GuardClaw'
+        });
+        
       } else if (analysis.riskScore <= this.autoAllowThreshold) {
         // Auto-allow low risk
         decision = 'allow-once';
         reason = `Auto-allowed: Low risk (${analysis.riskScore}/10)`;
         this.stats.autoAllowed++;
         console.log(`[ApprovalHandler] ✅ AUTO-ALLOWED (risk ${analysis.riskScore})`);
+        
       } else {
         // Medium risk - prompt user or auto-decide based on mode
         if (this.mode === 'prompt') {
           console.log(`[ApprovalHandler] ⏸️  Pending user decision (risk ${analysis.riskScore})`);
           this.pendingApprovals.set(approvalId, {
             ...approvalEvent,
-            receivedAt: Date.now()
+            receivedAt: Date.now(),
+            sessionKey
           });
           this.stats.pending++;
+          
+          // Notify user that approval is needed
+          await this.notifyUser(sessionKey, {
+            action: 'pending',
+            command,
+            analysis,
+            approvalId,
+            reason: 'Medium-risk command requires your approval'
+          });
+          
           return; // Don't auto-resolve, wait for user
         } else {
           // Auto mode: be conservative, block medium-high risk
@@ -102,6 +125,14 @@ export class ApprovalHandler {
           reason = `Auto-blocked: Medium-high risk (${analysis.riskScore}/10). ${analysis.reasoning}`;
           this.stats.autoBlocked++;
           console.log(`[ApprovalHandler] 🚫 AUTO-BLOCKED (medium risk ${analysis.riskScore})`);
+          
+          // Notify user about the block
+          await this.notifyUser(sessionKey, {
+            action: 'blocked',
+            command,
+            analysis,
+            reason: 'Medium-risk command automatically blocked by GuardClaw'
+          });
         }
       }
       
@@ -156,6 +187,44 @@ export class ApprovalHandler {
     }
   }
 
+  async notifyUser(sessionKey, notification) {
+    const { action, command, analysis, reason, approvalId } = notification;
+    
+    // Create a notification event that will be displayed in GuardClaw dashboard
+    const notificationEvent = {
+      id: `notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now(),
+      type: 'guardclaw-notification',
+      subType: action,
+      command,
+      approvalId,
+      safeguard: analysis,
+      notification: {
+        action,
+        message: this.formatNotificationMessage(action, command, analysis, reason, approvalId),
+        level: action === 'blocked' ? 'error' : action === 'pending' ? 'warning' : 'info'
+      }
+    };
+    
+    // Store in eventStore so it appears in the dashboard
+    this.eventStore.addEvent(notificationEvent);
+    
+    console.log(`[ApprovalHandler] 📢 Notification created: ${action} for command: ${command.substring(0, 50)}...`);
+  }
+
+  formatNotificationMessage(action, command, analysis, reason, approvalId) {
+    if (action === 'blocked') {
+      return `🛡️ Blocked command \`${command}\` (Risk: ${analysis.riskScore}/10) - ${analysis.reasoning}`;
+    } else if (action === 'pending') {
+      return `⏸️ Approval required for \`${command}\` (Risk: ${analysis.riskScore}/10) - ID: ${approvalId}`;
+    } else if (action === 'user-denied') {
+      return `❌ You denied \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+    } else if (action === 'user-approved') {
+      return `✅ You approved \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+    }
+    return `Command: ${command}`;
+  }
+
   async userResolve(approvalId, action) {
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) {
@@ -170,6 +239,16 @@ export class ApprovalHandler {
       this.stats.userDenied++;
     } else {
       this.stats.userApproved++;
+    }
+    
+    // Notify user about their decision
+    if (pending.sessionKey) {
+      await this.notifyUser(pending.sessionKey, {
+        action: action === 'deny' ? 'user-denied' : 'user-approved',
+        command: pending.command,
+        analysis: pending.safeguard,
+        reason: action === 'deny' ? 'You denied this command' : 'You approved this command'
+      });
     }
     
     return await this.resolveApproval(approvalId, action, reason, pending.safeguard);
