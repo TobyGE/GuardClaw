@@ -320,7 +320,7 @@ export class ClawdbotClient {
 
     const nonce = challenge?.nonce || null;
     const role = 'operator';
-    const scopes = ['operator.read', 'operator.admin'];
+    const scopes = ['operator.read', 'operator.admin', 'operator.approvals'];
     const signedAtMs = Date.now();
     const clientId = 'gateway-client';
     const clientMode = 'backend';
