@@ -2,6 +2,9 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { ClawdbotClient } from './clawdbot-client.js';
 import { NanobotClient } from './nanobot-client.js';
 import { SafeguardService } from './safeguard.js';
@@ -297,6 +300,80 @@ app.post('/api/safeguard/analyze', async (req, res) => {
     const analysis = await safeguardService.analyzeCommand(command);
     res.json(analysis);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── Config Management APIs ──────────────────────────────────────────────────
+
+app.post('/api/config/token', async (req, res) => {
+  const { token } = req.body;
+  
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: 'Invalid token' });
+  }
+  
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    let envContent = '';
+    
+    // Read existing .env file
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8');
+    }
+    
+    // Update or add OPENCLAW_TOKEN
+    const tokenRegex = /^OPENCLAW_TOKEN=.*/m;
+    if (tokenRegex.test(envContent)) {
+      envContent = envContent.replace(tokenRegex, `OPENCLAW_TOKEN=${token}`);
+    } else {
+      envContent += `\nOPENCLAW_TOKEN=${token}\n`;
+    }
+    
+    // Write back to file
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    
+    // Update runtime environment
+    process.env.OPENCLAW_TOKEN = token;
+    
+    // Reconnect OpenClaw client if it exists
+    if (openclawClient) {
+      openclawClient.token = token;
+      console.log('[GuardClaw] Token updated, reconnecting...');
+      openclawClient.disconnect();
+      setTimeout(() => {
+        openclawClient.connect().catch(err => {
+          console.error('[GuardClaw] Reconnect failed:', err);
+        });
+      }, 1000);
+    }
+    
+    res.json({ success: true, message: 'Token saved and reconnecting' });
+  } catch (error) {
+    console.error('[GuardClaw] Failed to save token:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/config/detect-token', async (req, res) => {
+  try {
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    
+    if (!fs.existsSync(configPath)) {
+      return res.status(404).json({ error: 'OpenClaw config not found' });
+    }
+    
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(configContent);
+    const token = config?.gateway?.auth?.token;
+    
+    if (!token) {
+      return res.status(404).json({ error: 'Token not found in OpenClaw config' });
+    }
+    
+    res.json({ token, source: configPath });
+  } catch (error) {
+    console.error('[GuardClaw] Failed to detect token:', error);
     res.status(500).json({ error: error.message });
   }
 });

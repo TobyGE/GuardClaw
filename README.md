@@ -114,7 +114,9 @@ Check your version: `node --version`
 git clone https://github.com/TobyGE/GuardClaw.git
 cd GuardClaw
 npm install
-npm link  # Makes 'guardclaw' command available globally
+npm install --prefix client  # Install client dependencies
+npm run build                # Build web UI
+npm link                     # Makes 'guardclaw' command available globally
 ```
 
 **Step 3**: Start GuardClaw
@@ -122,7 +124,19 @@ npm link  # Makes 'guardclaw' command available globally
 guardclaw start
 ```
 
-**Step 4**: Open browser → `http://localhost:3001`
+**Step 4**: Configure (choose one method)
+
+**Method A - Web UI (easiest):**
+1. Browser opens automatically at `http://localhost:3001`
+2. Click ⚙️ **Settings** button (top right)
+3. Click **🔍 Auto-Detect** to find OpenClaw token
+4. Click **Save & Reconnect** - done!
+
+**Method B - CLI (fastest):**
+```bash
+guardclaw config detect-token --save
+guardclaw stop && guardclaw start
+```
 
 That's it! GuardClaw auto-detects running backends (OpenClaw on `:18789`,
 nanobot on `:18790`) and analyzes commands via LM Studio.
@@ -229,50 +243,83 @@ npm start
 
 ## Configuration
 
-GuardClaw works out of the box with sensible defaults. For custom
-configuration:
+GuardClaw offers **three easy ways** to configure your setup:
 
-### Option 1: Environment variables
+### ⭐ Option 1: Web UI Settings (Recommended)
+
+The easiest way - just click and configure:
+
+1. Start GuardClaw: `guardclaw start`
+2. Open http://localhost:3001
+3. Click the ⚙️ **Settings** button (top right)
+4. Click **🔍 Auto-Detect** to find your OpenClaw token
+5. Click **Save & Reconnect** - done!
+
+No terminal commands needed!
+
+### Option 2: CLI Configuration
+
+Quick setup from the command line:
 
 ```bash
-export BACKEND=auto                          # auto | openclaw | nanobot
-export OPENCLAW_URL=ws://127.0.0.1:18789
-export OPENCLAW_TOKEN=your_token_here
-export NANOBOT_URL=ws://127.0.0.1:18790
-export ANTHROPIC_API_KEY=your_claude_key_here
-export PORT=3001
+# Auto-detect and save token from OpenClaw config
+guardclaw config detect-token --save
+
+# Or set token manually
+guardclaw config set-token your_token_here
+
+# View current config
+guardclaw config show
+
+# Start GuardClaw
+guardclaw start
 ```
 
-### Option 2: .env file
+### Option 3: Environment Variables / .env File
+
+For advanced users or CI/CD environments.
 
 Create `.env` in your current directory:
 
 ```env
-BACKEND=auto
+BACKEND=auto                           # auto | openclaw | nanobot
 OPENCLAW_URL=ws://127.0.0.1:18789
 OPENCLAW_TOKEN=your_token_here
 NANOBOT_URL=ws://127.0.0.1:18790
+SAFEGUARD_BACKEND=lmstudio              # lmstudio | ollama | anthropic
+LMSTUDIO_URL=http://localhost:1234/v1
+LMSTUDIO_MODEL=openai/gpt-oss-20b
 ANTHROPIC_API_KEY=your_claude_key_here
 PORT=3001
 ```
 
-### Option 3: Command-line flags
+Or export environment variables:
 
 ```bash
-guardclaw start --port 3002 --clawdbot-url ws://192.168.1.100:18789
+export OPENCLAW_TOKEN=your_token_here
+export PORT=3001
 ```
 
+### Option 4: Command-line Flags
+
+Override config for a single run:
+
+```bash
+guardclaw start --port 3002 --openclaw-url ws://192.168.1.100:18789
+```
+
+**Priority order:** Command-line flags > Environment variables > .env file > Defaults
+
 ## Usage
+
+### Basic Commands
 
 ```bash
 # Start GuardClaw server
 guardclaw start
 
-# Start on custom port
-guardclaw start --port 3002
-
-# Connect to remote Clawdbot Gateway
-guardclaw start --clawdbot-url ws://192.168.1.100:18789 --clawdbot-token your_token
+# Stop GuardClaw server
+guardclaw stop
 
 # Show help
 guardclaw help
@@ -281,19 +328,102 @@ guardclaw help
 guardclaw version
 ```
 
+### Configuration Management
+
+GuardClaw now includes built-in config management for easy token setup:
+
+```bash
+# Auto-detect token from OpenClaw config
+guardclaw config detect-token
+
+# Auto-detect and save token
+guardclaw config detect-token --save
+
+# Set token manually
+guardclaw config set-token <your-token-here>
+
+# Show current token
+guardclaw config get-token
+
+# Show all config values
+guardclaw config show
+```
+
+### Advanced Start Options
+
+```bash
+# Start on custom port
+guardclaw start --port 3002
+
+# Connect to remote OpenClaw Gateway
+guardclaw start --openclaw-url ws://192.168.1.100:18789 --openclaw-token your_token
+
+# Start without opening browser
+guardclaw start --no-open
+```
+
+### Web UI Settings
+
 Once running, open `http://localhost:3001` in your browser to access the
 monitoring dashboard.
 
+**New in v0.1.1:** Click the ⚙️ **Settings** button in the dashboard to:
+- Configure OpenClaw Gateway token via web UI
+- Auto-detect token from OpenClaw config (one-click)
+- Save and automatically reconnect
+
+This makes initial setup much easier - no need to manually edit `.env` files!
+
+## CLI Command Reference
+
+```bash
+# Server Control
+guardclaw start [options]         # Start GuardClaw server
+guardclaw stop                     # Stop all GuardClaw processes
+
+# Configuration
+guardclaw config detect-token      # Find OpenClaw token (show only)
+guardclaw config detect-token -s   # Find and save token to .env
+guardclaw config set-token <token> # Set token manually
+guardclaw config get-token         # Show current token (masked)
+guardclaw config show              # Display all config values
+
+# Utilities
+guardclaw update                   # Update to latest version
+guardclaw version                  # Show version
+guardclaw help                     # Show help message
+
+# Start Options
+--port <port>                      # Custom port (default: 3001)
+--openclaw-url <url>               # OpenClaw Gateway URL
+--openclaw-token <token>           # OpenClaw token (overrides .env)
+--no-open                          # Don't auto-open browser
+```
+
 ## Features
 
-### 1. Enhanced Trace Viewer
+### 1. Web UI Settings Panel (NEW!)
+
+- **⚙️ One-Click Configuration**: Settings button in dashboard
+- **🔍 Auto-Detect Token**: Automatically finds OpenClaw token
+- **💾 Save & Reconnect**: Instant apply with automatic reconnection
+- **🌓 Dark/Light Mode**: Beautiful theme toggle
+
+### 2. CLI Configuration Tools (NEW!)
+
+- **Quick Setup**: `guardclaw config detect-token --save`
+- **View Config**: `guardclaw config show` displays all settings
+- **Easy Management**: Set/get tokens from command line
+- **Process Control**: `guardclaw stop` to cleanly shut down
+
+### 3. Enhanced Trace Viewer
 
 - Real-time visualization of all agent activities
 - Detailed breakdown of tool calls (exec, Read, Write, API calls)
 - Nested execution context (parent-child relationships)
 - Timeline view with filtering
 
-### 2. LLM-based Safeguard
+### 4. LLM-based Safeguard
 
 Every command is analyzed by an LLM before execution:
 
@@ -302,7 +432,7 @@ Every command is analyzed by an LLM before execution:
 - **Auto-block**: Prevents dangerous operations (rm -rf /, shutdown, etc.)
 - **Smart approval**: User confirmation for medium-risk operations
 
-### 3. Safety Levels
+### 5. Safety Levels
 
 - 🟢 **Safe (0-3)**: Execute immediately
 - 🟡 **Warning (4-7)**: Show warning, require acknowledgment

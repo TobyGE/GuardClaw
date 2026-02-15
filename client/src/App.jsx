@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import StatCard from './components/StatCard';
 import EventList from './components/EventList';
 import ConnectionModal from './components/ConnectionModal';
+import SettingsModal from './components/SettingsModal';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -19,6 +20,8 @@ function App() {
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [currentToken, setCurrentToken] = useState('');
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -176,6 +179,24 @@ function App() {
     };
   };
 
+  const handleSaveToken = async (newToken) => {
+    setCurrentToken(newToken);
+    // Trigger reconnect by fetching status again
+    setTimeout(async () => {
+      try {
+        const response = await fetch('/api/status');
+        if (response.ok) {
+          const data = await response.json();
+          setConnected(data.connected);
+          setConnectionStats(data.connectionStats);
+          setBackends(data.backends || null);
+        }
+      } catch (error) {
+        console.error('Failed to refresh status:', error);
+      }
+    }, 2000);
+  };
+
   return (
     <div className="min-h-screen bg-gc-bg">
       {/* Modals */}
@@ -192,6 +213,12 @@ function App() {
         details={getLlmDetails().details}
         modelList={getLlmDetails().modelList}
       />
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        currentToken={currentToken}
+        onSave={handleSaveToken}
+      />
 
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
@@ -201,6 +228,13 @@ function App() {
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </div>
           <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
+              title="Settings"
+            >
+              ⚙️
+            </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"

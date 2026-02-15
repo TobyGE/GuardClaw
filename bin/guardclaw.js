@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
@@ -16,12 +16,20 @@ function showHelp() {
 🛡️  GuardClaw - AI Agent Safety Monitor
 
 Usage:
-  guardclaw start [options]    Start the GuardClaw server
-  guardclaw update            Update GuardClaw to latest version
-  guardclaw help              Show this help message
-  guardclaw version           Show version
+  guardclaw start [options]         Start the GuardClaw server
+  guardclaw stop                    Stop the GuardClaw server
+  guardclaw config <command>        Manage configuration
+  guardclaw update                  Update GuardClaw to latest version
+  guardclaw help                    Show this help message
+  guardclaw version                 Show version
 
-Options:
+Config Commands:
+  guardclaw config set-token <token>    Set OpenClaw Gateway token
+  guardclaw config get-token            Show current token (from .env)
+  guardclaw config detect-token         Auto-detect token from OpenClaw config
+  guardclaw config show                 Show all config values
+
+Start Options:
   --port <port>              Port to run on (default: 3001)
   --openclaw-url <url>       OpenClaw Gateway URL (default: ws://127.0.0.1:18789)
   --openclaw-token <token>   OpenClaw authentication token
@@ -36,7 +44,9 @@ Environment variables:
 
 Examples:
   guardclaw start
-  guardclaw update
+  guardclaw stop
+  guardclaw config detect-token
+  guardclaw config set-token abc123...
   guardclaw start --port 3002
   guardclaw start --openclaw-url ws://192.168.1.100:18789
 
@@ -52,6 +62,245 @@ function showVersion() {
   const packagePath = join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   console.log(`GuardClaw v${pkg.version}`);
+}
+
+function stopServer() {
+  console.log('🛑 Stopping GuardClaw...\n');
+  
+  try {
+    // Find GuardClaw processes
+    const result = execSync('ps aux | grep -E "node.*guardclaw|node.*server/index.js" | grep -v grep', { 
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    }).trim();
+    
+    if (!result) {
+      console.log('ℹ️  GuardClaw is not running.');
+      return;
+    }
+    
+    const lines = result.split('\n');
+    let stopped = 0;
+    
+    for (const line of lines) {
+      const match = line.match(/\s+(\d+)\s+/);
+      if (match) {
+        const pid = match[1];
+        try {
+          process.kill(pid, 'SIGTERM');
+          stopped++;
+          console.log(`✅ Stopped GuardClaw (PID ${pid})`);
+        } catch (err) {
+          console.error(`⚠️  Could not stop process ${pid}:`, err.message);
+        }
+      }
+    }
+    
+    if (stopped > 0) {
+      console.log(`\n✅ Successfully stopped ${stopped} GuardClaw process(es)`);
+    }
+  } catch (error) {
+    // If no processes found, execSync throws (exit code 1)
+    if (error.status === 1) {
+      console.log('ℹ️  GuardClaw is not running.');
+    } else {
+      console.error('❌ Error checking for GuardClaw processes:', error.message);
+      process.exit(1);
+    }
+  }
+}
+
+function getEnvPath() {
+  return join(process.cwd(), '.env');
+}
+
+function readEnvFile() {
+  const envPath = getEnvPath();
+  if (!fs.existsSync(envPath)) {
+    return '';
+  }
+  return fs.readFileSync(envPath, 'utf8');
+}
+
+function writeEnvFile(content) {
+  const envPath = getEnvPath();
+  fs.writeFileSync(envPath, content, 'utf8');
+}
+
+function configSetToken() {
+  const token = process.argv[4];
+  
+  if (!token) {
+    console.error('❌ Error: Token is required');
+    console.log('Usage: guardclaw config set-token <token>');
+    process.exit(1);
+  }
+  
+  console.log('💾 Setting OpenClaw token...\n');
+  
+  let envContent = readEnvFile();
+  const tokenRegex = /^OPENCLAW_TOKEN=.*/m;
+  
+  if (tokenRegex.test(envContent)) {
+    envContent = envContent.replace(tokenRegex, `OPENCLAW_TOKEN=${token}`);
+    console.log('✅ Updated OPENCLAW_TOKEN in .env');
+  } else {
+    envContent += `\nOPENCLAW_TOKEN=${token}\n`;
+    console.log('✅ Added OPENCLAW_TOKEN to .env');
+  }
+  
+  writeEnvFile(envContent);
+  console.log(`📝 Token saved to: ${getEnvPath()}`);
+  console.log('\n💡 Restart GuardClaw to apply changes:\n   guardclaw stop && guardclaw start\n');
+}
+
+function configGetToken() {
+  const envContent = readEnvFile();
+  const tokenMatch = envContent.match(/^OPENCLAW_TOKEN=(.*)$/m);
+  
+  if (tokenMatch && tokenMatch[1]) {
+    const token = tokenMatch[1].trim();
+    const masked = token.substring(0, 16) + '...' + token.substring(token.length - 8);
+    console.log('🔑 Current OpenClaw token:');
+    console.log(`   ${masked} (from .env)`);
+    console.log(`\n📝 Full token: ${token}`);
+  } else {
+    console.log('ℹ️  No token found in .env file');
+    console.log('💡 Set one with: guardclaw config set-token <token>');
+    console.log('💡 Or auto-detect: guardclaw config detect-token');
+  }
+}
+
+function configDetectToken() {
+  const autoSave = process.argv[4] === '--save' || process.argv[4] === '-s';
+  
+  console.log('🔍 Detecting OpenClaw token...\n');
+  
+  const configPath = join(os.homedir(), '.openclaw', 'openclaw.json');
+  
+  if (!fs.existsSync(configPath)) {
+    console.error('❌ OpenClaw config not found at:', configPath);
+    console.log('\n💡 Make sure OpenClaw is installed and configured.');
+    process.exit(1);
+  }
+  
+  try {
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(configContent);
+    const token = config?.gateway?.auth?.token;
+    
+    if (!token) {
+      console.error('❌ Token not found in OpenClaw config');
+      console.log('💡 Check your OpenClaw configuration.');
+      process.exit(1);
+    }
+    
+    const masked = token.substring(0, 16) + '...' + token.substring(token.length - 8);
+    console.log('✅ Found token in OpenClaw config:');
+    console.log(`   ${masked}`);
+    console.log(`\n📝 Source: ${configPath}`);
+    
+    // Auto-save if --save flag is provided
+    if (autoSave) {
+      let envContent = readEnvFile();
+      const tokenRegex = /^OPENCLAW_TOKEN=.*/m;
+      
+      if (tokenRegex.test(envContent)) {
+        envContent = envContent.replace(tokenRegex, `OPENCLAW_TOKEN=${token}`);
+      } else {
+        envContent += `\nOPENCLAW_TOKEN=${token}\n`;
+      }
+      
+      writeEnvFile(envContent);
+      console.log('\n✅ Token saved to .env');
+      console.log('💡 Restart GuardClaw to apply changes:\n   guardclaw stop && guardclaw start\n');
+    } else {
+      console.log('\n💡 To save this token, run:');
+      console.log(`   guardclaw config set-token ${token}`);
+      console.log('\n💡 Or add --save flag:');
+      console.log(`   guardclaw config detect-token --save`);
+    }
+  } catch (error) {
+    console.error('❌ Error reading OpenClaw config:', error.message);
+    process.exit(1);
+  }
+}
+
+function configShow() {
+  console.log('⚙️  GuardClaw Configuration\n');
+  
+  const envPath = getEnvPath();
+  if (!fs.existsSync(envPath)) {
+    console.log('ℹ️  No .env file found at:', envPath);
+    console.log('\n💡 Create one with environment variables, or use command-line options.');
+    return;
+  }
+  
+  const envContent = readEnvFile();
+  const vars = {
+    'BACKEND': 'Backend mode (auto/openclaw/nanobot)',
+    'OPENCLAW_URL': 'OpenClaw Gateway URL',
+    'OPENCLAW_TOKEN': 'OpenClaw authentication token',
+    'NANOBOT_URL': 'Nanobot Gateway URL',
+    'SAFEGUARD_BACKEND': 'Safeguard backend (lmstudio/ollama/anthropic)',
+    'LMSTUDIO_URL': 'LM Studio API URL',
+    'LMSTUDIO_MODEL': 'LM Studio model name',
+    'ANTHROPIC_API_KEY': 'Anthropic API key',
+    'PORT': 'Server port'
+  };
+  
+  console.log(`📝 Config file: ${envPath}\n`);
+  
+  for (const [key, description] of Object.entries(vars)) {
+    const regex = new RegExp(`^${key}=(.*)$`, 'm');
+    const match = envContent.match(regex);
+    
+    if (match && match[1]) {
+      let value = match[1].trim();
+      // Mask sensitive values
+      if (key.includes('TOKEN') || key.includes('KEY')) {
+        if (value.length > 16) {
+          value = value.substring(0, 8) + '...' + value.substring(value.length - 4);
+        }
+      }
+      console.log(`✅ ${key.padEnd(20)} ${value}`);
+      console.log(`   ${description}`);
+    } else {
+      console.log(`⚪ ${key.padEnd(20)} (not set)`);
+      console.log(`   ${description}`);
+    }
+    console.log('');
+  }
+  
+  console.log('💡 To modify: guardclaw config set-token <token>');
+  console.log('💡 Or edit .env file directly');
+}
+
+function handleConfigCommand() {
+  const subcommand = process.argv[3];
+  
+  switch (subcommand) {
+    case 'set-token':
+      configSetToken();
+      break;
+    case 'get-token':
+      configGetToken();
+      break;
+    case 'detect-token':
+      configDetectToken();
+      break;
+    case 'show':
+      configShow();
+      break;
+    default:
+      console.error(`Unknown config command: ${subcommand || '(none)'}`);
+      console.log('\nAvailable config commands:');
+      console.log('  guardclaw config set-token <token>');
+      console.log('  guardclaw config get-token');
+      console.log('  guardclaw config detect-token');
+      console.log('  guardclaw config show');
+      process.exit(1);
+  }
 }
 
 function updateGuardClaw() {
@@ -195,6 +444,12 @@ function startServer() {
 switch (command) {
   case 'start':
     startServer();
+    break;
+  case 'stop':
+    stopServer();
+    break;
+  case 'config':
+    handleConfigCommand();
     break;
   case 'update':
   case 'upgrade':
