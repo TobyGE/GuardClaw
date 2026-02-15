@@ -4,7 +4,7 @@
 
 GuardClaw analyzes every AI agent command in real-time using **local LLMs** (LM Studio/Ollama). Get context-aware risk scores, detailed reasoning, and complete audit trails—**100% private, zero cloud costs**.
 
-![GuardClaw Dashboard](docs/screenshots/dashboard.jpg?v=20260215)
+![GuardClaw Dashboard](docs/screenshots/dashboard.jpg?v=1552)
 
 ## Why GuardClaw?
 
