@@ -3,7 +3,6 @@ import StatCard from './components/StatCard';
 import EventList from './components/EventList';
 import ConnectionModal from './components/ConnectionModal';
 import SettingsModal from './components/SettingsModal';
-import BackendModal from './components/BackendModal';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -19,11 +18,10 @@ function App() {
   });
   const [events, setEvents] = useState([]);
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
+  const [backendFilter, setBackendFilter] = useState('all'); // 'all', 'openclaw', 'nanobot'
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showBackendModal, setShowBackendModal] = useState(null); // null or backend name ('openclaw'/'nanobot')
-  const [backendEvents, setBackendEvents] = useState({}); // Event stats per backend
   const [currentToken, setCurrentToken] = useState('');
   const [llmConfig, setLlmConfig] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
@@ -63,16 +61,27 @@ function App() {
       }
     };
 
-    const fetchEvents = async (filter = null) => {
+    const fetchEvents = async (filter = null, backend = 'all') => {
       try {
         const filterParam = filter ? `&filter=${filter}` : '';
-        const response = await fetch(`/api/events/history?limit=500${filterParam}`);
+        const backendParam = backend !== 'all' ? `&backend=${backend}` : '';
+        const response = await fetch(`/api/events/history?limit=500${filterParam}${backendParam}`);
         if (response.ok) {
           const data = await response.json();
-          setEvents(data.events || []);
+          const filteredEvents = backend === 'all' 
+            ? data.events || []
+            : (data.events || []).filter(e => {
+                // Filter events by backend source (assuming events have a 'source' or 'backend' field)
+                // For now, we'll use sessionKey to determine backend
+                const sessionKey = e.sessionKey || e.payload?.sessionKey || '';
+                if (backend === 'openclaw') return sessionKey.includes('agent:');
+                if (backend === 'nanobot') return sessionKey.includes('nanobot');
+                return true;
+              });
+          setEvents(filteredEvents);
           if (!filter) {
-            // Only update stats when viewing all events
-            updateStats(data.events || []);
+            // Update stats based on filtered events
+            updateStats(filteredEvents);
           }
         }
       } catch (error) {
@@ -96,25 +105,6 @@ function App() {
         { totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 }
       );
       setStats(stats);
-      
-      // Calculate per-backend stats
-      const backendStats = {};
-      for (const event of eventList) {
-        const source = event.source || 'unknown'; // Assuming events have a 'source' field
-        if (!backendStats[source]) {
-          backendStats[source] = { total: 0, safe: 0, warnings: 0, blocked: 0 };
-        }
-        
-        backendStats[source].total++;
-        if (event.safeguard?.riskScore <= 3) {
-          backendStats[source].safe++;
-        } else if (event.safeguard?.riskScore <= 7) {
-          backendStats[source].warnings++;
-        } else if (event.safeguard?.riskScore > 7) {
-          backendStats[source].blocked++;
-        }
-      }
-      setBackendEvents(backendStats);
     };
 
     connectToBackend();
@@ -149,7 +139,7 @@ function App() {
     };
   }, []);
 
-  // Refetch events when filter changes
+  // Refetch events when filter or backend changes
   useEffect(() => {
     const refetchEvents = async () => {
       try {
@@ -157,14 +147,22 @@ function App() {
         const response = await fetch(`/api/events/history?limit=500${filterParam}`);
         if (response.ok) {
           const data = await response.json();
-          setEvents(data.events || []);
+          const filteredEvents = backendFilter === 'all' 
+            ? data.events || []
+            : (data.events || []).filter(e => {
+                const sessionKey = e.sessionKey || e.payload?.sessionKey || '';
+                if (backendFilter === 'openclaw') return sessionKey.includes('agent:');
+                if (backendFilter === 'nanobot') return sessionKey.includes('nanobot');
+                return true;
+              });
+          setEvents(filteredEvents);
         }
       } catch (error) {
         console.error('Failed to fetch filtered events:', error);
       }
     };
     refetchEvents();
-  }, [eventFilter]);
+  }, [eventFilter, backendFilter]);
 
   const getGatewayDetails = () => {
     if (!connectionStats) return [];
@@ -244,16 +242,6 @@ function App() {
         currentLlmConfig={llmConfig}
         onSave={handleSaveToken}
       />
-      {/* Backend-specific modals */}
-      {showBackendModal && backends && backends[showBackendModal] && (
-        <BackendModal
-          isOpen={true}
-          onClose={() => setShowBackendModal(null)}
-          backend={showBackendModal}
-          stats={backends[showBackendModal]}
-          events={backendEvents[showBackendModal]}
-        />
-      )}
 
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
@@ -277,37 +265,24 @@ function App() {
             >
               {darkMode ? '☀️' : '🌙'}
             </button>
-            {backends && Object.keys(backends).length > 0 ? (
+            {backends && Object.keys(backends).length > 0 && (
               Object.entries(backends).map(([name, stats]) => {
                 const icon = name === 'openclaw' ? '🔗' : name === 'nanobot' ? '🤖' : '🔧';
-                const displayName = name === 'openclaw' ? 'OpenClaw' : name === 'nanobot' ? 'Nanobot' : name;
                 return (
-                  <button
+                  <div
                     key={name}
-                    onClick={() => setShowBackendModal(name)}
-                    className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105 ${
+                    className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium ${
                       stats.connected
-                        ? 'bg-gc-safe/20 text-gc-safe hover:bg-gc-safe/30'
-                        : 'bg-gc-danger/20 text-gc-danger hover:bg-gc-danger/30'
+                        ? 'bg-gc-safe/20 text-gc-safe'
+                        : 'bg-gc-danger/20 text-gc-danger'
                     }`}
-                    title={`Click to view ${displayName} details`}
+                    title={`${name}: ${stats.connected ? 'connected' : 'disconnected'}`}
                   >
                     <span className="mr-1">{icon}</span>
-                    {stats.connected ? '✓' : '✗'} {displayName}
-                  </button>
+                    {stats.connected ? '✓' : '✗'}
+                  </div>
                 );
               })
-            ) : (
-              <button
-                onClick={() => setShowGatewayModal(true)}
-                className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
-                  connected
-                    ? 'bg-gc-safe/20 text-gc-safe'
-                    : 'bg-gc-danger/20 text-gc-danger'
-                }`}
-              >
-                {connected ? '✓ Gateway' : '✗ Gateway'}
-              </button>
             )}
             {llmStatus && (
               <button
@@ -370,11 +345,65 @@ function App() {
           />
         </div>
 
+        {/* Backend Selector */}
+        <div className="mb-6 bg-gc-card rounded-lg border border-gc-border p-4">
+          <div className="flex items-center space-x-3">
+            <span className="text-sm font-medium text-gc-text">Backend:</span>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setBackendFilter('all')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  backendFilter === 'all'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                }`}
+              >
+                🌐 All
+              </button>
+              {backends && backends.openclaw && (
+                <button
+                  onClick={() => setBackendFilter('openclaw')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    backendFilter === 'openclaw'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                  }`}
+                >
+                  🔗 OpenClaw
+                </button>
+              )}
+              {backends && backends.nanobot && (
+                <button
+                  onClick={() => setBackendFilter('nanobot')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    backendFilter === 'nanobot'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                  }`}
+                >
+                  🤖 Nanobot
+                </button>
+              )}
+            </div>
+            <div className="flex-1"></div>
+            <span className="text-xs text-gc-text-dim">
+              Showing {events.length} event{events.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+
         {/* Events Section */}
         <div className="bg-gc-card rounded-lg border border-gc-border overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 400px)', minHeight: '500px' }}>
           <div className="px-6 py-4 border-b border-gc-border flex-shrink-0">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Real-time Events</h2>
+              <h2 className="text-xl font-semibold">
+                Real-time Events
+                {backendFilter !== 'all' && (
+                  <span className="ml-2 text-sm text-gc-text-dim">
+                    ({backendFilter === 'openclaw' ? '🔗 OpenClaw' : '🤖 Nanobot'})
+                  </span>
+                )}
+              </h2>
               {eventFilter && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gc-text-dim">
