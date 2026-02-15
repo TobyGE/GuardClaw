@@ -7,6 +7,7 @@ import { NanobotClient } from './nanobot-client.js';
 import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
 import { SessionPoller } from './session-poller.js';
+import { ApprovalHandler } from './approval-handler.js';
 import { logger } from './logger.js';
 import { installTracker } from './install-tracker.js';
 
@@ -96,6 +97,11 @@ const sessionPoller = openclawClient
   ? new SessionPoller(openclawClient, safeguardService, eventStore)
   : null;
 
+// Approval handler (only works with OpenClaw)
+const approvalHandler = openclawClient
+  ? new ApprovalHandler(openclawClient, safeguardService, eventStore)
+  : null;
+
 // ─── SSE endpoint for real-time events ───────────────────────────────────────
 
 app.get('/api/events', (req, res) => {
@@ -121,6 +127,7 @@ app.get('/api/status', async (req, res) => {
   const cacheStats = safeguardService.getCacheStats();
   const llmStatus = await safeguardService.testConnection();
   const installStats = installTracker.getStats();
+  const approvalStats = approvalHandler ? approvalHandler.getStats() : null;
 
   // Per-backend connection status
   const backends = {};
@@ -152,16 +159,19 @@ app.get('/api/status', async (req, res) => {
     safeguardCache: cacheStats,
     llmStatus,
 
+    // Approval status
+    approvals: approvalStats,
+
     // Install tracking
     install: installStats,
 
     // Health
     healthy: anyConnected && pollerStats.consecutiveErrors < 3,
-    warnings: getSystemWarnings(backends, pollerStats, llmStatus)
+    warnings: getSystemWarnings(backends, pollerStats, llmStatus, approvalStats)
   });
 });
 
-function getSystemWarnings(backends, pollerStats, llmStatus) {
+function getSystemWarnings(backends, pollerStats, llmStatus, approvalStats) {
   const warnings = [];
 
   const anyConnected = Object.values(backends).some(b => b.connected);
@@ -291,10 +301,58 @@ app.post('/api/safeguard/analyze', async (req, res) => {
   }
 });
 
+// ─── Approval APIs ───────────────────────────────────────────────────────────
+
+app.get('/api/approvals/pending', (req, res) => {
+  if (!approvalHandler) {
+    return res.status(503).json({ error: 'Approval handler not available' });
+  }
+  const pending = approvalHandler.getPendingApprovals();
+  res.json({ pending, count: pending.length });
+});
+
+app.get('/api/approvals/stats', (req, res) => {
+  if (!approvalHandler) {
+    return res.status(503).json({ error: 'Approval handler not available' });
+  }
+  const stats = approvalHandler.getStats();
+  res.json(stats);
+});
+
+app.post('/api/approvals/resolve', async (req, res) => {
+  if (!approvalHandler) {
+    return res.status(503).json({ error: 'Approval handler not available' });
+  }
+  
+  const { approvalId, action } = req.body;
+  
+  if (!approvalId || !action) {
+    return res.status(400).json({ error: 'Missing approvalId or action' });
+  }
+  
+  if (!['allow-once', 'allow-always', 'deny'].includes(action)) {
+    return res.status(400).json({ error: 'Invalid action. Must be allow-once, allow-always, or deny' });
+  }
+  
+  try {
+    await approvalHandler.userResolve(approvalId, action);
+    res.json({ success: true, approvalId, action });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ─── Event handling (shared across all backends) ─────────────────────────────
 
 async function handleAgentEvent(event) {
   const eventType = event.event || event.type;
+
+  // Handle exec approval requests (intercept before normal event processing)
+  if (eventType === 'exec.approval.requested' && approvalHandler) {
+    console.log('[GuardClaw] 🔔 Exec approval request received');
+    await approvalHandler.handleApprovalRequest(event);
+    return; // Don't process as normal event
+  }
 
   // Debug logging
   if (Math.random() < 0.05) {
