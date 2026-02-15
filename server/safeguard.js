@@ -304,32 +304,30 @@ Respond ONLY with valid JSON, no markdown formatting.`;
   }
 
   createToolAnalysisPrompt(action) {
-    return `Analyze this AI agent action and assess its risk level.
+    return `Analyze this action and output ONLY a JSON object.
 
 Tool: ${action.tool}
 Action: ${action.summary}
 
-Respond with a JSON object containing:
-- riskScore: number from 0-10 (0=completely safe, 10=extremely dangerous)
-- category: string (one of: safe, file-read, file-write, file-delete, network, system, destructive)
-- reasoning: string explaining why this risk score was assigned
-- allowed: boolean (should this action be allowed?)
-- warnings: array of strings describing potential risks
+Output this exact JSON format:
+{
+  "riskScore": <number 0-10>,
+  "category": "<one of: safe, file-read, file-write, file-delete, network, system, destructive>",
+  "reasoning": "<explanation>",
+  "allowed": <true or false>,
+  "warnings": ["<warning1>"]
+}
 
-Risk guidelines:
-- 0-3: Safe operations (reading files, searching, info gathering)
-- 4-7: Potentially risky (writing files, network requests, system queries)
-- 8-10: Dangerous operations (system config, sensitive data, destructive actions)
+Risk scoring:
+- 0-3: Safe (read files, search, info)
+- 4-7: Medium (write files, network, system queries)
+- 8-10: Dangerous (system config, destructive)
 
-Examples:
-- read file: /etc/passwd -> riskScore: 6, category: file-read, allowed: false (sensitive)
-- read file: ./data.json -> riskScore: 1, category: file-read, allowed: true
-- write file: /etc/hosts -> riskScore: 9, category: file-write, allowed: false (system)
-- write file: ./output.txt -> riskScore: 3, category: file-write, allowed: true
-- browser open: https://bank.com -> riskScore: 4, category: network, allowed: true
-- send message to: admin -> riskScore: 5, category: network, allowed: true
+Example outputs:
+{"riskScore": 1, "category": "file-read", "reasoning": "Safe file read", "allowed": true, "warnings": []}
+{"riskScore": 9, "category": "file-write", "reasoning": "Writing to system file", "allowed": false, "warnings": ["System file modification"]}
 
-Respond ONLY with valid JSON, no markdown formatting.`;
+OUTPUT ONLY THE JSON OBJECT.`;
   }
 
   async analyzeWithClaudePrompt(prompt) {
@@ -374,16 +372,17 @@ Respond ONLY with valid JSON, no markdown formatting.`;
           messages: [
             {
               role: 'system',
-              content: 'You are a security analyst. Respond ONLY with a JSON object. Do NOT use <think> tags or any other text. Just output the JSON directly.'
+              content: 'You are a security analyst. Output ONLY valid JSON - nothing else. No explanations, no markdown, no think tags. Start with { and end with }.'
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.1,
-          max_tokens: 300,
-          stop: ['<think>', '\n\n\n']
+          temperature: 0.05, // Lower temp for more consistent output
+          max_tokens: 400,
+          stop: ['<think>', '</think>', '\n\n\n', 'Human:', 'User:']
+          // Note: response_format not used as it's not universally supported
         })
       });
 
@@ -397,6 +396,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       return this.parseAnalysisResponse(content, prompt);
     } catch (error) {
       console.error('[SafeguardService] LM Studio analysis failed:', error);
+      console.error('[SafeguardService] Model:', modelToUse);
       return this.fallbackToolAnalysis({ summary: prompt });
     }
   }
@@ -594,16 +594,16 @@ Respond ONLY with valid JSON, no markdown formatting.`;
           messages: [
             {
               role: 'system',
-              content: 'You are a security analyst. Respond ONLY with a JSON object. Do NOT use <think> tags or any other text. Just output the JSON directly.'
+              content: 'You are a security analyst. Output ONLY valid JSON - nothing else. No explanations, no markdown, no think tags. Start with { and end with }.'
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.1,
-          max_tokens: 300,
-          stop: ['<think>', '\n\n\n']
+          temperature: 0.05,
+          max_tokens: 400,
+          stop: ['<think>', '</think>', '\n\n\n', 'Human:', 'User:']
         })
       });
 
@@ -617,7 +617,8 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       return this.parseAnalysisResponse(content, command);
     } catch (error) {
       console.error('[SafeguardService] LM Studio analysis failed:', error);
-      console.error('  Make sure LM Studio is running and a model is loaded');
+      console.error('[SafeguardService] Model:', modelToUse);
+      console.error('[SafeguardService] Make sure LM Studio is running and a model is loaded');
       return this.fallbackAnalysis(command);
     }
   }
@@ -656,48 +657,46 @@ Respond ONLY with valid JSON, no markdown formatting.`;
   }
 
   createAnalysisPrompt(command) {
-    return `Analyze this shell command and assess its risk level.
+    return `Analyze this command and output ONLY a JSON object with no other text.
 
 Command: ${command}
 
-Respond with a JSON object containing:
-- riskScore: number from 0-10 (0=completely safe, 10=extremely dangerous)
-- category: string (one of: safe, file-read, file-write, file-delete, network, system, destructive)
-- reasoning: string explaining why this risk score was assigned
-- allowed: boolean (should this command be allowed to execute?)
-- warnings: array of strings describing potential risks
+Output this exact JSON format:
+{
+  "riskScore": <number 0-10>,
+  "category": "<one of: safe, file-read, file-write, file-delete, network, system, destructive>",
+  "reasoning": "<explanation>",
+  "allowed": <true or false>,
+  "warnings": ["<warning1>", "<warning2>"]
+}
 
-Risk guidelines:
-- 0-3: Safe operations (ls, cat, echo, pwd, date, etc.)
-- 4-7: Potentially risky but usually okay (mkdir, touch, curl, git)
-- 8-10: Dangerous operations (rm -rf, sudo, shutdown, dd, format)
+Risk scoring:
+- 0-3: Safe (ls, cat, echo, pwd, date)
+- 4-7: Medium risk (mkdir, touch, curl, git)
+- 8-10: Dangerous (rm -rf, sudo, shutdown, dd)
 
-Examples:
-- "ls -la" -> riskScore: 1, category: file-read, allowed: true
-- "rm important.txt" -> riskScore: 6, category: file-delete, allowed: false
-- "rm -rf /" -> riskScore: 10, category: destructive, allowed: false
-- "curl https://api.example.com" -> riskScore: 4, category: network, allowed: true
+Example outputs:
+{"riskScore": 1, "category": "file-read", "reasoning": "Read-only directory listing", "allowed": true, "warnings": []}
+{"riskScore": 6, "category": "file-delete", "reasoning": "Deletes a file", "allowed": false, "warnings": ["File deletion"]}
+{"riskScore": 10, "category": "destructive", "reasoning": "Attempts to delete root filesystem", "allowed": false, "warnings": ["Extremely dangerous"]}
 
-Respond ONLY with valid JSON, no markdown formatting.`;
+OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.`;
   }
 
   parseAnalysisResponse(content, command) {
     try {
       // Clean up response - remove <think> tags and other markers
-      let cleanContent = content;
+      let cleanContent = content.trim();
       
       // Remove closed <think>...</think> tags (used by some models like Qwen)
       cleanContent = cleanContent.replace(/<think>[\s\S]*?<\/think>/gi, '');
       
-      // Remove unclosed <think> tags and everything after them (model didn't finish thinking)
-      // If we see an unclosed <think>, the model is still thinking and hasn't output JSON yet
+      // Remove unclosed <think> tags and everything after them
       if (cleanContent.includes('<think>')) {
-        // Check if there's JSON before the <think> tag
         const beforeThink = cleanContent.substring(0, cleanContent.indexOf('<think>'));
         if (beforeThink.trim().includes('{')) {
           cleanContent = beforeThink;
         } else {
-          // No JSON before <think>, model output is incomplete - use fallback
           throw new Error('Model output incomplete (unclosed <think> tag)');
         }
       }
@@ -706,28 +705,61 @@ Respond ONLY with valid JSON, no markdown formatting.`;
       cleanContent = cleanContent.replace(/```json\s*/gi, '');
       cleanContent = cleanContent.replace(/```\s*/gi, '');
       
-      // Try to extract JSON from the cleaned response
-      let jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        // If no JSON found, maybe the whole content is JSON
-        jsonMatch = [cleanContent.trim()];
+      // Remove any text before the first { and after the last }
+      const firstBrace = cleanContent.indexOf('{');
+      const lastBrace = cleanContent.lastIndexOf('}');
+      
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanContent = cleanContent.substring(firstBrace, lastBrace + 1);
+      }
+      
+      // Try to parse JSON
+      let analysis;
+      try {
+        analysis = JSON.parse(cleanContent);
+      } catch (parseError) {
+        // If JSON parsing failed, try to extract and fix common issues
+        console.warn('[SafeguardService] Initial JSON parse failed, attempting repair...');
+        
+        // Try to find JSON object with regex
+        const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          // Remove trailing commas (common issue)
+          let fixedJson = jsonMatch[0]
+            .replace(/,\s*}/g, '}')
+            .replace(/,\s*]/g, ']');
+          
+          analysis = JSON.parse(fixedJson);
+        } else {
+          throw parseError;
+        }
       }
 
-      const analysis = JSON.parse(jsonMatch[0]);
+      // Validate required fields
+      if (typeof analysis.riskScore === 'undefined') {
+        console.warn('[SafeguardService] Missing riskScore, defaulting to 5');
+        analysis.riskScore = 5;
+      }
+      
+      if (!analysis.category) {
+        console.warn('[SafeguardService] Missing category, defaulting to unknown');
+        analysis.category = 'unknown';
+      }
 
-      // Validate and normalize the response
+      // Normalize and return
       return {
-        riskScore: Math.min(10, Math.max(0, analysis.riskScore || 5)),
-        category: analysis.category || 'unknown',
-        reasoning: analysis.reasoning || 'No reasoning provided',
+        riskScore: Math.min(10, Math.max(0, Number(analysis.riskScore) || 5)),
+        category: String(analysis.category || 'unknown'),
+        reasoning: String(analysis.reasoning || 'No reasoning provided'),
         allowed: analysis.allowed !== false,
         warnings: Array.isArray(analysis.warnings) ? analysis.warnings : [],
         backend: this.backend,
-        rawResponse: content
+        rawResponse: content.substring(0, 500) // Truncate for logging
       };
     } catch (error) {
-      console.error('[SafeguardService] Failed to parse response:', error);
-      console.error('  Response (first 500 chars):', content.substring(0, 500));
+      console.error('[SafeguardService] Failed to parse response:', error.message);
+      console.error('[SafeguardService] Raw response (first 500 chars):', content.substring(0, 500));
+      console.error('[SafeguardService] Falling back to pattern-based analysis');
       return this.fallbackAnalysis(command);
     }
   }
