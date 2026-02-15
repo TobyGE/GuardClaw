@@ -26,6 +26,7 @@ Options:
   --openclaw-url <url>       OpenClaw Gateway URL (default: ws://127.0.0.1:18789)
   --openclaw-token <token>   OpenClaw authentication token
   --anthropic-key <key>      Anthropic API key for safeguard
+  --no-open                  Don't open browser automatically
 
 Environment variables:
   OPENCLAW_URL              OpenClaw Gateway WebSocket URL
@@ -95,9 +96,29 @@ function updateGuardClaw() {
   });
 }
 
+function openBrowser(url) {
+  const platform = os.platform();
+  let command;
+  
+  switch (platform) {
+    case 'darwin':  // macOS
+      command = `open "${url}"`;
+      break;
+    case 'win32':   // Windows
+      command = `start "" "${url}"`;
+      break;
+    default:        // Linux and others
+      command = `xdg-open "${url}"`;
+      break;
+  }
+  
+  spawn(command, { shell: true, stdio: 'ignore' });
+}
+
 function startServer() {
   const args = process.argv.slice(3);
   const env = { ...process.env };
+  let noOpen = false;
 
   // Parse command-line arguments
   for (let i = 0; i < args.length; i++) {
@@ -116,6 +137,9 @@ function startServer() {
       case '--anthropic-key':
         env.ANTHROPIC_API_KEY = args[++i];
         break;
+      case '--no-open':
+        noOpen = true;
+        break;
     }
   }
 
@@ -126,9 +150,12 @@ function startServer() {
     console.warn('⚠️  No OPENCLAW_TOKEN set. This may be required for remote connections.');
   }
 
+  const port = env.PORT || 3001;
+  const url = `http://localhost:${port}`;
+
   console.log('🛡️  Starting GuardClaw...');
   console.log(`📡 Connecting to: ${openclawUrl || 'ws://127.0.0.1:18789'}`);
-  console.log(`🌐 Web UI will be available at: http://localhost:${env.PORT || 3001}`);
+  console.log(`🌐 Web UI will be available at: ${url}`);
   console.log('');
 
   const serverPath = join(rootDir, 'server', 'index.js');
@@ -137,6 +164,14 @@ function startServer() {
     env,
     cwd: rootDir
   });
+
+  // Open browser after server starts (2 second delay)
+  if (!noOpen) {
+    setTimeout(() => {
+      console.log(`🌐 Opening browser at ${url}...\n`);
+      openBrowser(url);
+    }, 2000);
+  }
 
   child.on('error', (err) => {
     console.error('❌ Failed to start GuardClaw:', err.message);
