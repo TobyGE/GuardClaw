@@ -17,8 +17,21 @@ GuardClaw can now **truly block dangerous commands before execution** using Claw
    ↓
 5. GuardClaw auto-approves or auto-blocks based on risk
    ↓
-6. Command executes (if allowed) or is denied (if blocked)
+6. GuardClaw sends notification to dashboard (visible in event stream)
+   ↓
+7. Command executes (if allowed) or is denied (if blocked)
 ```
+
+## User Notifications
+
+When GuardClaw blocks a command, you'll see a **real-time notification** in the dashboard:
+
+- 🛡️ **Blocked commands** appear with risk score and reasoning
+- ⏸️ **Pending approvals** show approval ID and risk analysis (in prompt mode)
+- ✅ **Approved commands** confirm user decisions
+- ❌ **Denied commands** confirm user rejections
+
+All notifications appear in the **Real-time Events** stream on the dashboard at http://localhost:3001
 
 ## Configuration
 
