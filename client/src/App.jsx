@@ -16,6 +16,7 @@ function App() {
     blocked: 0,
   });
   const [events, setEvents] = useState([]);
+  const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
@@ -54,13 +55,17 @@ function App() {
       }
     };
 
-    const fetchEvents = async () => {
+    const fetchEvents = async (filter = null) => {
       try {
-        const response = await fetch('/api/events/history?limit=50');
+        const filterParam = filter ? `&filter=${filter}` : '';
+        const response = await fetch(`/api/events/history?limit=500${filterParam}`);
         if (response.ok) {
           const data = await response.json();
           setEvents(data.events || []);
-          updateStats(data.events || []);
+          if (!filter) {
+            // Only update stats when viewing all events
+            updateStats(data.events || []);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch events:', error);
@@ -116,6 +121,23 @@ function App() {
       eventSource.close();
     };
   }, []);
+
+  // Refetch events when filter changes
+  useEffect(() => {
+    const refetchEvents = async () => {
+      try {
+        const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
+        const response = await fetch(`/api/events/history?limit=500${filterParam}`);
+        if (response.ok) {
+          const data = await response.json();
+          setEvents(data.events || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch filtered events:', error);
+      }
+    };
+    refetchEvents();
+  }, [eventFilter]);
 
   const getGatewayDetails = () => {
     if (!connectionStats) return [];
@@ -247,28 +269,51 @@ function App() {
             title="TOTAL EVENTS"
             value={stats.totalEvents}
             color="text-gc-text"
+            onClick={() => setEventFilter(null)}
+            active={eventFilter === null}
           />
           <StatCard
             title="SAFE COMMANDS"
             value={stats.safeCommands}
             color="text-gc-safe"
+            onClick={() => setEventFilter(eventFilter === 'safe' ? null : 'safe')}
+            active={eventFilter === 'safe'}
           />
           <StatCard
             title="WARNINGS"
             value={stats.warnings}
             color="text-gc-warning"
+            onClick={() => setEventFilter(eventFilter === 'warning' ? null : 'warning')}
+            active={eventFilter === 'warning'}
           />
           <StatCard
             title="BLOCKED"
             value={stats.blocked}
             color="text-gc-danger"
+            onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
+            active={eventFilter === 'blocked'}
           />
         </div>
 
         {/* Events Section */}
         <div className="bg-gc-card rounded-lg border border-gc-border overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 400px)', minHeight: '500px' }}>
           <div className="px-6 py-4 border-b border-gc-border flex-shrink-0">
-            <h2 className="text-xl font-semibold">Real-time Events</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Real-time Events</h2>
+              {eventFilter && (
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gc-text-dim">
+                    Filtered: <span className="font-semibold capitalize">{eventFilter}</span>
+                  </span>
+                  <button
+                    onClick={() => setEventFilter(null)}
+                    className="text-xs px-2 py-1 rounded bg-gc-border hover:bg-gc-primary/20 transition-colors"
+                  >
+                    Clear Filter
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             <EventList events={events} />

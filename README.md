@@ -56,10 +56,12 @@ analysis:
 
 **Dashboard Features:**
 - 📊 **Real-time Stats** - Days protected, total events, safe commands, warnings, and blocked operations
+- 🎯 **Click-to-Filter** - Click any stat card (Safe/Warning/Blocked) to filter events by risk level
 - 🌓 **Light/Dark Mode** - Toggle between themes with one click
 - 🔗 **Connection Status** - Click Gateway/LLM badges to view detailed connection info
-- 📋 **Live Event Stream** - Security analysis with risk scores and reasoning
-- 🔍 **Expandable Details** - Click events to see full command analysis
+- 📋 **Live Event Stream** - Security analysis with risk scores and detailed LLM reasoning
+- 🔍 **Expandable Details** - Click events to see full command analysis with backend information
+- 💾 **Persistent History** - Up to 500 recent events with full audit trail
 
 ## Prerequisites ⚠️
 

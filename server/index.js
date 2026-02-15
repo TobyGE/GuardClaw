@@ -250,8 +250,35 @@ app.post('/api/disconnect', (req, res) => {
 
 app.get('/api/events/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
-  const events = eventStore.getRecentEvents(limit);
-  res.json({ events: events.reverse() }); // Reverse so newest first
+  const filter = req.query.filter; // 'safe', 'warning', 'blocked', or null for all
+  
+  let events = eventStore.getRecentEvents(Math.min(limit, 10000)); // Max 10k
+  
+  // Apply filter if specified
+  if (filter) {
+    events = events.filter(event => {
+      if (!event.safeguard || event.safeguard.riskScore === undefined) {
+        return filter === 'safe'; // Events without safeguard are considered safe
+      }
+      
+      const riskScore = event.safeguard.riskScore;
+      
+      if (filter === 'safe') {
+        return riskScore <= 3;
+      } else if (filter === 'warning') {
+        return riskScore > 3 && riskScore <= 7;
+      } else if (filter === 'blocked') {
+        return riskScore > 7;
+      }
+      return true;
+    });
+  }
+  
+  res.json({ 
+    events: events.reverse(), // Reverse so newest first
+    total: events.length,
+    filter: filter || 'all'
+  });
 });
 
 app.post('/api/safeguard/analyze', async (req, res) => {
