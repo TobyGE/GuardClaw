@@ -129,8 +129,9 @@ guardclaw start
 **Method A - Web UI (easiest):**
 1. Browser opens automatically at `http://localhost:3001`
 2. Click ⚙️ **Settings** button (top right)
-3. Click **🔍 Auto-Detect** to find OpenClaw token
-4. Click **Save & Reconnect** - done!
+3. **Gateway tab**: Click **🔍 Auto-Detect** to find OpenClaw token → Save
+4. **LLM Backend tab** (optional): Choose LM Studio or Ollama → Test → Save
+5. Done!
 
 **Method B - CLI (fastest):**
 ```bash
@@ -404,9 +405,19 @@ guardclaw help                     # Show help message
 
 ### 1. Web UI Settings Panel (NEW!)
 
+**Gateway Tab:**
 - **⚙️ One-Click Configuration**: Settings button in dashboard
 - **🔍 Auto-Detect Token**: Automatically finds OpenClaw token
 - **💾 Save & Reconnect**: Instant apply with automatic reconnection
+
+**LLM Backend Tab:**
+- **🖥️ LM Studio Configuration**: URL and model selection
+- **🦙 Ollama Support**: Full Ollama integration with test connection
+- **🔍 Test Connection**: Real-time backend testing before saving
+- **📊 Model Discovery**: Auto-detect available models
+- **💾 Save & Restart**: Apply changes with automatic service restart
+
+**Theme:**
 - **🌓 Dark/Light Mode**: Beautiful theme toggle
 
 ### 2. CLI Configuration Tools (NEW!)

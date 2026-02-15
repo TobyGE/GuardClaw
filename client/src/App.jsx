@@ -22,6 +22,7 @@ function App() {
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [currentToken, setCurrentToken] = useState('');
+  const [llmConfig, setLlmConfig] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -49,6 +50,7 @@ function App() {
           setConnectionStats(data.connectionStats);
           setBackends(data.backends || null);
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
+          setLlmConfig(data.llmConfig || null);
           fetchEvents();
         }
       } catch (error) {
@@ -217,6 +219,7 @@ function App() {
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
         currentToken={currentToken}
+        currentLlmConfig={llmConfig}
         onSave={handleSaveToken}
       />
 

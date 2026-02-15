@@ -141,6 +141,15 @@ app.get('/api/status', async (req, res) => {
   // Connected if ANY backend is connected
   const anyConnected = activeClients.some(({ client }) => client.connected);
 
+  // LLM config for settings UI
+  const llmConfig = {
+    backend: safeguardService.backend,
+    lmstudioUrl: safeguardService.config.lmstudioUrl,
+    lmstudioModel: safeguardService.config.lmstudioModel,
+    ollamaUrl: safeguardService.config.ollamaUrl,
+    ollamaModel: safeguardService.config.ollamaModel
+  };
+
   res.json({
     // Connection status
     connected: anyConnected,
@@ -161,6 +170,7 @@ app.get('/api/status', async (req, res) => {
     safeguardBackend: safeguardService.backend,
     safeguardCache: cacheStats,
     llmStatus,
+    llmConfig,
 
     // Approval status
     approvals: approvalStats,
@@ -375,6 +385,121 @@ app.get('/api/config/detect-token', async (req, res) => {
   } catch (error) {
     console.error('[GuardClaw] Failed to detect token:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/config/llm', async (req, res) => {
+  const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
+  
+  if (!backend || !['lmstudio', 'ollama', 'anthropic'].includes(backend)) {
+    return res.status(400).json({ error: 'Invalid backend' });
+  }
+  
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    let envContent = '';
+    
+    // Read existing .env file
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8');
+    }
+    
+    // Update or add config values
+    const updates = {
+      SAFEGUARD_BACKEND: backend,
+      LMSTUDIO_URL: lmstudioUrl,
+      LMSTUDIO_MODEL: lmstudioModel,
+      OLLAMA_URL: ollamaUrl,
+      OLLAMA_MODEL: ollamaModel
+    };
+    
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) {
+        const regex = new RegExp(`^${key}=.*`, 'm');
+        if (regex.test(envContent)) {
+          envContent = envContent.replace(regex, `${key}=${value}`);
+        } else {
+          envContent += `\n${key}=${value}\n`;
+        }
+      }
+    }
+    
+    // Write back to file
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    
+    // Update runtime environment
+    process.env.SAFEGUARD_BACKEND = backend;
+    if (lmstudioUrl) process.env.LMSTUDIO_URL = lmstudioUrl;
+    if (lmstudioModel) process.env.LMSTUDIO_MODEL = lmstudioModel;
+    if (ollamaUrl) process.env.OLLAMA_URL = ollamaUrl;
+    if (ollamaModel) process.env.OLLAMA_MODEL = ollamaModel;
+    
+    // Recreate safeguard service with new config
+    const newSafeguard = new SafeguardService(
+      process.env.ANTHROPIC_API_KEY,
+      backend,
+      {
+        lmstudioUrl,
+        lmstudioModel,
+        ollamaUrl,
+        ollamaModel
+      }
+    );
+    
+    // Test connection
+    const testResult = await newSafeguard.testConnection();
+    
+    if (testResult.connected) {
+      // Replace global safeguard service
+      Object.assign(safeguardService, newSafeguard);
+      console.log('[GuardClaw] LLM config updated and applied');
+      
+      res.json({ 
+        success: true, 
+        message: 'LLM config saved and applied',
+        testResult
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'Config saved but connection failed',
+        testResult
+      });
+    }
+  } catch (error) {
+    console.error('[GuardClaw] Failed to save LLM config:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/config/llm/test', async (req, res) => {
+  const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
+  
+  if (!backend || !['lmstudio', 'ollama', 'anthropic'].includes(backend)) {
+    return res.status(400).json({ error: 'Invalid backend' });
+  }
+  
+  try {
+    // Create temporary safeguard service to test
+    const testSafeguard = new SafeguardService(
+      process.env.ANTHROPIC_API_KEY,
+      backend,
+      {
+        lmstudioUrl,
+        lmstudioModel,
+        ollamaUrl,
+        ollamaModel
+      }
+    );
+    
+    const result = await testSafeguard.testConnection();
+    res.json(result);
+  } catch (error) {
+    console.error('[GuardClaw] LLM connection test failed:', error);
+    res.status(500).json({ 
+      connected: false,
+      error: error.message,
+      message: `Test failed: ${error.message}`
+    });
   }
 });
 
