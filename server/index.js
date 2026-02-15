@@ -13,6 +13,7 @@ import { SessionPoller } from './session-poller.js';
 import { ApprovalHandler } from './approval-handler.js';
 import { logger } from './logger.js';
 import { installTracker } from './install-tracker.js';
+import { streamingTracker } from './streaming-tracker.js';
 
 dotenv.config();
 
@@ -304,6 +305,39 @@ app.get('/api/events/history', (req, res) => {
   });
 });
 
+app.get('/api/streaming/sessions', (req, res) => {
+  const sessions = streamingTracker.getAllSessions();
+  res.json({ 
+    sessions: sessions.map(s => ({
+      key: s.key,
+      startTime: s.startTime,
+      stepCount: s.steps.length
+    }))
+  });
+});
+
+app.get('/api/streaming/session/:sessionKey', (req, res) => {
+  const { sessionKey } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+  const steps = streamingTracker.getSessionSteps(sessionKey, limit);
+  
+  res.json({
+    sessionKey,
+    steps: steps.map(step => ({
+      id: step.id,
+      timestamp: step.timestamp,
+      type: step.type,
+      duration: step.duration,
+      content: step.content?.substring(0, 500),
+      toolName: step.toolName,
+      command: step.command,
+      safeguard: step.safeguard,
+      metadata: step.metadata
+    })),
+    total: steps.length
+  });
+});
+
 app.post('/api/safeguard/analyze', async (req, res) => {
   const { command } = req.body;
   try {
@@ -556,6 +590,10 @@ async function handleAgentEvent(event) {
     return; // Don't process as normal event
   }
 
+  // Track streaming events for detailed step analysis
+  const sessionKey = event.payload?.sessionKey || 'default';
+  const session = streamingTracker.trackEvent(event);
+
   // Debug logging
   if (Math.random() < 0.05) {
     console.log('[GuardClaw] Sample event:', JSON.stringify(event, null, 2).substring(0, 500));
@@ -584,8 +622,49 @@ async function handleAgentEvent(event) {
     description: eventDetails.description,
     tool: eventDetails.tool,
     command: eventDetails.command,
-    payload: event.payload || event
+    payload: event.payload || event,
+    sessionKey: sessionKey,
+    streamingSteps: [] // Will be populated below
   };
+
+  // Get recent steps for this session
+  const recentSteps = streamingTracker.getSessionSteps(sessionKey, 20);
+  
+  // Analyze recent completed steps
+  const analyzedSteps = [];
+  for (const step of recentSteps) {
+    if (!step.analyzed && step.endTime && step.type !== 'text') {
+      // Analyze this step
+      const stepAnalysis = await analyzeStreamingStep(step);
+      step.analyzed = true;
+      step.safeguard = stepAnalysis;
+      
+      analyzedSteps.push({
+        id: step.id,
+        type: step.type,
+        timestamp: step.timestamp,
+        duration: step.duration,
+        content: step.content?.substring(0, 200) || '', // Truncate for display
+        toolName: step.toolName,
+        command: step.command,
+        safeguard: stepAnalysis
+      });
+    } else if (step.safeguard) {
+      // Already analyzed, just include it
+      analyzedSteps.push({
+        id: step.id,
+        type: step.type,
+        timestamp: step.timestamp,
+        duration: step.duration,
+        content: step.content?.substring(0, 200) || '',
+        toolName: step.toolName,
+        command: step.command,
+        safeguard: step.safeguard
+      });
+    }
+  }
+  
+  storedEvent.streamingSteps = analyzedSteps;
 
   // Analyze all tool calls with safeguard
   if (shouldAnalyzeEvent(eventDetails)) {
@@ -616,6 +695,87 @@ async function handleAgentEvent(event) {
   }
 
   eventStore.addEvent(storedEvent);
+}
+
+// Analyze a streaming step (thinking, tool_use, exec)
+async function analyzeStreamingStep(step) {
+  try {
+    if (step.type === 'thinking') {
+      // Analyze thinking content for potential issues
+      const thinkingText = step.content || '';
+      if (thinkingText.length < 20) {
+        return {
+          riskScore: 0,
+          category: 'safe',
+          reasoning: 'Brief thinking step',
+          allowed: true,
+          warnings: [],
+          backend: 'classification'
+        };
+      }
+      
+      // Look for sensitive patterns in thinking
+      const sensitivePatterns = [
+        /password|passwd|pwd.*[=:]/i,
+        /api[_-]?key.*[=:]/i,
+        /secret|token.*[=:]/i,
+        /credit.*card/i
+      ];
+      
+      for (const pattern of sensitivePatterns) {
+        if (pattern.test(thinkingText)) {
+          return {
+            riskScore: 6,
+            category: 'sensitive-data',
+            reasoning: 'Thinking contains potentially sensitive information',
+            allowed: true,
+            warnings: ['Sensitive data in reasoning'],
+            backend: 'pattern'
+          };
+        }
+      }
+      
+      return {
+        riskScore: 0,
+        category: 'safe',
+        reasoning: 'Normal reasoning process',
+        allowed: true,
+        warnings: [],
+        backend: 'classification'
+      };
+    } else if (step.type === 'tool_use') {
+      // Analyze tool call
+      const action = {
+        type: step.toolName || 'unknown',
+        tool: step.toolName,
+        summary: `${step.toolName}: ${JSON.stringify(step.parsedInput || {}).substring(0, 100)}`,
+        metadata: step.metadata
+      };
+      return await safeguardService.analyzeAction(action);
+    } else if (step.type === 'exec') {
+      // Analyze exec command
+      return await safeguardService.analyzeCommand(step.command);
+    }
+    
+    return {
+      riskScore: 0,
+      category: 'safe',
+      reasoning: 'Unknown step type',
+      allowed: true,
+      warnings: [],
+      backend: 'classification'
+    };
+  } catch (error) {
+    console.error('[GuardClaw] Step analysis failed:', error);
+    return {
+      riskScore: 5,
+      category: 'unknown',
+      reasoning: `Analysis error: ${error.message}`,
+      allowed: true,
+      warnings: [],
+      backend: 'error'
+    };
+  }
 }
 
 // Register event handler on ALL active clients

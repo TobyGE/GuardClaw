@@ -3,6 +3,7 @@ import { useState } from 'react';
 function EventItem({ event }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
 
   const getRiskLevel = (score) => {
     if (score <= 3) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20' };
@@ -102,6 +103,17 @@ function EventItem({ event }) {
               <span>Show details</span>
             </button>
 
+            {/* Streaming Steps button (only if steps exist) */}
+            {event.streamingSteps && event.streamingSteps.length > 0 && (
+              <button
+                onClick={() => setShowSteps(!showSteps)}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors flex items-center space-x-1"
+              >
+                <span>{showSteps ? '▼' : '▶'}</span>
+                <span>📋 Streaming Steps ({event.streamingSteps.length})</span>
+              </button>
+            )}
+
             {/* Security Analysis button (only if analyzed) */}
             {event.safeguard && event.safeguard.riskScore !== undefined && (
               <button
@@ -155,6 +167,87 @@ function EventItem({ event }) {
               <div>
                 <span className="text-gc-text-dim">Event ID:</span>
                 <span className="ml-2 text-gc-text font-mono text-xs">{event.id}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Streaming Steps Section */}
+          {showSteps && event.streamingSteps && event.streamingSteps.length > 0 && (
+            <div className="mt-3 ml-6 space-y-3 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center space-x-2 mb-2">
+                <span className="text-lg">📋</span>
+                <span className="text-blue-700 dark:text-blue-300 font-semibold">Streaming Steps Timeline</span>
+              </div>
+              <div className="space-y-2">
+                {event.streamingSteps.map((step, idx) => {
+                  const stepRisk = step.safeguard ? getRiskLevel(step.safeguard.riskScore) : null;
+                  const stepIcon = step.type === 'thinking' ? '💭' :
+                                   step.type === 'tool_use' ? '🔧' :
+                                   step.type === 'exec' ? '⚡' :
+                                   step.type === 'text' ? '💬' : '📝';
+                  
+                  return (
+                    <div key={step.id || idx} className="bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-700">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          <span>{stepIcon}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {step.type === 'tool_use' && step.toolName ? step.toolName : step.type}
+                          </span>
+                          {stepRisk && (
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${stepRisk.color}`}>
+                              {stepRisk.label} ({step.safeguard.riskScore})
+                            </span>
+                          )}
+                        </div>
+                        {step.duration && (
+                          <span className="text-xs text-gray-500">
+                            {step.duration}ms
+                          </span>
+                        )}
+                      </div>
+                      
+                      {step.command && (
+                        <div className="mb-2">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Command:</span>
+                          <code className="block mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
+                            {step.command}
+                          </code>
+                        </div>
+                      )}
+                      
+                      {step.content && step.type !== 'exec' && (
+                        <div className="mb-2">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Content:</span>
+                          <div className="mt-1 text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                            {step.content}
+                            {step.content.length >= 200 && '... (truncated)'}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {step.safeguard && step.safeguard.reasoning && (
+                        <div>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Analysis:</span>
+                          <p className="mt-1 text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 p-2 rounded">
+                            {step.safeguard.reasoning}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {step.safeguard && step.safeguard.warnings && step.safeguard.warnings.length > 0 && (
+                        <div className="mt-2">
+                          <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">⚠️ Warnings:</span>
+                          <ul className="mt-1 list-disc list-inside text-xs text-gray-700 dark:text-gray-300">
+                            {step.safeguard.warnings.map((warning, wIdx) => (
+                              <li key={wIdx}>{warning}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

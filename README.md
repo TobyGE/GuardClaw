@@ -427,14 +427,23 @@ guardclaw help                     # Show help message
 - **Easy Management**: Set/get tokens from command line
 - **Process Control**: `guardclaw stop` to cleanly shut down
 
-### 3. Enhanced Trace Viewer
+### 3. Streaming Step-by-Step Analysis (NEW!)
+
+- **📋 Detailed Timeline**: Every step of AI's decision-making process
+- **💭 Thinking Analysis**: Security review of AI's reasoning
+- **🔧 Tool Call Breakdown**: Individual risk analysis for each tool use
+- **⚡ Exec Tracking**: Command-by-command monitoring with timing
+- **📊 Per-Step Risk Scores**: See which steps are safe vs. risky
+- **🕒 Performance Metrics**: Duration tracking for each step
+
+### 4. Enhanced Trace Viewer
 
 - Real-time visualization of all agent activities
 - Detailed breakdown of tool calls (exec, Read, Write, API calls)
 - Nested execution context (parent-child relationships)
 - Timeline view with filtering
 
-### 4. LLM-based Safeguard
+### 5. LLM-based Safeguard
 
 Every command is analyzed by an LLM before execution:
 
@@ -443,7 +452,7 @@ Every command is analyzed by an LLM before execution:
 - **Auto-block**: Prevents dangerous operations (rm -rf /, shutdown, etc.)
 - **Smart approval**: User confirmation for medium-risk operations
 
-### 5. Safety Levels
+### 6. Safety Levels
 
 - 🟢 **Safe (0-3)**: Execute immediately
 - 🟡 **Warning (4-7)**: Show warning, require acknowledgment
