@@ -363,7 +363,7 @@ export class ClawdbotClient {
       },
       role,
       scopes,
-      caps: [],
+      caps: ['tool-events'],  // Register to receive detailed tool execution events
       commands: [],
       permissions: {},
       device
