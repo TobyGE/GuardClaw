@@ -3,6 +3,7 @@ import StatCard from './components/StatCard';
 import EventList from './components/EventList';
 import ConnectionModal from './components/ConnectionModal';
 import SettingsModal from './components/SettingsModal';
+import BackendModal from './components/BackendModal';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -21,6 +22,8 @@ function App() {
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showBackendModal, setShowBackendModal] = useState(null); // null or backend name ('openclaw'/'nanobot')
+  const [backendEvents, setBackendEvents] = useState({}); // Event stats per backend
   const [currentToken, setCurrentToken] = useState('');
   const [llmConfig, setLlmConfig] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
@@ -93,6 +96,25 @@ function App() {
         { totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 }
       );
       setStats(stats);
+      
+      // Calculate per-backend stats
+      const backendStats = {};
+      for (const event of eventList) {
+        const source = event.source || 'unknown'; // Assuming events have a 'source' field
+        if (!backendStats[source]) {
+          backendStats[source] = { total: 0, safe: 0, warnings: 0, blocked: 0 };
+        }
+        
+        backendStats[source].total++;
+        if (event.safeguard?.riskScore <= 3) {
+          backendStats[source].safe++;
+        } else if (event.safeguard?.riskScore <= 7) {
+          backendStats[source].warnings++;
+        } else if (event.safeguard?.riskScore > 7) {
+          backendStats[source].blocked++;
+        }
+      }
+      setBackendEvents(backendStats);
     };
 
     connectToBackend();
@@ -222,6 +244,16 @@ function App() {
         currentLlmConfig={llmConfig}
         onSave={handleSaveToken}
       />
+      {/* Backend-specific modals */}
+      {showBackendModal && backends && backends[showBackendModal] && (
+        <BackendModal
+          isOpen={true}
+          onClose={() => setShowBackendModal(null)}
+          backend={showBackendModal}
+          stats={backends[showBackendModal]}
+          events={backendEvents[showBackendModal]}
+        />
+      )}
 
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
@@ -246,19 +278,25 @@ function App() {
               {darkMode ? '☀️' : '🌙'}
             </button>
             {backends && Object.keys(backends).length > 0 ? (
-              Object.entries(backends).map(([name, stats]) => (
-                <button
-                  key={name}
-                  onClick={() => setShowGatewayModal(true)}
-                  className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 ${
-                    stats.connected
-                      ? 'bg-gc-safe/20 text-gc-safe'
-                      : 'bg-gc-danger/20 text-gc-danger'
-                  }`}
-                >
-                  {stats.connected ? '✓' : '✗'} {name}
-                </button>
-              ))
+              Object.entries(backends).map(([name, stats]) => {
+                const icon = name === 'openclaw' ? '🔗' : name === 'nanobot' ? '🤖' : '🔧';
+                const displayName = name === 'openclaw' ? 'OpenClaw' : name === 'nanobot' ? 'Nanobot' : name;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => setShowBackendModal(name)}
+                    className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105 ${
+                      stats.connected
+                        ? 'bg-gc-safe/20 text-gc-safe hover:bg-gc-safe/30'
+                        : 'bg-gc-danger/20 text-gc-danger hover:bg-gc-danger/30'
+                    }`}
+                    title={`Click to view ${displayName} details`}
+                  >
+                    <span className="mr-1">{icon}</span>
+                    {stats.connected ? '✓' : '✗'} {displayName}
+                  </button>
+                );
+              })
             ) : (
               <button
                 onClick={() => setShowGatewayModal(true)}
