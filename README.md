@@ -52,7 +52,7 @@ analysis:
 
 ## Screenshot
 
-![GuardClaw Dashboard](docs/screenshots/dashboard.jpg)
+![GuardClaw Dashboard](docs/screenshots/dashboard.jpg?v=20260215)
 
 **Dashboard Features:**
 - 📊 **Real-time Stats** - Days protected, total events, safe commands, warnings, and blocked operations
