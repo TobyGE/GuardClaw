@@ -164,12 +164,14 @@ export class StreamingTracker {
     }
   }
 
-  // Get recent steps for a session
+  // Get recent steps for a session (sorted by timestamp)
   getSessionSteps(sessionKey, limit = 50) {
     const session = this.sessions.get(sessionKey);
     if (!session) return [];
     
-    return session.steps.slice(-limit);
+    // Sort by timestamp (oldest first)
+    const sorted = [...session.steps].sort((a, b) => a.timestamp - b.timestamp);
+    return sorted.slice(-limit);
   }
 
   // Get all sessions

@@ -670,6 +670,30 @@ async function handleAgentEvent(event) {
   
   storedEvent.streamingSteps = analyzedSteps;
 
+  // NEW: Create separate events for each tool call
+  // This makes tool usage visible in the main event stream
+  for (const step of recentSteps) {
+    if (step.type === 'tool_use' && step.toolName && !step.emittedAsEvent) {
+      const toolEvent = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: step.timestamp,
+        rawEvent: { event: 'tool-use', tool: step.toolName, payload: step.metadata },
+        type: 'tool-use',
+        subType: step.toolName,
+        description: `${step.toolName}: ${step.parsedInput ? JSON.stringify(step.parsedInput).substring(0, 100) : step.content?.substring(0, 100) || ''}`,
+        tool: step.toolName,
+        command: step.content,
+        payload: step.metadata || {},
+        sessionKey: sessionKey,
+        streamingSteps: [],
+        safeguard: step.safeguard || await analyzeStreamingStep(step)
+      };
+      
+      eventStore.addEvent(toolEvent);
+      step.emittedAsEvent = true; // Mark to avoid duplicates
+    }
+  }
+
   // Analyze all tool calls with safeguard
   if (shouldAnalyzeEvent(eventDetails)) {
     const action = extractAction(event, eventDetails);
