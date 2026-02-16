@@ -1099,6 +1099,34 @@ async function handleAgentEvent(event) {
     storedEvent.safeguard = classifyNonExecEvent(eventDetails);
   }
 
+  // For chat-message/chat-update events with streaming steps:
+  // Use the HIGHEST risk score from all steps (worst-case)
+  if ((eventDetails.type === 'chat-update' || eventDetails.type === 'chat-message') && 
+      analyzedSteps.length > 0) {
+    
+    const stepsWithSafeguard = analyzedSteps.filter(s => s.safeguard?.riskScore !== undefined);
+    
+    if (stepsWithSafeguard.length > 0) {
+      // Find the step with highest risk
+      const maxRiskStep = stepsWithSafeguard.reduce((max, step) => 
+        step.safeguard.riskScore > max.safeguard.riskScore ? step : max
+      );
+      
+      // Use the worst-case risk for the overall event
+      storedEvent.safeguard = {
+        ...maxRiskStep.safeguard,
+        reasoning: `Highest risk from ${stepsWithSafeguard.length} analyzed steps: ${maxRiskStep.safeguard.reasoning || 'N/A'}`,
+        worstStep: {
+          type: maxRiskStep.type,
+          toolName: maxRiskStep.toolName,
+          riskScore: maxRiskStep.safeguard.riskScore
+        }
+      };
+      
+      console.log(`[GuardClaw] 📊 Chat event risk: using max from steps (${maxRiskStep.safeguard.riskScore}) instead of overall (${storedEvent.safeguard?.riskScore || 0})`);
+    }
+  }
+
   eventStore.addEvent(storedEvent);
 
   // Cleanup: Remove steps for this runId after storing to avoid duplication in next message
