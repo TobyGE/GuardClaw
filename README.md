@@ -115,11 +115,15 @@ guardclaw start
 
 GuardClaw auto-connects to nanobot's monitoring server on `:18790`.
 
-## 🔧 Advanced: Enable Tool Event Monitoring (OpenClaw)
+## 🔧 Advanced Configuration
+
+**Note:** These features are independent—you can enable either or both depending on your needs.
+
+### 1. Enable Tool Event Monitoring (OpenClaw)
 
 By default, GuardClaw receives text events but **not tool execution events** (read/write/exec). To enable full monitoring, patch OpenClaw to broadcast tool events to all clients:
 
-**1. Modify OpenClaw source:**
+**Modify OpenClaw source:**
 
 Edit `~/openclaw/src/gateway/server-chat.ts` (around line 370):
 
@@ -135,22 +139,41 @@ if (isToolEvent) {
 }
 ```
 
-**2. Rebuild OpenClaw:**
+**Rebuild and restart:**
 
 ```bash
 cd ~/openclaw
 npm run build
-```
-
-**3. Restart OpenClaw Gateway:**
-
-```bash
 node ~/openclaw/openclaw.mjs gateway restart
 ```
 
 **Why this works:** OpenClaw originally only sends tool events to clients that start agent runs. GuardClaw is a **passive observer** and shouldn't start runs. This one-line patch broadcasts tool events to all WebSocket clients with the `tool-events` capability.
 
 **Verify:** Check GuardClaw's Streaming Steps—you should now see read/write/exec with full input/output details.
+
+### 2. Enable Command Blocking (OpenClaw)
+
+GuardClaw can **automatically block dangerous commands** before execution using OpenClaw's built-in approval mechanism. No source code modification required!
+
+**Configure blocking mode:**
+
+Click the 🚫 button in GuardClaw's header to open blocking settings:
+
+- **Monitor Only** (👀) - Observe and log, never interfere
+- **Auto Mode** (🚫) - Automatically allow/block based on risk scores
+- **Prompt Mode** - Ask for your approval on medium-risk commands
+
+**Risk thresholds:**
+- **≤6**: Auto-allow (low risk)
+- **7-8**: Prompt for approval (medium risk, only in Prompt mode)
+- **≥9**: Auto-block (high risk)
+
+**Whitelist/Blacklist:**
+- Add patterns like `git status`, `npm install`, `rm -rf *`
+- Supports wildcards: `npm *`, `git *`, `docker exec *`
+- Blacklist overrides all other rules
+
+**How it works:** OpenClaw sends `exec.approval.request` events before executing shell commands. GuardClaw's LLM analyzes the command and responds with allow/deny. All decisions are logged with full reasoning in the Timeline.
 
 ## Tech Stack
 

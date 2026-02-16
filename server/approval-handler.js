@@ -13,6 +13,9 @@ export class ApprovalHandler {
     this.askThreshold = parseInt(config.askThreshold || process.env.GUARDCLAW_ASK_THRESHOLD || '8');
     this.autoBlockThreshold = parseInt(config.autoBlockThreshold || process.env.GUARDCLAW_AUTO_BLOCK_THRESHOLD || '9');
     
+    // Whitelist/Blacklist
+    this.blockingConfig = config.blockingConfig || { whitelist: [], blacklist: [] };
+    
     // Pending approvals (waiting for user decision)
     this.pendingApprovals = new Map();
     
@@ -21,6 +24,8 @@ export class ApprovalHandler {
       total: 0,
       autoAllowed: 0,
       autoBlocked: 0,
+      whitelisted: 0,
+      blacklisted: 0,
       userApproved: 0,
       userDenied: 0,
       pending: 0
@@ -28,6 +33,7 @@ export class ApprovalHandler {
     
     console.log(`[ApprovalHandler] Mode: ${this.mode}`);
     console.log(`[ApprovalHandler] Auto-allow: ≤${this.autoAllowThreshold}, Ask: ${this.autoAllowThreshold + 1}-${this.askThreshold}, Auto-block: ≥${this.autoBlockThreshold}`);
+    console.log(`[ApprovalHandler] Whitelist: ${this.blockingConfig.whitelist.length} patterns, Blacklist: ${this.blockingConfig.blacklist.length} patterns`);
   }
 
   async handleApprovalRequest(event) {
@@ -48,6 +54,52 @@ export class ApprovalHandler {
     if (this.mode === 'monitor-only') {
       console.log(`[ApprovalHandler] 👀 Monitor mode - not intercepting`);
       return;
+    }
+    
+    // Check blacklist first (highest priority)
+    for (const pattern of this.blockingConfig.blacklist) {
+      if (this.matchesPattern(command, pattern)) {
+        console.log(`[ApprovalHandler] 🚫 BLACKLISTED: matches pattern "${pattern}"`);
+        this.stats.blacklisted++;
+        
+        const analysis = {
+          riskScore: 10,
+          category: 'blacklisted',
+          reasoning: `Command matches blacklist pattern: ${pattern}`,
+          allowed: false,
+          backend: 'blacklist'
+        };
+        
+        await this.resolveApproval(approvalId, 'deny', `Blacklisted: ${pattern}`, analysis);
+        
+        await this.notifyUser(sessionKey, {
+          action: 'blocked',
+          command,
+          analysis,
+          reason: `Command blocked by blacklist: ${pattern}`
+        });
+        
+        return;
+      }
+    }
+    
+    // Check whitelist (auto-allow)
+    for (const pattern of this.blockingConfig.whitelist) {
+      if (this.matchesPattern(command, pattern)) {
+        console.log(`[ApprovalHandler] ✅ WHITELISTED: matches pattern "${pattern}"`);
+        this.stats.whitelisted++;
+        
+        const analysis = {
+          riskScore: 0,
+          category: 'whitelisted',
+          reasoning: `Command matches whitelist pattern: ${pattern}`,
+          allowed: true,
+          backend: 'whitelist'
+        };
+        
+        await this.resolveApproval(approvalId, 'allow-once', `Whitelisted: ${pattern}`, analysis);
+        return;
+      }
     }
     
     try {
@@ -273,5 +325,17 @@ export class ApprovalHandler {
   clearPending() {
     this.pendingApprovals.clear();
     this.stats.pending = 0;
+  }
+
+  matchesPattern(command, pattern) {
+    // Simple glob-like matching
+    // Supports: * (any chars), ? (single char), exact match
+    const regexPattern = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special chars
+      .replace(/\*/g, '.*')                   // * -> .*
+      .replace(/\?/g, '.');                   // ? -> .
+    
+    const regex = new RegExp(`^${regexPattern}$`, 'i');
+    return regex.test(command);
   }
 }

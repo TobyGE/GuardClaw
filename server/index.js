@@ -20,6 +20,33 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+// Blocking config (whitelist/blacklist)
+const BLOCKING_CONFIG_PATH = path.join(process.cwd(), 'blocking-config.json');
+let blockingConfig = { whitelist: [], blacklist: [] };
+
+function loadBlockingConfig() {
+  try {
+    if (fs.existsSync(BLOCKING_CONFIG_PATH)) {
+      const data = fs.readFileSync(BLOCKING_CONFIG_PATH, 'utf8');
+      blockingConfig = JSON.parse(data);
+      console.log('[GuardClaw] Loaded blocking config:', blockingConfig.whitelist.length, 'whitelist,', blockingConfig.blacklist.length, 'blacklist');
+    }
+  } catch (error) {
+    console.error('[GuardClaw] Failed to load blocking config:', error.message);
+  }
+}
+
+function saveBlockingConfig() {
+  try {
+    fs.writeFileSync(BLOCKING_CONFIG_PATH, JSON.stringify(blockingConfig, null, 2));
+    console.log('[GuardClaw] Saved blocking config');
+  } catch (error) {
+    console.error('[GuardClaw] Failed to save blocking config:', error.message);
+  }
+}
+
+loadBlockingConfig();
+
 // Backend selection: auto (default) | openclaw | nanobot
 const BACKEND = (process.env.BACKEND || 'auto').toLowerCase();
 
@@ -102,9 +129,15 @@ const sessionPoller = openclawClient
   : null;
 
 // Approval handler (only works with OpenClaw)
-const approvalHandler = openclawClient
-  ? new ApprovalHandler(openclawClient, safeguardService, eventStore)
+// Blocking feature (optional)
+const blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
+const approvalHandler = (openclawClient && blockingEnabled)
+  ? new ApprovalHandler(openclawClient, safeguardService, eventStore, { blockingConfig })
   : null;
+
+if (openclawClient && !blockingEnabled) {
+  console.log('[GuardClaw] 👀 Blocking disabled - monitoring only');
+}
 
 // ─── SSE endpoint for real-time events ───────────────────────────────────────
 
@@ -175,6 +208,13 @@ app.get('/api/status', async (req, res) => {
 
     // Approval status
     approvals: approvalStats,
+
+    // Blocking status
+    blocking: {
+      enabled: blockingEnabled,
+      active: !!approvalHandler,
+      mode: approvalHandler ? approvalHandler.mode : null
+    },
 
     // Install tracking
     install: installStats,
@@ -578,6 +618,95 @@ app.post('/api/approvals/resolve', async (req, res) => {
   }
 });
 
+// Blocking configuration API
+app.get('/api/blocking/status', (req, res) => {
+  res.json({
+    enabled: blockingEnabled,
+    active: !!approvalHandler,
+    mode: approvalHandler ? approvalHandler.mode : null,
+    thresholds: approvalHandler ? approvalHandler.getStats().thresholds : null,
+    whitelist: blockingConfig.whitelist || [],
+    blacklist: blockingConfig.blacklist || []
+  });
+});
+
+app.post('/api/blocking/toggle', (req, res) => {
+  const { enabled } = req.body;
+  
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+  
+  // Update .env file
+  const envPath = path.join(process.cwd(), '.env');
+  let envContent = fs.readFileSync(envPath, 'utf8');
+  
+  if (envContent.includes('GUARDCLAW_BLOCKING_ENABLED=')) {
+    envContent = envContent.replace(
+      /GUARDCLAW_BLOCKING_ENABLED=.*/,
+      `GUARDCLAW_BLOCKING_ENABLED=${enabled}`
+    );
+  } else {
+    envContent += `\nGUARDCLAW_BLOCKING_ENABLED=${enabled}\n`;
+  }
+  
+  fs.writeFileSync(envPath, envContent);
+  
+  res.json({ 
+    success: true, 
+    enabled,
+    message: 'Blocking setting updated. Please restart GuardClaw for changes to take effect.'
+  });
+});
+
+app.post('/api/blocking/whitelist', (req, res) => {
+  const { pattern } = req.body;
+  
+  if (!pattern || typeof pattern !== 'string') {
+    return res.status(400).json({ error: 'pattern must be a non-empty string' });
+  }
+  
+  if (!blockingConfig.whitelist.includes(pattern)) {
+    blockingConfig.whitelist.push(pattern);
+    saveBlockingConfig();
+  }
+  
+  res.json({ success: true, whitelist: blockingConfig.whitelist });
+});
+
+app.delete('/api/blocking/whitelist', (req, res) => {
+  const { pattern } = req.body;
+  
+  blockingConfig.whitelist = blockingConfig.whitelist.filter(p => p !== pattern);
+  saveBlockingConfig();
+  
+  res.json({ success: true, whitelist: blockingConfig.whitelist });
+});
+
+app.post('/api/blocking/blacklist', (req, res) => {
+  const { pattern } = req.body;
+  
+  if (!pattern || typeof pattern !== 'string') {
+    return res.status(400).json({ error: 'pattern must be a non-empty string' });
+  }
+  
+  if (!blockingConfig.blacklist.includes(pattern)) {
+    blockingConfig.blacklist.push(pattern);
+    saveBlockingConfig();
+  }
+  
+  res.json({ success: true, blacklist: blockingConfig.blacklist });
+});
+
+app.delete('/api/blocking/blacklist', (req, res) => {
+  const { pattern } = req.body;
+  
+  blockingConfig.blacklist = blockingConfig.blacklist.filter(p => p !== pattern);
+  saveBlockingConfig();
+  
+  res.json({ success: true, blacklist: blockingConfig.blacklist });
+});
+
 // ─── Event handling (shared across all backends) ─────────────────────────────
 
 async function handleAgentEvent(event) {
@@ -647,10 +776,14 @@ async function handleAgentEvent(event) {
     streamingSteps: [] // Will be populated below
   };
 
-  // Get recent steps for this session
-  const recentSteps = streamingTracker.getSessionSteps(sessionKey, 20);
+  // Get steps for this specific run (to avoid duplication between consecutive messages)
+  const runId = event.payload?.runId;
+  const recentSteps = runId 
+    ? streamingTracker.getStepsForRun(sessionKey, runId)
+    : streamingTracker.getSessionSteps(sessionKey, 20);
+  
   if (recentSteps.length > 0) {
-    console.log(`[GuardClaw] Found ${recentSteps.length} streaming steps for session ${sessionKey}`);
+    console.log(`[GuardClaw] Found ${recentSteps.length} streaming steps for session ${sessionKey}, runId: ${runId || 'N/A'}`);
   }
   
   // Analyze recent steps (completed or in-progress)
@@ -685,15 +818,40 @@ async function handleAgentEvent(event) {
   // Sort by timestamp (oldest first) for chronological display
   analyzedSteps.sort((a, b) => a.timestamp - b.timestamp);
   
-  storedEvent.streamingSteps = analyzedSteps;
+  console.log(`[GuardClaw] DEBUG: storedEvent type=${storedEvent.type}, eventDetails.type=${eventDetails.type}, recentSteps=${recentSteps.length}`);
+
+  // Generate summary for lifecycle:end events with tool calls
+  const isLifecycleEnd = eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end';
+  const toolSteps = analyzedSteps.filter(s => s.type === 'tool_use' && s.toolName);
+  
+  if (isLifecycleEnd && toolSteps.length > 0) {
+    console.log(`[GuardClaw] 🔧 Lifecycle end with ${toolSteps.length} tool calls, generating summary...`);
+    try {
+      const summary = await generateEventSummary(analyzedSteps);
+      storedEvent.summary = summary;
+      storedEvent.streamingSteps = analyzedSteps;  // Include steps only when we have summary
+      console.log(`[GuardClaw] ✅ Generated summary: ${summary.substring(0, 100)}...`);
+    } catch (error) {
+      console.error(`[GuardClaw] ❌ Summary generation failed:`, error.message);
+      // Fallback summary
+      const toolNames = toolSteps.map(s => s.toolName).filter((v, i, a) => a.indexOf(v) === i);
+      storedEvent.summary = `Used ${toolSteps.length} tool${toolSteps.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
+      storedEvent.streamingSteps = analyzedSteps;
+    }
+  } else {
+    // Don't include steps for individual tool events to avoid duplication
+    storedEvent.streamingSteps = [];
+  }
 
   // Note: We used to create separate tool-use events here, but that's redundant
   // now that chat-message events include complete streaming steps.
   // All tool information is visible in the Streaming Steps section.
 
-  // Generate summary for chat-update events with tool usage
-  if (eventDetails.type === 'chat-update' && recentSteps.length > 0) {
+  // OLD CODE - kept for compatibility with chat-update events
+  console.log(`[GuardClaw] Checking summary generation: type=${eventDetails.type}, recentSteps=${recentSteps.length}`);
+  if ((eventDetails.type === 'chat-update' || eventDetails.type === 'agent-message') && recentSteps.length > 0) {
     const session = streamingTracker.getSession(sessionKey);
+    console.log('[GuardClaw] Summary check passed, session:', !!session);
     
     // Check if we need to generate/update summary
     const toolSteps = recentSteps.filter(s => s.type === 'tool_use' && s.toolName);
@@ -724,6 +882,18 @@ async function handleAgentEvent(event) {
   if (eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end') {
     const session = streamingTracker.getSession(sessionKey);
     const recentSteps = streamingTracker.getSessionSteps(sessionKey, 20);
+    
+    console.log(`[GuardClaw] lifecycle:end - recentSteps: ${recentSteps.length}, lastSummary: ${!!session.lastSummary}`);
+    
+    // Generate summary if we don't have one yet
+    if (recentSteps.length > 0 && !session.lastSummary) {
+      const toolSteps = recentSteps.filter(s => s.type === 'tool_use' && s.toolName);
+      if (toolSteps.length > 0) {
+        console.log('[GuardClaw] Generating summary at lifecycle:end');
+        session.lastSummary = await generateEventSummary(recentSteps);
+        console.log('[GuardClaw] Generated summary:', session.lastSummary);
+      }
+    }
     
     if (recentSteps.length > 0 && session.lastSummary) {
       // Create a chat-message event with the summary
@@ -790,6 +960,13 @@ async function handleAgentEvent(event) {
   }
 
   eventStore.addEvent(storedEvent);
+
+  // Cleanup: Remove steps for this runId after storing to avoid duplication in next message
+  const isCleanupNeeded = eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end';
+  if (isCleanupNeeded && runId) {
+    streamingTracker.clearStepsForRun(sessionKey, runId);
+    console.log(`[GuardClaw] 🧹 Cleaned up steps for runId ${runId}`);
+  }
 }
 
 // Generate a concise summary of an event based on its streaming steps

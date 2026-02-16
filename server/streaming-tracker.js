@@ -217,6 +217,27 @@ export class StreamingTracker {
     return sorted.slice(-limit);
   }
 
+  // Get steps for a specific runId only (avoids duplication between runs)
+  getStepsForRun(sessionKey, runId) {
+    const session = this.sessions.get(sessionKey);
+    if (!session) return [];
+    
+    // Filter by runId and sort by timestamp
+    return session.steps
+      .filter(s => s.runId === runId)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  // Clear steps for a specific runId (cleanup after processing)
+  clearStepsForRun(sessionKey, runId) {
+    const session = this.sessions.get(sessionKey);
+    if (!session) return;
+    
+    // Remove steps with this runId
+    session.steps = session.steps.filter(s => s.runId !== runId);
+    console.log(`[StreamingTracker] Cleared ${session.steps.length} steps for runId ${runId}`);
+  }
+
   // Get all sessions
   getAllSessions() {
     return Array.from(this.sessions.values());

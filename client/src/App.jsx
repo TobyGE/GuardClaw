@@ -3,6 +3,7 @@ import StatCard from './components/StatCard';
 import EventList from './components/EventList';
 import ConnectionModal from './components/ConnectionModal';
 import SettingsModal from './components/SettingsModal';
+import BlockingModal from './components/BlockingModal';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -22,8 +23,10 @@ function App() {
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showBlockingModal, setShowBlockingModal] = useState(false);
   const [currentToken, setCurrentToken] = useState('');
   const [llmConfig, setLlmConfig] = useState(null);
+  const [blockingStatus, setBlockingStatus] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -52,6 +55,7 @@ function App() {
           setBackends(data.backends || null);
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
           setLlmConfig(data.llmConfig || null);
+          setBlockingStatus(data.blocking || null);
           fetchEvents();
         }
       } catch (error) {
@@ -242,6 +246,19 @@ function App() {
         currentLlmConfig={llmConfig}
         onSave={handleSaveToken}
       />
+      <BlockingModal
+        isOpen={showBlockingModal}
+        onClose={() => {
+          setShowBlockingModal(false);
+          // Refresh status after modal closes
+          setTimeout(() => {
+            fetch('/api/status').then(r => r.json()).then(data => {
+              setBlockingStatus(data.blocking || null);
+            });
+          }, 100);
+        }}
+        currentStatus={blockingStatus}
+      />
 
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
@@ -251,6 +268,23 @@ function App() {
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Blocking Status Button */}
+            {blockingStatus && (
+              <button
+                onClick={() => setShowBlockingModal(true)}
+                className={`inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 ${
+                  blockingStatus.active 
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30' 
+                    : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
+                }`}
+                title={blockingStatus.active 
+                  ? `Blocking Active (${blockingStatus.mode}): Auto-allow ≤${blockingStatus.thresholds?.autoAllow}, Auto-block ≥${blockingStatus.thresholds?.autoBlock}\n\nClick to configure`
+                  : 'Blocking Disabled - Monitor Only\n\nClick to configure'
+                }
+              >
+                {blockingStatus.active ? '🚫' : '👀'}
+              </button>
+            )}
             <button
               onClick={() => setShowSettingsModal(true)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"

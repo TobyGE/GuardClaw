@@ -109,14 +109,16 @@ function EventItem({ event }) {
 
           {/* Buttons row */}
           <div className="flex items-center space-x-4 mt-2">
-            {/* Show details button */}
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center space-x-1"
-            >
-              <span>{showDetails ? '▼' : '▶'}</span>
-              <span>Show details</span>
-            </button>
+            {/* Show details button (only if no streaming steps) */}
+            {(!event.streamingSteps || event.streamingSteps.length === 0) && (
+              <button
+                onClick={() => setShowDetails(!showDetails)}
+                className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center space-x-1"
+              >
+                <span>{showDetails ? '▼' : '▶'}</span>
+                <span>Show details</span>
+              </button>
+            )}
 
             {/* Streaming Steps button (only if steps exist) */}
             {event.streamingSteps && event.streamingSteps.length > 0 && (
