@@ -69,7 +69,7 @@ function App() {
       try {
         const filterParam = filter ? `&filter=${filter}` : '';
         const backendParam = backend !== 'all' ? `&backend=${backend}` : '';
-        const response = await fetch(`/api/events/history?limit=500${filterParam}${backendParam}`);
+        const response = await fetch(`/api/events/history?limit=2000${filterParam}${backendParam}`);
         if (response.ok) {
           const data = await response.json();
           const filteredEvents = backend === 'all' 
@@ -154,7 +154,7 @@ function App() {
     const refetchEvents = async () => {
       try {
         const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
-        const response = await fetch(`/api/events/history?limit=500${filterParam}`);
+        const response = await fetch(`/api/events/history?limit=2000${filterParam}`);
         if (response.ok) {
           const data = await response.json();
           const filteredEvents = backendFilter === 'all' 

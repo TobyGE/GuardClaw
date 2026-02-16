@@ -1189,25 +1189,25 @@ async function generateEventSummary(steps) {
       messages = [
         { 
           role: 'system', 
-          content: 'You are a helpful assistant that summarizes AI activities concisely. Provide clear, natural summaries in 1-2 sentences.' 
+          content: 'You are a helpful assistant that summarizes AI activities. Provide clear, detailed summaries in 2-3 sentences, explaining what was done and why.' 
         },
         { 
           role: 'user', 
-          content: `Summarize what the AI did:\n\nActions: ${context}\n\nSummary:` 
+          content: `Summarize what the AI did:\n\nActions: ${context}\n\nProvide a detailed 2-3 sentence summary:` 
         }
       ];
       temperature = 0.3;
-      maxTokens = 100;
+      maxTokens = 200;
     } else {
-      // Smaller models: Simple format
+      // Smaller models: Simple format with more detail
       messages = [
         { 
           role: 'user', 
-          content: `What did the AI do?\n\nActions: ${context}\n\nAnswer (one short sentence):` 
+          content: `What did the AI do?\n\nActions: ${context}\n\nAnswer in 2-3 sentences:` 
         }
       ];
       temperature = 0.2;
-      maxTokens = 80;
+      maxTokens = 150;
     }
 
     console.log('[GuardClaw] 📝 Calling LLM for summary (model:', modelName, ')...');
