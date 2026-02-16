@@ -116,10 +116,8 @@ function EventItem({ event }) {
           {/* Content preview */}
           {content && (
             <div className="mb-3">
-              <code className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded inline-block max-w-full overflow-hidden text-ellipsis">
-                {content.length > 150 
-                  ? content.substring(0, 150) + '...' 
-                  : content}
+              <code className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded inline-block max-w-full break-words whitespace-pre-wrap">
+                {content}
               </code>
             </div>
           )}
