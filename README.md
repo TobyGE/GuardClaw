@@ -1,8 +1,10 @@
 # GuardClaw 🛡️🐾
 
-**Local LLM-powered security monitoring for AI agents**
+## Local LLM-powered security monitoring for AI agents
 
-GuardClaw analyzes every AI agent command in real-time using **local LLMs** (LM Studio/Ollama). Get context-aware risk scores, detailed reasoning, and complete audit trails—**100% private, zero cloud costs**.
+GuardClaw analyzes every AI agent command in real-time using **local LLMs**
+(LM Studio/Ollama). Get context-aware risk scores, detailed reasoning, and
+complete audit trails—**100% private, zero cloud costs**.
 
 ![GuardClaw Dashboard](docs/screenshots/dashboard.jpg?v=1552)
 
@@ -18,10 +20,12 @@ GuardClaw analyzes every AI agent command in real-time using **local LLMs** (LM 
 ## Quick Start
 
 **Prerequisites:**
+
 - [LM Studio](https://lmstudio.ai) running on `localhost:1234` (or [Ollama](https://ollama.ai))
 - An AI agent: [OpenClaw](https://github.com/openclaw/openclaw) or [nanobot](https://github.com/HKUDS/nanobot)
 
 **Install:**
+
 ```bash
 git clone https://github.com/TobyGE/GuardClaw.git
 cd GuardClaw
@@ -32,6 +36,7 @@ npm link
 ```
 
 **Configure & Start:**
+
 ```bash
 # Auto-detect OpenClaw token
 guardclaw config detect-token --save
@@ -41,6 +46,7 @@ guardclaw start
 ```
 
 **Web UI Setup (easier):**
+
 1. Run `guardclaw start`
 2. Click ⚙️ **Settings** → **Gateway** tab
 3. Click **🔍 Auto-Detect** → **Save & Reconnect**
@@ -69,6 +75,7 @@ guardclaw help               # Show help
 GuardClaw auto-detects running backends (OpenClaw `:18789`, nanobot `:18790`).
 
 **Optional `.env`:**
+
 ```env
 OPENCLAW_TOKEN=your_token_here
 SAFEGUARD_BACKEND=lmstudio           # lmstudio | ollama | anthropic
@@ -81,12 +88,14 @@ Or use the **Settings panel** in the web UI for point-and-click configuration.
 ## Recommended Models
 
 For LM Studio/Ollama (local):
+
 - `llama-3.1-8b` - Fast and accurate
 - `qwen-2.5-7b` - Multilingual support
 - `openai/gpt-oss-20b` - Best balance
 - `mistral-7b` - Strong reasoning
 
 For small hardware (1.7B works too!):
+
 - `qwen3-1.7b` - Optimized JSON parsing
 
 ## Safety Levels
@@ -121,7 +130,9 @@ GuardClaw auto-connects to nanobot's monitoring server on `:18790`.
 
 ### 1. Enable Tool Event Monitoring (OpenClaw)
 
-By default, GuardClaw receives text events but **not tool execution events** (read/write/exec). To enable full monitoring, patch OpenClaw to broadcast tool events to all clients:
+By default, GuardClaw receives text events but **not tool execution events**
+(read/write/exec). To enable full monitoring, patch OpenClaw to broadcast
+tool events to all clients:
 
 **Modify OpenClaw source:**
 
@@ -147,13 +158,18 @@ npm run build
 node ~/openclaw/openclaw.mjs gateway restart
 ```
 
-**Why this works:** OpenClaw originally only sends tool events to clients that start agent runs. GuardClaw is a **passive observer** and shouldn't start runs. This one-line patch broadcasts tool events to all WebSocket clients with the `tool-events` capability.
+**Why this works:** OpenClaw originally only sends tool events to clients that
+start agent runs. GuardClaw is a **passive observer** and shouldn't start runs.
+This one-line patch broadcasts tool events to all WebSocket clients with the
+`tool-events` capability.
 
 **Verify:** Check GuardClaw's Streaming Steps—you should now see read/write/exec with full input/output details.
 
 ### 2. Enable Command Blocking (OpenClaw)
 
-GuardClaw can **automatically block dangerous commands** before execution using OpenClaw's built-in approval mechanism. No source code modification required!
+GuardClaw can **automatically block dangerous commands** before execution
+using OpenClaw's built-in approval mechanism. No source code modification
+required!
 
 **Configure blocking mode:**
 
@@ -164,16 +180,20 @@ Click the 🚫 button in GuardClaw's header to open blocking settings:
 - **Prompt Mode** - Ask for your approval on medium-risk commands
 
 **Risk thresholds:**
+
 - **≤6**: Auto-allow (low risk)
 - **7-8**: Prompt for approval (medium risk, only in Prompt mode)
 - **≥9**: Auto-block (high risk)
 
 **Whitelist/Blacklist:**
+
 - Add patterns like `git status`, `npm install`, `rm -rf *`
 - Supports wildcards: `npm *`, `git *`, `docker exec *`
 - Blacklist overrides all other rules
 
-**How it works:** OpenClaw sends `exec.approval.request` events before executing shell commands. GuardClaw's LLM analyzes the command and responds with allow/deny. All decisions are logged with full reasoning in the Timeline.
+**How it works:** OpenClaw sends `exec.approval.request` events before
+executing shell commands. GuardClaw's LLM analyzes the command and responds
+with allow/deny. All decisions are logged with full reasoning in the Timeline.
 
 ## Tech Stack
 
@@ -182,6 +202,7 @@ Node.js + Express + WebSocket + React + LM Studio (local LLM)
 ## License
 
 **Dual License:**
+
 - FREE for personal/educational/open-source use
 - Paid commercial license required for business use
 
