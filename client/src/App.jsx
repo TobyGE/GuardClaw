@@ -138,8 +138,14 @@ function App() {
       setTimeout(connectToBackend, 5000);
     };
 
+    // Periodic refresh to catch async summary updates (every 10 seconds)
+    const refreshInterval = setInterval(() => {
+      fetchEvents();
+    }, 10000);
+
     return () => {
       eventSource.close();
+      clearInterval(refreshInterval);
     };
   }, []);
 

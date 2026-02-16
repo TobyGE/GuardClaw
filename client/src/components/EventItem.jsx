@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 function EventItem({ event }) {
-  const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
 
@@ -13,11 +12,29 @@ function EventItem({ event }) {
 
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit',
-      hour12: true 
-    });
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      // Today: just show time
+      return date.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true 
+      });
+    } else {
+      // Other days: show full date and time
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
+    }
   };
 
   const riskLevel = event.safeguard?.riskScore !== undefined 
@@ -109,25 +126,14 @@ function EventItem({ event }) {
 
           {/* Buttons row */}
           <div className="flex items-center space-x-4 mt-2">
-            {/* Show details button (only if no streaming steps) */}
-            {(!event.streamingSteps || event.streamingSteps.length === 0) && (
-              <button
-                onClick={() => setShowDetails(!showDetails)}
-                className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center space-x-1"
-              >
-                <span>{showDetails ? '▼' : '▶'}</span>
-                <span>Show details</span>
-              </button>
-            )}
-
-            {/* Streaming Steps button (only if steps exist) */}
+            {/* Streaming Steps button */}
             {event.streamingSteps && event.streamingSteps.length > 0 && (
               <button
                 onClick={() => setShowSteps(!showSteps)}
                 className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors flex items-center space-x-1"
               >
                 <span>{showSteps ? '▼' : '▶'}</span>
-                <span>📋 Streaming Steps ({event.streamingSteps.length})</span>
+                <span>📋 Details ({event.streamingSteps.length} step{event.streamingSteps.length > 1 ? 's' : ''})</span>
               </button>
             )}
 
@@ -143,57 +149,12 @@ function EventItem({ event }) {
             )}
           </div>
 
-          {/* Show Details Section */}
-          {showDetails && (
-            <div className="mt-3 ml-6 space-y-2 text-sm bg-gc-bg/50 p-3 rounded border border-gc-border">
-              <div>
-                <span className="text-gc-text-dim">Event Type:</span>
-                <span className="ml-2 text-gc-text">{eventType}</span>
-              </div>
-              {event.tool && (
-                <div>
-                  <span className="text-gc-text-dim">Tool:</span>
-                  <span className="ml-2 text-gc-text">{event.tool}</span>
-                </div>
-              )}
-              {event.command && (
-                <div>
-                  <span className="text-gc-text-dim">Command:</span>
-                  <pre className="mt-1 text-gc-text bg-gc-bg p-2 rounded overflow-x-auto text-xs">
-                    {event.command}
-                  </pre>
-                </div>
-              )}
-              {event.description && !event.command && (
-                <div>
-                  <span className="text-gc-text-dim">Description:</span>
-                  <pre className="mt-1 text-gc-text bg-gc-bg p-2 rounded overflow-x-auto text-xs whitespace-pre-wrap">
-                    {event.description}
-                  </pre>
-                </div>
-              )}
-              {event.payload && Object.keys(event.payload).length > 0 && (
-                <div>
-                  <span className="text-gc-text-dim">Payload:</span>
-                  <pre className="mt-1 text-gc-text bg-gc-bg p-2 rounded overflow-x-auto text-xs">
-                    {JSON.stringify(event.payload, null, 2).substring(0, 500)}
-                    {JSON.stringify(event.payload).length > 500 ? '\n...(truncated)' : ''}
-                  </pre>
-                </div>
-              )}
-              <div>
-                <span className="text-gc-text-dim">Event ID:</span>
-                <span className="ml-2 text-gc-text font-mono text-xs">{event.id}</span>
-              </div>
-            </div>
-          )}
-
           {/* Streaming Steps Section */}
           {showSteps && event.streamingSteps && event.streamingSteps.length > 0 && (
             <div className="mt-3 ml-6 space-y-3 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded border border-blue-200 dark:border-blue-800">
               <div className="flex items-center space-x-2 mb-2">
                 <span className="text-lg">📋</span>
-                <span className="text-blue-700 dark:text-blue-300 font-semibold">Streaming Steps Timeline</span>
+                <span className="text-blue-700 dark:text-blue-300 font-semibold">Event Details</span>
               </div>
               <div className="space-y-2">
                 {event.streamingSteps.map((step, idx) => {

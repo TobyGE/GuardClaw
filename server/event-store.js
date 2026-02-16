@@ -45,6 +45,16 @@ export class EventStore {
     return this.events.find(e => e.id === id);
   }
 
+  updateEvent(id, updates) {
+    const event = this.events.find(e => e.id === id);
+    if (event) {
+      Object.assign(event, updates);
+      this.notifyListeners(event);
+      return true;
+    }
+    return false;
+  }
+
   getEventsByType(type) {
     return this.events.filter(e => e.type === type);
   }

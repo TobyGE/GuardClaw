@@ -388,6 +388,117 @@ app.post('/api/safeguard/analyze', async (req, res) => {
   }
 });
 
+// ─── Pre-Execution Tool Check API (for OpenClaw plugin) ─────────────────────
+
+/**
+ * Check if a tool should be allowed to execute
+ * Called by OpenClaw plugin BEFORE tool execution
+ */
+app.post('/api/check-tool', async (req, res) => {
+  const { toolName, params, sessionKey, agentId } = req.body;
+  
+  if (!toolName) {
+    return res.status(400).json({ error: 'toolName is required' });
+  }
+  
+  try {
+    // Build action object for analysis
+    const action = {
+      type: toolName,
+      summary: `${toolName}: ${JSON.stringify(params || {})}`,
+      details: {
+        tool: toolName,
+        params: params || {},
+        sessionKey,
+        agentId
+      }
+    };
+    
+    // Check whitelist/blacklist first (instant)
+    const toolKey = `${toolName}:${JSON.stringify(params || {})}`;
+    if (blockingConfig.whitelist.includes(toolKey)) {
+      console.log(`[GuardClaw] ✅ Tool whitelisted: ${toolName}`);
+      return res.json({ 
+        allowed: true, 
+        riskScore: 0, 
+        reason: 'Whitelisted',
+        source: 'whitelist'
+      });
+    }
+    
+    if (blockingConfig.blacklist.includes(toolKey)) {
+      console.log(`[GuardClaw] 🚫 Tool blacklisted: ${toolName}`);
+      return res.json({ 
+        allowed: false, 
+        riskScore: 10, 
+        reason: 'Blacklisted by user',
+        source: 'blacklist'
+      });
+    }
+    
+    // Analyze with safeguard service
+    console.log(`[GuardClaw] 🔍 Pre-execution check: ${toolName}`);
+    const analysis = await safeguardService.analyzeAction(action);
+    
+    // Decision logic
+    const autoAllowThreshold = parseInt(process.env.GUARDCLAW_AUTO_ALLOW_THRESHOLD || '6', 10);
+    const autoBlockThreshold = parseInt(process.env.GUARDCLAW_AUTO_BLOCK_THRESHOLD || '9', 10);
+    
+    let allowed = true;
+    let reason = 'Safe';
+    
+    if (analysis.riskScore >= autoBlockThreshold) {
+      allowed = false;
+      reason = analysis.reasoning || 'High risk detected';
+    } else if (analysis.riskScore > autoAllowThreshold) {
+      // Medium risk: could require manual approval in future
+      // For now, allow but log warning
+      console.warn(`[GuardClaw] ⚠️ Medium risk tool: ${toolName} (score: ${analysis.riskScore})`);
+    }
+    
+    console.log(`[GuardClaw] ${allowed ? '✅' : '🚫'} Tool check result: ${toolName}, risk=${analysis.riskScore}, allowed=${allowed}`);
+    
+    res.json({
+      allowed,
+      riskScore: analysis.riskScore,
+      reason,
+      category: analysis.category,
+      reasoning: analysis.reasoning,
+      warnings: analysis.warnings || [],
+      backend: analysis.backend
+    });
+  } catch (error) {
+    console.error('[GuardClaw] Tool check failed:', error);
+    // On error, fail-open (allow execution)
+    res.json({ 
+      allowed: true, 
+      riskScore: 0, 
+      reason: 'Analysis error, allowing by default',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Report tool execution result (for learning/auditing)
+ * Called by OpenClaw plugin AFTER tool execution
+ */
+app.post('/api/tool-executed', async (req, res) => {
+  const { toolName, params, error, durationMs, sessionKey, agentId } = req.body;
+  
+  try {
+    // Log execution for auditing
+    console.log(`[GuardClaw] 📝 Tool executed: ${toolName}, duration=${durationMs}ms, error=${!!error}`);
+    
+    // Could store in database for ML training in future
+    // For now, just acknowledge
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[GuardClaw] Failed to log execution:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Config Management APIs ──────────────────────────────────────────────────
 
 app.post('/api/config/token', async (req, res) => {
@@ -786,22 +897,38 @@ async function handleAgentEvent(event) {
     console.log(`[GuardClaw] Found ${recentSteps.length} streaming steps for session ${sessionKey}, runId: ${runId || 'N/A'}`);
   }
   
-  // Analyze recent steps (completed or in-progress)
+  // Analyze recent steps (REAL-TIME: analyze on phase=start, not waiting for completion!)
   const analyzedSteps = [];
   for (const step of recentSteps) {
-    // Analyze steps that haven't been analyzed yet
-    if (!step.analyzed && !step.safeguard) {
-      // Only analyze completed steps OR steps with enough content
-      const shouldAnalyze = step.endTime || (step.content && step.content.length > 20);
+    // Skip assistant text output - we only want thinking and tool_use
+    if (step.type === 'text') {
+      continue;
+    }
+    
+    // REAL-TIME ANALYSIS: Analyze tool_use steps immediately when they start
+    // Don't wait for endTime - we want to catch dangerous operations BEFORE they complete
+    const isToolUse = step.type === 'tool_use';
+    const hasInput = step.parsedInput || step.metadata?.input || step.content;
+    const shouldAnalyze = isToolUse && hasInput && !step.safeguard;
+    
+    if (shouldAnalyze) {
+      const isStartPhase = step.phase === 'start' || !step.endTime;
+      const statusEmoji = isStartPhase ? '⚡' : '🔍';
+      const statusText = isStartPhase ? 'REAL-TIME' : 'POST-EXEC';
       
-      if (shouldAnalyze) {
-        const stepAnalysis = await analyzeStreamingStep(step);
-        step.analyzed = true;
-        step.safeguard = stepAnalysis;
+      console.log(`[GuardClaw] ${statusEmoji} ${statusText} analyzing: ${step.toolName} (phase: ${step.phase})`);
+      const stepAnalysis = await analyzeStreamingStep(step);
+      step.safeguard = stepAnalysis;
+      
+      // Alert for high-risk operations (even if already executing)
+      if (stepAnalysis.riskScore >= 7) {
+        console.log(`[GuardClaw] 🚨 HIGH RISK detected: ${step.toolName}, risk=${stepAnalysis.riskScore}, ${isStartPhase ? 'STARTED' : 'COMPLETED'}`);
+      } else {
+        console.log(`[GuardClaw] ✅ Step analysis: risk=${stepAnalysis.riskScore}, backend=${stepAnalysis.backend}`);
       }
     }
     
-    // Include all steps (analyzed or not) with full metadata
+    // Include all steps except text (analyzed or not) with full metadata
     analyzedSteps.push({
       id: step.id,
       type: step.type,
@@ -820,27 +947,40 @@ async function handleAgentEvent(event) {
   
   console.log(`[GuardClaw] DEBUG: storedEvent type=${storedEvent.type}, eventDetails.type=${eventDetails.type}, recentSteps=${recentSteps.length}`);
 
-  // Generate summary for lifecycle:end events with tool calls
+  // Generate summary and include steps for events with tool calls
   const isLifecycleEnd = eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end';
+  const isChatUpdate = eventDetails.type === 'chat-update' || eventDetails.type === 'agent-message';
   const toolSteps = analyzedSteps.filter(s => s.type === 'tool_use' && s.toolName);
   
-  if (isLifecycleEnd && toolSteps.length > 0) {
-    console.log(`[GuardClaw] 🔧 Lifecycle end with ${toolSteps.length} tool calls, generating summary...`);
-    try {
-      const summary = await generateEventSummary(analyzedSteps);
-      storedEvent.summary = summary;
-      storedEvent.streamingSteps = analyzedSteps;  // Include steps only when we have summary
-      console.log(`[GuardClaw] ✅ Generated summary: ${summary.substring(0, 100)}...`);
-    } catch (error) {
-      console.error(`[GuardClaw] ❌ Summary generation failed:`, error.message);
-      // Fallback summary
-      const toolNames = toolSteps.map(s => s.toolName).filter((v, i, a) => a.indexOf(v) === i);
-      storedEvent.summary = `Used ${toolSteps.length} tool${toolSteps.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
-      storedEvent.streamingSteps = analyzedSteps;
-    }
-  } else {
-    // Don't include steps for individual tool events to avoid duplication
-    storedEvent.streamingSteps = [];
+  // Always include streaming steps if available (no duplication since we filter by runId)
+  storedEvent.streamingSteps = analyzedSteps;
+  
+  // Generate summary for lifecycle:end or chat-update with tools
+  const shouldGenerateSummary = (isLifecycleEnd || isChatUpdate) && toolSteps.length > 0;
+  
+  if (shouldGenerateSummary) {
+    // Generate fallback summary immediately (fast)
+    const toolNames = toolSteps.map(s => s.toolName).filter((v, i, a) => a.indexOf(v) === i);
+    storedEvent.summary = `Used ${toolSteps.length} tool${toolSteps.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
+    storedEvent.summaryGenerating = true;  // Flag that we're generating
+    console.log(`[GuardClaw] ⚡ Event has ${toolSteps.length} tools, using fallback summary, will generate AI summary in background...`);
+    
+    // Generate AI summary asynchronously (slow, don't block)
+    const eventId = storedEvent.id;
+    generateEventSummary(analyzedSteps)
+      .then(aiSummary => {
+        console.log(`[GuardClaw] ✅ AI summary generated: ${aiSummary.substring(0, 100)}...`);
+        eventStore.updateEvent(eventId, { 
+          summary: aiSummary,
+          summaryGenerating: false
+        });
+      })
+      .catch(error => {
+        console.error(`[GuardClaw] ❌ AI summary generation failed:`, error.message);
+        eventStore.updateEvent(eventId, { 
+          summaryGenerating: false 
+        });
+      });
   }
 
   // Note: We used to create separate tool-use events here, but that's redundant
@@ -1001,81 +1141,156 @@ async function generateEventSummary(steps) {
 
   // Try to generate AI summary with local LLM
   try {
-    // Build COMPLETE context from all steps - don't truncate!
-    let contextLines = [];
-    
-    contextLines.push('=== AI Agent Activity Timeline ===\n');
-    
-    // Add ALL steps in chronological order with full details
+    // Build SIMPLIFIED context - just tool names and key actions (avoid model crashes)
     const sortedSteps = [...steps].sort((a, b) => a.timestamp - b.timestamp);
+    const toolActions = [];
     
-    sortedSteps.forEach((step, idx) => {
-      contextLines.push(`\nStep ${idx + 1} [${step.type}]:`);
-      
-      if (step.type === 'thinking') {
-        contextLines.push(`Thinking: ${step.content || '(empty)'}`);
-      } else if (step.type === 'tool_use') {
-        contextLines.push(`Tool: ${step.toolName}`);
+    sortedSteps.forEach(step => {
+      if (step.type === 'tool_use' && step.toolName) {
+        const tool = step.toolName;
         const input = step.metadata?.input || step.parsedInput || {};
-        contextLines.push(`Input: ${JSON.stringify(input, null, 2)}`);
-        if (step.metadata?.result) {
-          contextLines.push(`Result: ${step.metadata.result}`);
-        }
-        if (step.duration) {
-          contextLines.push(`Duration: ${step.duration}ms`);
-        }
-      } else if (step.type === 'text') {
-        contextLines.push(`Output: ${step.content || '(empty)'}`);
-      } else if (step.type === 'exec') {
-        contextLines.push(`Command: ${step.command || step.content}`);
-        if (step.output) {
-          contextLines.push(`Output: ${step.output}`);
+        
+        // Extract key info based on tool type
+        if (tool === 'read') {
+          toolActions.push(`read ${input.file_path || input.path || 'file'}`);
+        } else if (tool === 'write') {
+          toolActions.push(`write ${input.file_path || input.path || 'file'}`);
+        } else if (tool === 'edit') {
+          toolActions.push(`edit ${input.file_path || input.path || 'file'}`);
+        } else if (tool === 'exec') {
+          const cmd = input.command || '';
+          const shortCmd = cmd.length > 40 ? cmd.substring(0, 40) + '...' : cmd;
+          toolActions.push(`exec "${shortCmd}"`);
+        } else if (tool === 'process') {
+          toolActions.push(`process ${input.action || ''}`);
+        } else {
+          toolActions.push(tool);
         }
       }
     });
 
-    const context = contextLines.join('\n');
+    const context = toolActions.join(', ');
     
-    console.log('[GuardClaw] Summary context length:', context.length, 'chars');
-
-    console.log('[GuardClaw] 📝 Calling LLM, context:', context.substring(0, 500) + '...');
+    console.log('[GuardClaw] Summary context:', context);
 
     if (!safeguardService.llm) {
       console.error('[GuardClaw] ❌ LLM client not initialized!');
       return fallbackSummary;
     }
 
-    const response = await safeguardService.llm.chat.completions.create({
-      model: safeguardService.config.model,
-      messages: [
+    // Use different prompts based on model
+    const modelName = safeguardService.config.model || 'qwen/qwen3-1.7b';
+    const isOSS = modelName.includes('oss') || modelName.includes('gpt');
+    
+    let messages, temperature, maxTokens;
+    
+    if (isOSS) {
+      // GPT-OSS-20B: Can handle more sophisticated instructions
+      messages = [
         { 
           role: 'system', 
-          content: '你是一个AI助手总结器。用简洁的中文描述AI做了什么事情，重点说做了什么、为什么做，1-3句话即可。' 
+          content: 'You are a helpful assistant that summarizes AI activities concisely. Provide clear, natural summaries in 1-2 sentences.' 
         },
         { 
           role: 'user', 
-          content: `总结这个AI的操作：\n\n${context}` 
+          content: `Summarize what the AI did:\n\nActions: ${context}\n\nSummary:` 
         }
-      ],
-      temperature: 0.7,
-      max_tokens: 200
-    });
+      ];
+      temperature = 0.3;
+      maxTokens = 100;
+    } else {
+      // Smaller models: Simple format
+      messages = [
+        { 
+          role: 'user', 
+          content: `What did the AI do?\n\nActions: ${context}\n\nAnswer (one short sentence):` 
+        }
+      ];
+      temperature = 0.2;
+      maxTokens = 80;
+    }
 
-    const summary = response.choices[0]?.message?.content?.trim();
-    if (summary && summary.length > 3) {
-      console.log('[GuardClaw] ✅ LLM返回summary:', summary);
+    console.log('[GuardClaw] 📝 Calling LLM for summary (model:', modelName, ')...');
+
+    const response = await Promise.race([
+      safeguardService.llm.chat.completions.create({
+        model: modelName,
+        messages,
+        temperature,
+        max_tokens: maxTokens
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('LLM timeout after 15s')), 15000)
+      )
+    ]);
+
+    let summary = response?.choices?.[0]?.message?.content?.trim();
+    
+    // Aggressive cleanup for small models (especially qwen3 with <think> tags)
+    if (summary) {
+      // Strategy: Extract content BEFORE <think>, or take first meaningful sentence
+      
+      // Case 1: Content starts with <think> - extract nothing, will use fallback
+      if (summary.startsWith('<think>')) {
+        console.log('[GuardClaw] ⚠️ Response starts with <think>, using fallback');
+        summary = null;
+      } else {
+        // Case 2: Content before <think> exists - extract it
+        const thinkIndex = summary.search(/<think>/i);
+        if (thinkIndex > 0) {
+          summary = summary.substring(0, thinkIndex).trim();
+          console.log('[GuardClaw] 🔧 Removed <think> section');
+        }
+        
+        // Remove any remaining think tags
+        summary = summary.replace(/<\/?think>/gi, '');
+        
+        // Remove meta prefixes
+        summary = summary.replace(/^(Summary:|Answer:|Response:|Describe:|Okay,?\s+|Let me\s+|First,?\s+)/i, '');
+        
+        // Take only first sentence/line
+        summary = summary.split(/\n/)[0];
+        summary = summary.split(/\.\s+[A-Z]/)[0]; // Stop at sentence boundary
+        
+        // Remove trailing thinking phrases
+        summary = summary.replace(/\s+(Okay|Let me|First|The user|I need|Let's).*$/i, '');
+        
+        summary = summary.trim();
+        
+        // If summary is too short or empty after cleanup, reject it
+        if (!summary || summary.length < 8) {
+          console.log('[GuardClaw] ⚠️ Summary too short after cleanup:', summary);
+          summary = null;
+        }
+        
+        // If starts with lowercase verb, prepend "The AI"
+        if (summary && /^[a-z]/.test(summary)) {
+          summary = 'The AI ' + summary;
+        }
+        
+        // Ensure it ends with period
+        if (summary && !summary.match(/[.!?]$/)) {
+          summary = summary + '.';
+        }
+      }
+    }
+    
+    if (summary && summary.length > 10) {
+      console.log('[GuardClaw] ✅ LLM generated summary:', summary);
       return summary;
     } else {
-      console.warn('[GuardClaw] ⚠️ LLM返回空summary:', summary);
+      console.warn('[GuardClaw] ⚠️ LLM returned empty/invalid summary, using fallback');
     }
   } catch (error) {
-    console.error('[GuardClaw] ❌ LLM调用失败:', error.message);
-    if (error.response) {
-      console.error('[GuardClaw] 错误详情:', error.response.status, error.response.statusText);
+    const errMsg = error.message || String(error);
+    console.error('[GuardClaw] ❌ LLM call failed:', errMsg);
+    
+    if (errMsg.includes('crashed') || errMsg.includes('timeout')) {
+      console.error('[GuardClaw] Model may need restart in LM Studio');
     }
   }
 
-  console.log('[GuardClaw] 💤 使用fallback:', fallbackSummary);
+  console.log('[GuardClaw] 💤 Using fallback:', fallbackSummary);
   return fallbackSummary;
 }
 
@@ -1189,8 +1404,10 @@ function shouldSkipEvent(eventDetails) {
 function shouldAnalyzeEvent(eventDetails) {
   if (eventDetails.type === 'exec-started') return true;
   if (eventDetails.type === 'tool-call') return true;
-  if (eventDetails.type === 'chat-update' && eventDetails.description) return true;
-  if (eventDetails.type === 'agent-message' && eventDetails.description) return true;
+  // Always analyze chat-update/agent-message that have content
+  if (eventDetails.type === 'chat-update') return true;
+  if (eventDetails.type === 'agent-message') return true;
+  if (eventDetails.type === 'chat-message') return true;
   return false;
 }
 
@@ -1225,7 +1442,7 @@ function extractAction(event, eventDetails) {
   } else if (eventDetails.tool === 'message') {
     const target = event.payload?.data?.input?.target || 'unknown';
     action.summary = `send message to: ${target}`;
-  } else if (eventDetails.type === 'chat-update' || eventDetails.type === 'agent-message') {
+  } else if (eventDetails.type === 'chat-update' || eventDetails.type === 'agent-message' || eventDetails.type === 'chat-message') {
     const text = eventDetails.description || '';
     action.summary = `chat message: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
     action.fullText = text;
