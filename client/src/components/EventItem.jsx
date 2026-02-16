@@ -35,8 +35,23 @@ function EventItem({ event }) {
 
   // Extract description/content
   const getEventContent = () => {
+    // For chat-update with summary, show summary instead of full text
+    if ((eventType === 'chat-update' || eventType === 'chat-message') && event.summary) {
+      return event.summary;
+    }
+    
     if (event.command) return event.command;
     if (event.description) return event.description;
+    
+    // Don't show full AI response text for chat-update
+    // The streaming steps will show the details
+    if ((eventType === 'chat-update' || eventType === 'chat-message') && event.streamingSteps && event.streamingSteps.length > 0) {
+      const toolCount = event.streamingSteps.filter(s => s.type === 'tool_use').length;
+      if (toolCount > 0) {
+        return `Agent response with ${toolCount} tool call${toolCount > 1 ? 's' : ''}`;
+      }
+    }
+    
     if (event.payload?.message?.content) {
       const content = event.payload.message.content;
       if (typeof content === 'string') return content;
@@ -207,6 +222,29 @@ function EventItem({ event }) {
                         )}
                       </div>
                       
+                      {/* Tool Input Parameters */}
+                      {step.type === 'tool_use' && step.metadata && step.metadata.input && (
+                        <div className="mb-2">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Input:</span>
+                          <code className="block mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
+                            {JSON.stringify(step.metadata.input, null, 2)}
+                          </code>
+                        </div>
+                      )}
+                      
+                      {/* Tool Result */}
+                      {step.type === 'tool_use' && step.metadata && step.metadata.result && (
+                        <div className="mb-2">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Result:</span>
+                          <code className="block mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
+                            {typeof step.metadata.result === 'string' 
+                              ? step.metadata.result 
+                              : JSON.stringify(step.metadata.result, null, 2)}
+                          </code>
+                        </div>
+                      )}
+                      
+                      {/* Exec command (legacy) */}
                       {step.command && (
                         <div className="mb-2">
                           <span className="text-xs text-gray-600 dark:text-gray-400">Command:</span>
@@ -216,12 +254,27 @@ function EventItem({ event }) {
                         </div>
                       )}
                       
-                      {step.content && step.type !== 'exec' && (
+                      {/* Text content for thinking/text steps */}
+                      {step.content && step.type !== 'tool_use' && (
                         <div className="mb-2">
                           <span className="text-xs text-gray-600 dark:text-gray-400">Content:</span>
                           <div className="mt-1 text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
                             {step.content}
                             {step.content.length >= 200 && '... (truncated)'}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Phase progression indicator */}
+                      {step.metadata && step.metadata.phases && step.metadata.phases.length > 1 && (
+                        <div className="mb-2">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">Phases:</span>
+                          <div className="mt-1 flex space-x-1">
+                            {step.metadata.phases.map((phase, pIdx) => (
+                              <span key={pIdx} className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                {phase}
+                              </span>
+                            ))}
                           </div>
                         </div>
                       )}

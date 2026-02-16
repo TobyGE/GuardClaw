@@ -68,33 +68,76 @@ export class StreamingTracker {
       }
       currentThinking.content += data.delta || '';
     } else if (stream === 'tool' && data.name) {
-      // Tool use stream
-      let currentTool = session.steps.find(s => s.toolId === data.id && !s.endTime);
+      // Tool use stream - OpenClaw format uses toolCallId
+      const toolId = data.toolCallId || data.id;
+      const phase = data.phase || 'update';
+      
+      let currentTool = session.steps.find(s => s.toolId === toolId && s.type === 'tool_use');
+      
+      // Create step on first phase (start or update)
       if (!currentTool) {
         currentTool = {
-          id: `${runId}-tool-${session.steps.length}`,
-          timestamp: Date.now(),
+          id: `${runId}-tool-${toolId}`,
+          timestamp: payload.ts || Date.now(),
           type: 'tool_use',
           toolName: data.name,
-          toolId: data.id,
+          toolId: toolId,
           content: '',
+          phase: phase,
           runId: runId,
-          metadata: { tool: data.name }
+          metadata: { 
+            tool: data.name,
+            phases: [phase]
+          }
         };
         session.steps.push(currentTool);
+      } else {
+        // Track phase progression
+        if (!currentTool.metadata.phases.includes(phase)) {
+          currentTool.metadata.phases.push(phase);
+        }
+        currentTool.phase = phase;
       }
       
-      // Accumulate tool input JSON
-      if (data.delta) {
-        currentTool.content += data.delta;
-      }
-      
-      // Finalize tool when complete
-      if (data.input) {
-        currentTool.parsedInput = data.input;
-        currentTool.metadata.input = data.input;
-        currentTool.endTime = Date.now();
-        currentTool.duration = currentTool.endTime - currentTool.timestamp;
+      // Handle different phases
+      if (phase === 'start') {
+        currentTool.startTime = payload.ts || Date.now();
+        // OpenClaw uses 'args' for input parameters
+        if (data.args) {
+          currentTool.parsedInput = data.args;
+          currentTool.content = JSON.stringify(data.args, null, 2);
+          currentTool.metadata.input = data.args;
+        }
+        // Also support standard 'input' field
+        if (data.input) {
+          currentTool.parsedInput = data.input;
+          currentTool.content = JSON.stringify(data.input, null, 2);
+          currentTool.metadata.input = data.input;
+        }
+      } else if (phase === 'update') {
+        // Accumulate deltas if present
+        if (data.delta) {
+          currentTool.content += data.delta;
+        }
+        // Update with partial results
+        if (data.partialResult) {
+          currentTool.metadata.partialResult = data.partialResult;
+        }
+      } else if (phase === 'result') {
+        // Finalize with result
+        // OpenClaw uses 'meta' for result summary
+        if (data.meta !== undefined) {
+          currentTool.result = data.meta;
+          currentTool.metadata.result = data.meta;
+          currentTool.metadata.isError = data.isError;
+        }
+        // Also support standard 'result' field
+        if (data.result !== undefined) {
+          currentTool.result = data.result;
+          currentTool.metadata.result = data.result;
+        }
+        currentTool.endTime = payload.ts || Date.now();
+        currentTool.duration = currentTool.endTime - (currentTool.startTime || currentTool.timestamp);
       }
     } else if (stream === 'assistant' && data.delta) {
       // Assistant text stream

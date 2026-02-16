@@ -36,6 +36,40 @@ export class SafeguardService {
     return url;
   }
 
+  // Get an OpenAI-compatible client for summary generation
+  get llm() {
+    if (!this._llmClient && (this.backend === 'lmstudio' || this.backend === 'ollama')) {
+      // Create a minimal OpenAI-compatible client
+      const baseURL = this.backend === 'lmstudio' ? this.config.lmstudioUrl : this.config.ollamaUrl;
+      this._llmClient = {
+        chat: {
+          completions: {
+            create: async (opts) => {
+              const url = `${baseURL}/chat/completions`;
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model: opts.model || this.config.model || 'auto',
+                  messages: opts.messages,
+                  temperature: opts.temperature || 0.7,
+                  max_tokens: opts.max_tokens || 200
+                })
+              });
+              if (!response.ok) {
+                throw new Error(`LLM API error: ${response.status}`);
+              }
+              return await response.json();
+            }
+          }
+        }
+      };
+      // Store model config
+      this.config.model = this.backend === 'lmstudio' ? this.config.lmstudioModel : this.config.ollamaModel;
+    }
+    return this._llmClient || null;
+  }
+
   async analyzeAction(action) {
     // Wrapper for different action types
     if (action.type === 'exec' || action.tool === 'exec') {

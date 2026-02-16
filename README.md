@@ -115,6 +115,43 @@ guardclaw start
 
 GuardClaw auto-connects to nanobot's monitoring server on `:18790`.
 
+## 🔧 Advanced: Enable Tool Event Monitoring (OpenClaw)
+
+By default, GuardClaw receives text events but **not tool execution events** (read/write/exec). To enable full monitoring, patch OpenClaw to broadcast tool events to all clients:
+
+**1. Modify OpenClaw source:**
+
+Edit `~/openclaw/src/gateway/server-chat.ts` (around line 370):
+
+```typescript
+// Find this block:
+if (isToolEvent) {
+  const recipients = toolEventRecipients.get(evt.runId);
+  if (recipients && recipients.size > 0) {
+    broadcastToConnIds("agent", toolPayload, recipients);
+  }
+  // ADD THIS LINE ↓
+  broadcast("agent", toolPayload);
+}
+```
+
+**2. Rebuild OpenClaw:**
+
+```bash
+cd ~/openclaw
+npm run build
+```
+
+**3. Restart OpenClaw Gateway:**
+
+```bash
+node ~/openclaw/openclaw.mjs gateway restart
+```
+
+**Why this works:** OpenClaw originally only sends tool events to clients that start agent runs. GuardClaw is a **passive observer** and shouldn't start runs. This one-line patch broadcasts tool events to all WebSocket clients with the `tool-events` capability.
+
+**Verify:** Check GuardClaw's Streaming Steps—you should now see read/write/exec with full input/output details.
+
 ## Tech Stack
 
 Node.js + Express + WebSocket + React + LM Studio (local LLM)

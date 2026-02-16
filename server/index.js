@@ -18,7 +18,7 @@ import { streamingTracker } from './streaming-tracker.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Backend selection: auto (default) | openclaw | nanobot
 const BACKEND = (process.env.BACKEND || 'auto').toLowerCase();
@@ -605,6 +605,19 @@ async function handleAgentEvent(event) {
     console.log('[GuardClaw] Sample event:', JSON.stringify(event, null, 2).substring(0, 500));
   }
 
+  // Log tool events with full details
+  if (event.payload?.stream === 'tool') {
+    console.log('[GuardClaw] TOOL EVENT:', JSON.stringify({
+      name: event.payload.data?.name,
+      phase: event.payload.data?.phase,
+      toolCallId: event.payload.data?.toolCallId,
+      input: event.payload.data?.input,
+      result: event.payload.data?.result,
+      partialResult: event.payload.data?.partialResult,
+      fullData: event.payload.data
+    }, null, 2));
+  }
+
   if (eventType && (eventType.startsWith('exec') || eventType === 'agent')) {
     console.log('[GuardClaw] Important event:', JSON.stringify(event, null, 2));
   } else {
@@ -655,7 +668,7 @@ async function handleAgentEvent(event) {
       }
     }
     
-    // Include all steps (analyzed or not)
+    // Include all steps (analyzed or not) with full metadata
     analyzedSteps.push({
       id: step.id,
       type: step.type,
@@ -664,33 +677,87 @@ async function handleAgentEvent(event) {
       content: step.content?.substring(0, 200) || '', // Truncate for display
       toolName: step.toolName,
       command: step.command,
+      metadata: step.metadata, // Include full metadata for frontend
       safeguard: step.safeguard || null
     });
   }
   
+  // Sort by timestamp (oldest first) for chronological display
+  analyzedSteps.sort((a, b) => a.timestamp - b.timestamp);
+  
   storedEvent.streamingSteps = analyzedSteps;
 
-  // NEW: Create separate events for each tool call
-  // This makes tool usage visible in the main event stream
-  for (const step of recentSteps) {
-    if (step.type === 'tool_use' && step.toolName && !step.emittedAsEvent) {
-      const toolEvent = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  // Note: We used to create separate tool-use events here, but that's redundant
+  // now that chat-message events include complete streaming steps.
+  // All tool information is visible in the Streaming Steps section.
+
+  // Generate summary for chat-update events with tool usage
+  if (eventDetails.type === 'chat-update' && recentSteps.length > 0) {
+    const session = streamingTracker.getSession(sessionKey);
+    
+    // Check if we need to generate/update summary
+    const toolSteps = recentSteps.filter(s => s.type === 'tool_use' && s.toolName);
+    const hasTools = toolSteps.length > 0;
+    
+    // Generate if: has tools AND (no summary OR steps changed OR older than 5s)
+    const needsUpdate = hasTools && 
+                       (!session.lastSummary || 
+                        session.lastSummarySteps !== recentSteps.length ||
+                        Date.now() - (session.lastSummaryTimestamp || 0) > 5000);
+    
+    if (needsUpdate) {
+      console.log('[GuardClaw] Generating summary for chat-update with', toolSteps.length, 'tools,', recentSteps.length, 'total steps');
+      const summary = await generateEventSummary(recentSteps);
+      storedEvent.summary = summary;
+      session.lastSummary = summary;
+      session.lastSummaryTimestamp = Date.now();
+      session.lastSummarySteps = recentSteps.length;
+      console.log('[GuardClaw] ✅ Generated summary:', summary);
+    } else if (session.lastSummary) {
+      // Reuse existing summary
+      storedEvent.summary = session.lastSummary;
+      console.log('[GuardClaw] 🔄 Reusing summary:', session.lastSummary);
+    }
+  }
+  
+  // Create a summary event when lifecycle ends
+  if (eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end') {
+    const session = streamingTracker.getSession(sessionKey);
+    const recentSteps = streamingTracker.getSessionSteps(sessionKey, 20);
+    
+    if (recentSteps.length > 0 && session.lastSummary) {
+      // Create a chat-message event with the summary
+      const analyzedSteps = recentSteps.map(step => ({
+        id: step.id,
+        type: step.type,
         timestamp: step.timestamp,
-        rawEvent: { event: 'tool-use', tool: step.toolName, payload: step.metadata },
-        type: 'tool-use',
-        subType: step.toolName,
-        description: `${step.toolName}: ${step.parsedInput ? JSON.stringify(step.parsedInput).substring(0, 100) : step.content?.substring(0, 100) || ''}`,
-        tool: step.toolName,
-        command: step.content,
-        payload: step.metadata || {},
+        duration: step.duration,
+        content: step.content?.substring(0, 200) || '',
+        toolName: step.toolName,
+        command: step.command,
+        metadata: step.metadata,
+        safeguard: step.safeguard || null
+      }));
+      analyzedSteps.sort((a, b) => a.timestamp - b.timestamp);
+      
+      const summaryEvent = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        rawEvent: event,
+        type: 'chat-message',
+        subType: 'summary',
+        description: session.lastSummary,
+        summary: session.lastSummary,
+        tool: null,
+        command: null,
+        payload: event.payload || event,
         sessionKey: sessionKey,
-        streamingSteps: [],
-        safeguard: step.safeguard || await analyzeStreamingStep(step)
+        streamingSteps: analyzedSteps,
+        safeguard: { riskScore: 1, category: 'safe', reasoning: 'Agent response', allowed: true, backend: 'classification' }
       };
       
-      eventStore.addEvent(toolEvent);
-      step.emittedAsEvent = true; // Mark to avoid duplicates
+      eventStore.addEvent(summaryEvent);
+      console.log('[GuardClaw] Created summary event on lifecycle.end:', summaryEvent.id);
     }
   }
 
@@ -723,6 +790,116 @@ async function handleAgentEvent(event) {
   }
 
   eventStore.addEvent(storedEvent);
+}
+
+// Generate a concise summary of an event based on its streaming steps
+async function generateEventSummary(steps) {
+  if (!steps || steps.length === 0) {
+    return 'No activity';
+  }
+
+  // Extract tool usage
+  const toolSteps = steps.filter(s => s.type === 'tool_use' && s.toolName);
+  const thinkingSteps = steps.filter(s => s.type === 'thinking');
+  const textSteps = steps.filter(s => s.type === 'text');
+
+  // Debug: log step types
+  console.log(`[GuardClaw] generateEventSummary: ${steps.length} total steps, ${toolSteps.length} tool, ${thinkingSteps.length} thinking, ${textSteps.length} text`);
+  if (toolSteps.length > 0) {
+    console.log(`[GuardClaw] Tool steps: ${toolSteps.map(s => s.toolName).join(', ')}`);
+  }
+
+  // Build a simple summary first (fallback)
+  let fallbackSummary = '';
+  if (toolSteps.length > 0) {
+    const toolNames = toolSteps.map(s => s.toolName).filter((v, i, a) => a.indexOf(v) === i);
+    fallbackSummary = `Used ${toolSteps.length} tool${toolSteps.length > 1 ? 's' : ''}: ${toolNames.join(', ')}`;
+  } else if (textSteps.length > 0) {
+    fallbackSummary = 'Generated text response';
+  } else if (thinkingSteps.length > 0) {
+    fallbackSummary = 'Reasoning step';
+  } else {
+    fallbackSummary = 'Processing...';
+  }
+
+  // Try to generate AI summary with local LLM
+  try {
+    // Build COMPLETE context from all steps - don't truncate!
+    let contextLines = [];
+    
+    contextLines.push('=== AI Agent Activity Timeline ===\n');
+    
+    // Add ALL steps in chronological order with full details
+    const sortedSteps = [...steps].sort((a, b) => a.timestamp - b.timestamp);
+    
+    sortedSteps.forEach((step, idx) => {
+      contextLines.push(`\nStep ${idx + 1} [${step.type}]:`);
+      
+      if (step.type === 'thinking') {
+        contextLines.push(`Thinking: ${step.content || '(empty)'}`);
+      } else if (step.type === 'tool_use') {
+        contextLines.push(`Tool: ${step.toolName}`);
+        const input = step.metadata?.input || step.parsedInput || {};
+        contextLines.push(`Input: ${JSON.stringify(input, null, 2)}`);
+        if (step.metadata?.result) {
+          contextLines.push(`Result: ${step.metadata.result}`);
+        }
+        if (step.duration) {
+          contextLines.push(`Duration: ${step.duration}ms`);
+        }
+      } else if (step.type === 'text') {
+        contextLines.push(`Output: ${step.content || '(empty)'}`);
+      } else if (step.type === 'exec') {
+        contextLines.push(`Command: ${step.command || step.content}`);
+        if (step.output) {
+          contextLines.push(`Output: ${step.output}`);
+        }
+      }
+    });
+
+    const context = contextLines.join('\n');
+    
+    console.log('[GuardClaw] Summary context length:', context.length, 'chars');
+
+    console.log('[GuardClaw] 📝 Calling LLM, context:', context.substring(0, 500) + '...');
+
+    if (!safeguardService.llm) {
+      console.error('[GuardClaw] ❌ LLM client not initialized!');
+      return fallbackSummary;
+    }
+
+    const response = await safeguardService.llm.chat.completions.create({
+      model: safeguardService.config.model,
+      messages: [
+        { 
+          role: 'system', 
+          content: '你是一个AI助手总结器。用简洁的中文描述AI做了什么事情，重点说做了什么、为什么做，1-3句话即可。' 
+        },
+        { 
+          role: 'user', 
+          content: `总结这个AI的操作：\n\n${context}` 
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 200
+    });
+
+    const summary = response.choices[0]?.message?.content?.trim();
+    if (summary && summary.length > 3) {
+      console.log('[GuardClaw] ✅ LLM返回summary:', summary);
+      return summary;
+    } else {
+      console.warn('[GuardClaw] ⚠️ LLM返回空summary:', summary);
+    }
+  } catch (error) {
+    console.error('[GuardClaw] ❌ LLM调用失败:', error.message);
+    if (error.response) {
+      console.error('[GuardClaw] 错误详情:', error.response.status, error.response.statusText);
+    }
+  }
+
+  console.log('[GuardClaw] 💤 使用fallback:', fallbackSummary);
+  return fallbackSummary;
 }
 
 // Analyze a streaming step (thinking, tool_use, exec)
