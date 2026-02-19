@@ -185,18 +185,24 @@ export class ClawdbotClient {
     this.intentionalDisconnect = false;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        fn(value);
+      };
+
       const timeout = setTimeout(() => {
         this.ws?.close();
-        const error = new Error('Connection timeout - is OpenClaw Gateway running?');
-        reject(error);
+        settle(reject, new Error('Connection timeout - is OpenClaw Gateway running?'));
         this.scheduleReconnect();
       }, 10000);
 
       try {
         this.ws = new WebSocket(this.url);
       } catch (error) {
-        clearTimeout(timeout);
-        reject(new Error(`Failed to create WebSocket: ${error.message}`));
+        settle(reject, new Error(`Failed to create WebSocket: ${error.message}`));
         this.scheduleReconnect();
         return;
       }
@@ -208,20 +214,18 @@ export class ClawdbotClient {
       this.ws.on('message', (data) => {
         try {
           const message = JSON.parse(data.toString());
-          this.handleMessage(message, resolve, reject, timeout);
+          this.handleMessage(message, (v) => settle(resolve, v), (e) => settle(reject, e));
         } catch (error) {
           console.error('[OpenClawClient] Failed to parse message:', error);
         }
       });
 
       this.ws.on('error', (error) => {
-        clearTimeout(timeout);
         console.error('[OpenClawClient] WebSocket error:', error.message);
-        // Don't reject here, let close event handle it
+        // Let close event handle rejection
       });
 
       this.ws.on('close', (code, reason) => {
-        clearTimeout(timeout);
         const wasConnected = this.connected;
         this.connected = false;
 
@@ -229,6 +233,9 @@ export class ClawdbotClient {
 
         if (wasConnected) {
           this.onDisconnect();
+        } else {
+          // Never connected — reject so Promise.allSettled() can proceed
+          settle(reject, new Error(`Connection refused: ${code} ${reason || '(no reason)'}`));
         }
 
         // Schedule reconnect if not intentional
@@ -239,7 +246,7 @@ export class ClawdbotClient {
     });
   }
 
-  handleMessage(message, connectResolve, connectReject, timeout) {
+  handleMessage(message, connectResolve, connectReject) {
     // Handle connection challenge
     if (message.type === 'event' && message.event === 'connect.challenge') {
       this.handleChallenge(message.payload);
@@ -248,7 +255,6 @@ export class ClawdbotClient {
 
     // Handle hello (connection successful)
     if (message.type === 'hello-ok' || (message.type === 'res' && message.payload?.type === 'hello-ok')) {
-      clearTimeout(timeout);
       this.connected = true;
 
       // Reset reconnect state on successful connection
@@ -267,10 +273,10 @@ export class ClawdbotClient {
       const pending = this.pendingRequests.get(message.id);
       if (pending) {
         this.pendingRequests.delete(message.id);
+        clearTimeout(pending.timerId);
 
         // If payload looks like a hello-ok, treat it as connection success
         if (message.payload && !this.connected) {
-          clearTimeout(timeout);
           this.connected = true;
           this.reconnectAttempts = 0;
           this.currentReconnectDelay = this.reconnectDelay;
@@ -303,6 +309,7 @@ export class ClawdbotClient {
       const pending = this.pendingRequests.get(message.id);
       if (pending) {
         this.pendingRequests.delete(message.id);
+        clearTimeout(pending.timerId);
         if (message.ok) {
           pending.resolve(message.payload);
         } else {
@@ -417,16 +424,15 @@ export class ClawdbotClient {
     };
 
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify(request));
-
-      // Timeout after 30 seconds
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
           reject(new Error('Request timeout'));
         }
       }, 30000);
+
+      this.pendingRequests.set(id, { resolve, reject, timerId });
+      this.ws.send(JSON.stringify(request));
     });
   }
 
@@ -478,6 +484,10 @@ export class ClawdbotClient {
 
     this.connected = false;
     this.eventListeners = [];
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timerId);
+      pending.reject(new Error('Disconnected'));
+    }
     this.pendingRequests.clear();
 
     console.log('[OpenClawClient] Disconnected (intentional)');

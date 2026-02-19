@@ -40,7 +40,10 @@ export class SafeguardService {
   get llm() {
     if (!this._llmClient && (this.backend === 'lmstudio' || this.backend === 'ollama')) {
       // Create a minimal OpenAI-compatible client
-      const baseURL = this.backend === 'lmstudio' ? this.config.lmstudioUrl : this.config.ollamaUrl;
+      // Ollama's OpenAI-compat endpoint is at /v1/chat/completions
+      const baseURL = this.backend === 'lmstudio'
+        ? this.config.lmstudioUrl
+        : `${this.config.ollamaUrl}/v1`;
       this._llmClient = {
         chat: {
           completions: {
@@ -537,22 +540,23 @@ OUTPUT ONLY THE JSON OBJECT.`;
       timestamp: Date.now()
     });
 
-    // Cleanup old entries (keep last 1000, expire after 1 hour)
+    // Cleanup: expire entries older than 1 hour, then trim to 800 by evicting
+    // the oldest insertion-order entries (Map preserves insertion order).
     if (this.cache.size > 1000) {
       const now = Date.now();
       const oneHour = 60 * 60 * 1000;
-      
       for (const [k, v] of this.cache.entries()) {
         if (now - v.timestamp > oneHour) {
           this.cache.delete(k);
         }
       }
-
-      // If still too large, remove oldest entries
+      // If still too large, delete the first (oldest) 200 entries in O(k)
       if (this.cache.size > 1000) {
-        const entries = Array.from(this.cache.entries());
-        entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
-        this.cache = new Map(entries.slice(0, 1000));
+        let deleted = 0;
+        for (const k of this.cache.keys()) {
+          this.cache.delete(k);
+          if (++deleted >= 200) break;
+        }
       }
     }
   }

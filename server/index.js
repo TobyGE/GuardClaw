@@ -147,7 +147,11 @@ app.get('/api/events', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   const listener = (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch (err) {
+      eventStore.removeListener(listener);
+    }
   };
 
   eventStore.addListener(listener);
@@ -983,40 +987,6 @@ async function handleAgentEvent(event) {
       });
   }
 
-  // Note: We used to create separate tool-use events here, but that's redundant
-  // now that chat-message events include complete streaming steps.
-  // All tool information is visible in the Streaming Steps section.
-
-  // OLD CODE - kept for compatibility with chat-update events
-  console.log(`[GuardClaw] Checking summary generation: type=${eventDetails.type}, recentSteps=${recentSteps.length}`);
-  if ((eventDetails.type === 'chat-update' || eventDetails.type === 'agent-message') && recentSteps.length > 0) {
-    const session = streamingTracker.getSession(sessionKey);
-    console.log('[GuardClaw] Summary check passed, session:', !!session);
-    
-    // Check if we need to generate/update summary
-    const toolSteps = recentSteps.filter(s => s.type === 'tool_use' && s.toolName);
-    const hasTools = toolSteps.length > 0;
-    
-    // Generate if: has tools AND (no summary OR steps changed OR older than 5s)
-    const needsUpdate = hasTools && 
-                       (!session.lastSummary || 
-                        session.lastSummarySteps !== recentSteps.length ||
-                        Date.now() - (session.lastSummaryTimestamp || 0) > 5000);
-    
-    if (needsUpdate) {
-      console.log('[GuardClaw] Generating summary for chat-update with', toolSteps.length, 'tools,', recentSteps.length, 'total steps');
-      const summary = await generateEventSummary(recentSteps);
-      storedEvent.summary = summary;
-      session.lastSummary = summary;
-      session.lastSummaryTimestamp = Date.now();
-      session.lastSummarySteps = recentSteps.length;
-      console.log('[GuardClaw] ✅ Generated summary:', summary);
-    } else if (session.lastSummary) {
-      // Reuse existing summary
-      storedEvent.summary = session.lastSummary;
-      console.log('[GuardClaw] 🔄 Reusing summary:', session.lastSummary);
-    }
-  }
   
   // Create a summary event when lifecycle ends
   if (eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end') {

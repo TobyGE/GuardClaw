@@ -29,7 +29,7 @@ export class SessionPoller {
       if (this.mode === 'polling') {
         // Poll immediately
         this.poll();
-        
+
         // Then poll periodically (audit mode - scan all sessions)
         this.interval = setInterval(() => this.poll(), intervalMs);
       } else {
@@ -37,6 +37,10 @@ export class SessionPoller {
         console.log('[SessionPoller] Only real-time events will be captured');
         console.log('[SessionPoller] To enable audit: ensure sessions.list + chat.history API access');
       }
+    }).catch(err => {
+      console.error('[SessionPoller] Permission test error:', err.message);
+      this.mode = 'event-only';
+      this.hasAdminScope = false;
     });
   }
   
@@ -248,10 +252,13 @@ export class SessionPoller {
         console.log(`[SessionPoller] ${riskEmoji} ${analysis.riskScore}/10 [${call.tool}]: ${call.summary.substring(0, 60)}${call.summary.length > 60 ? '...' : ''}`);
       }
 
-      // Cleanup old seen commands (keep last 1000)
+      // Cleanup old seen commands: delete oldest 200 entries in O(k)
       if (this.seenCommands.size > 1000) {
-        const arr = Array.from(this.seenCommands);
-        this.seenCommands = new Set(arr.slice(-1000));
+        let deleted = 0;
+        for (const k of this.seenCommands) {
+          this.seenCommands.delete(k);
+          if (++deleted >= 200) break;
+        }
       }
     } catch (error) {
       // Re-throw specific errors to be caught by poll()

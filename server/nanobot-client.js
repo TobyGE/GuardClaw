@@ -41,18 +41,24 @@ export class NanobotClient {
     this.intentionalDisconnect = false;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        fn(value);
+      };
+
       const timeout = setTimeout(() => {
         this.ws?.close();
-        const error = new Error('Connection timeout - is nanobot gateway running?');
-        reject(error);
+        settle(reject, new Error('Connection timeout - is nanobot gateway running?'));
         this.scheduleReconnect();
       }, 10000);
 
       try {
         this.ws = new WebSocket(this.url);
       } catch (error) {
-        clearTimeout(timeout);
-        reject(new Error(`Failed to create WebSocket: ${error.message}`));
+        settle(reject, new Error(`Failed to create WebSocket: ${error.message}`));
         this.scheduleReconnect();
         return;
       }
@@ -67,13 +73,12 @@ export class NanobotClient {
 
           // Handle hello message as connection success
           if (message.type === 'hello' && message.agent === 'nanobot') {
-            clearTimeout(timeout);
             this.connected = true;
             this.reconnectAttempts = 0;
             this.currentReconnectDelay = this.reconnectDelay;
             console.log('[NanobotClient] Connected to nanobot monitor');
             this.onConnectCb();
-            resolve(message);
+            settle(resolve, message);
             return;
           }
 
@@ -96,12 +101,10 @@ export class NanobotClient {
       });
 
       this.ws.on('error', (error) => {
-        clearTimeout(timeout);
         console.error('[NanobotClient] WebSocket error:', error.message);
       });
 
       this.ws.on('close', (code, reason) => {
-        clearTimeout(timeout);
         const wasConnected = this.connected;
         this.connected = false;
 
@@ -109,6 +112,9 @@ export class NanobotClient {
 
         if (wasConnected) {
           this.onDisconnectCb();
+        } else {
+          // Never connected — reject so Promise.allSettled() can proceed
+          settle(reject, new Error(`Connection refused: ${code} ${reason || '(no reason)'}`));
         }
 
         if (!this.intentionalDisconnect) {
