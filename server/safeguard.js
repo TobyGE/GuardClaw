@@ -486,19 +486,15 @@ Output ONLY valid JSON. Start with { end with }.`;
       /^which\s+/, /^type\s+/, /^whoami(\s|$)/, /^hostname(\s|$)/,
       /^df(\s|$)/, /^du\s+/, /^ps(\s|$)/, /^top(\s|$)/,
       /^env(\s|$)/, /^printenv/, /^uname/, /^uptime(\s|$)/,
-      // Status/info commands (read-only by nature)
-      /\bstatus\b.*(\||$)/, /^\w+\s+status(\s|$)/,
-      /\bstatus\s+2>&1\b/,
-      // Pipeline ending in grep/head/tail/wc (read-only filtering)
-      /\|\s*(grep|head|tail|wc|sort|uniq|awk|sed|cut|tr)\s/,
-      /\|\s*(grep|head|tail|wc|sort|uniq|awk|sed|cut|tr)\s*$/,
       // git read-only commands
-      /^git\s+(status|log|diff|show|branch|remote|tag|ls-files|describe)(\s|$)/,
+      /^git\s+(status|log|diff|show|branch|remote|tag|ls-files|describe)(\s|$|\|)/,
       // npm/node info
       /^npm\s+(list|ls|version|info|view|outdated)(\s|$)/,
-      /^node\s+--version(\s|$)/, /^node\s+-v(\s|$)/,
-      // curl/wget read-only (GET, no output redirect)
-      /^curl\s+(?!.*-[Xo].*POST)(?!.*>)[^\|]*$/,
+      /^node\s+(--version|-v)(\s|$)/,
+      // openclaw/guardclaw status checks
+      /^(openclaw|guardclaw)\s+status(\s|$|\|)/,
+      // Known CLI tools doing read-only status checks piped to grep/head/tail
+      /^[\w.-]+\s+status\s+(2>&1\s*)?\|\s*(grep|head|tail|wc)/,
     ];
 
     for (const pattern of safePatterns) {
