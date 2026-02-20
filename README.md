@@ -37,6 +37,31 @@ guardclaw plugin install / uninstall / status
 guardclaw help
 ```
 
+## Advanced: Full Tool Event Monitoring (OpenClaw)
+
+By default GuardClaw only receives text/chat events from OpenClaw. To see every tool call (read, write, exec, etc.) in real-time, you need a one-line patch to OpenClaw's source:
+
+**Edit `~/openclaw/src/gateway/server-chat.ts`** (around line 370, inside the `if (isToolEvent)` block):
+
+```typescript
+if (isToolEvent) {
+  const recipients = toolEventRecipients.get(evt.runId);
+  if (recipients && recipients.size > 0) {
+    broadcastToConnIds("agent", toolPayload, recipients);
+  }
+  broadcast("agent", toolPayload);  // ← add this line
+}
+```
+
+Then rebuild and restart:
+
+```bash
+cd ~/openclaw && npm run build
+openclaw gateway restart
+```
+
+**Why:** OpenClaw only sends tool events to clients that start agent runs. GuardClaw is a passive observer and shouldn't start runs — this one-line patch broadcasts tool events to all connected WebSocket clients instead.
+
 ## Advanced: Active Blocking
 
 By default GuardClaw is **monitor-only** — it shows risk scores but doesn't interfere with the agent.
