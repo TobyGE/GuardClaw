@@ -417,13 +417,15 @@ Start with { and end with }.
 Format: {"riskScore":N,"category":"...","reasoning":"...","allowed":true/false,"warnings":[]}`
     },
 
-    // qwen2.5-0.5b-instruct: tiny model — ultra-simple prompt, very low temperature
+    // qwen2.5-0.5b-instruct: tiny model — direct instructions, very low temperature
     'qwen2.5-0.5b-instruct': {
       temperature: 0.05,
-      max_tokens: 120,
+      max_tokens: 150,
       promptStyle: 'minimal',
-      system: `Security judge. Output ONLY JSON. No text outside JSON.
-Format: {"riskScore":N,"category":"X","reasoning":"Y","allowed":true/false,"warnings":[]}`
+      system: `You are a security risk scorer for an AI agent.
+Read the action, match it against the patterns given, output a risk score.
+Output ONLY valid JSON. No explanations outside the JSON. No markdown.
+Start your response with { and end with }.`
     },
 
     // gpt-oss-20b: capable model — full detail, richer reasoning
@@ -462,18 +464,37 @@ Format: {"riskScore":N,"category":"safe|file-read|file-write|file-delete|network
 
   // Minimal prompt for small/weak models (0.5b etc.)
   createToolAnalysisPromptMinimal(action) {
-    return `Score this AI agent action (risk 0-10):
+    return `You are a security judge. Score this AI agent action from 0 to 10.
+
 TOOL: ${action.tool}
 ACTION: ${action.summary}
 
-SCORING:
-0-2: read-only ops (safe)
-3-5: file write/edit in home/project dirs
-6-7: service restart, chmod, curl POST to external
-8-9: rm -rf, sudo, destructive commands
-10: delete root filesystem, disk format
+DANGEROUS PATTERNS (score HIGH):
+- "rm -rf", "rm -f" any path → score 8
+- "sudo" anything → score 7-9
+- "curl ... | bash" or "wget ... | sh" → score 9
+- "chmod 777", "chown root" → score 7
+- "dd if=", "mkfs", disk format → score 10
+- "pkill -9", killing critical processes → score 7
+- deleting files outside home directory → score 8
 
-JSON only: {"riskScore":N,"category":"safe|file-write|file-delete|network|system|destructive","reasoning":"brief reason","allowed":true/false,"warnings":[]}`;
+SAFE PATTERNS (score LOW):
+- "cat", "ls", "grep", "find", "echo" → score 1
+- "git status", "git log", "git diff" → score 1
+- "git commit", "git push", "git pull" → score 3
+- "npm install", "npm run", "node", "python" → score 3
+- "mkdir", "cp", "mv" inside home/project dir → score 3
+- reading files with "read" tool → score 1
+
+SCORE MEANING:
+0-2 → safe, allowed=true
+3-5 → low risk dev work, allowed=true
+6-7 → risky (system changes, external calls), allowed=false
+8-9 → dangerous (rm -rf, sudo, destructive), allowed=false
+10 → catastrophic (delete root, format disk), allowed=false
+
+Output ONLY valid JSON, no other text:
+{"riskScore":N,"category":"safe|file-write|file-delete|network|system|destructive","reasoning":"one sentence explaining the risk","allowed":true/false,"warnings":[]}`;
   }
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -680,8 +701,79 @@ JSON only: {"riskScore":N,"category":"safe|file-write|file-delete|network|system
     }
   }
 
+  // Expanded pre-filter for small models — catches obvious safe + dangerous cases
+  // before wasting LLM inference on them.
+  quickAnalysisExpanded(command) {
+    const cmd = command.trim().toLowerCase();
+
+    // ── SAFE patterns (always allow) ──────────────────────────────────────
+    const safePatterns = [
+      /^(ls|ll|la|l)(\s|$)/,
+      /^cat\s/,
+      /^head\s/, /^tail\s/, /^less\s/, /^more\s/,
+      /^grep\s/, /^egrep\s/, /^fgrep\s/, /^rg\s/,
+      /^find\s(?!.*-delete)(?!.*-exec\s+rm)/,
+      /^echo\s/, /^printf\s/, /^pwd$/, /^which\s/, /^type\s/, /^wc\s/,
+      /^ps\s/, /^ps$/, /^df\s/, /^du\s/, /^top$/, /^htop$/, /^lsof\s/,
+      /^git\s+(status|log|diff|show|branch|remote|fetch|stash list)(\s|$)/,
+      /^git\s+(commit|push|pull|add|merge|checkout|rebase|stash)(\s|$)/,
+      /^npm\s+(install|run|build|test|list|ls|ci)(\s|$)/,
+      /^npx\s/, /^node\s/, /^python[23]?\s/, /^pip[23]?\s+install/,
+      /^mkdir\s/, /^touch\s/,
+      /^cp\s/, /^mv\s/,
+      /^curl\s+(-s\s+)?http:\/\/(localhost|127\.0\.0\.1)/,
+      /^openclaw\s/, /^guardclaw\s/,
+      /^lsof\s+-i\s+:/, /^pgrep\s/, /^lsof\s/,
+    ];
+    for (const re of safePatterns) {
+      if (re.test(cmd)) {
+        return {
+          riskScore: 2,
+          category: 'safe',
+          reasoning: 'Read-only or normal dev operation (pre-filter)',
+          allowed: true,
+          warnings: [],
+          backend: 'rules'
+        };
+      }
+    }
+
+    // ── DANGEROUS patterns (always block) ─────────────────────────────────
+    const dangerPatterns = [
+      { re: /rm\s+-rf\s+\/($|\s)/, score: 10, reason: 'Deletes root filesystem' },
+      { re: /rm\s+(-rf|-fr|-r\s+-f|-f\s+-r)\s+/, score: 9, reason: 'Recursive force delete' },
+      { re: /rm\s+-f\s+/, score: 7, reason: 'Force file deletion' },
+      { re: /sudo\s+/, score: 8, reason: 'Elevated privileges via sudo' },
+      { re: /curl\s+.*\|\s*(bash|sh|zsh|fish)/, score: 9, reason: 'Download and execute script' },
+      { re: /wget\s+.*\|\s*(bash|sh|zsh|fish)/, score: 9, reason: 'Download and execute script' },
+      { re: /chmod\s+(777|[0-7]{3})\s+\//, score: 8, reason: 'Permissive chmod on system path' },
+      { re: /chown\s+root/, score: 8, reason: 'Ownership change to root' },
+      { re: /dd\s+if=/, score: 10, reason: 'Low-level disk write' },
+      { re: /mkfs/, score: 10, reason: 'Filesystem format' },
+      { re: /:\(\)\{.*;\}/, score: 10, reason: 'Fork bomb' },
+      { re: /pkill\s+-9/, score: 7, reason: 'Force-kill processes' },
+      { re: /kill\s+-9\s+\d/, score: 7, reason: 'Force-kill process by PID' },
+      { re: /killall\s+/, score: 7, reason: 'Kill all processes by name' },
+      { re: /shutdown|reboot|poweroff|halt/, score: 8, reason: 'System power control' },
+    ];
+    for (const { re, score, reason } of dangerPatterns) {
+      if (re.test(cmd)) {
+        return {
+          riskScore: score,
+          category: score >= 9 ? 'destructive' : 'system',
+          reasoning: `${reason} (pre-filter)`,
+          allowed: false,
+          warnings: [reason],
+          backend: 'rules'
+        };
+      }
+    }
+
+    // Ambiguous — let LLM decide
+    return null;
+  }
+
   async analyzeWithLMStudio(command) {
-    const prompt = this.createAnalysisPrompt(command);
     const url = `${this.config.lmstudioUrl}/chat/completions`;
 
     // Auto-detect model if set to "auto"
@@ -692,6 +784,22 @@ JSON only: {"riskScore":N,"category":"safe|file-write|file-delete|network|system
         throw new Error('No models available in LM Studio');
       }
     }
+
+    // Per-model config
+    const modelCfg = this.getModelConfig(modelToUse);
+
+    // Small models: run expanded pre-filter first — skip LLM for obvious cases
+    if (modelCfg.promptStyle === 'minimal') {
+      const quickResult = this.quickAnalysisExpanded(command);
+      if (quickResult) {
+        console.log(`[SafeguardService] Pre-filter hit: ${command.slice(0,60)} → score ${quickResult.riskScore}`);
+        return quickResult;
+      }
+    }
+
+    const prompt = (modelCfg.promptStyle === 'minimal')
+      ? this.createAnalysisPromptMinimal(command)
+      : this.createAnalysisPrompt(command);
 
     try {
       const response = await fetch(url, {
@@ -704,15 +812,15 @@ JSON only: {"riskScore":N,"category":"safe|file-write|file-delete|network|system
           messages: [
             {
               role: 'system',
-              content: 'You are a detailed security analyst. Provide comprehensive analysis with thorough reasoning. Output ONLY valid JSON - nothing else. No explanations outside JSON, no markdown, no think tags. Start with { and end with }.'
+              content: modelCfg.system
             },
             {
               role: 'user',
               content: prompt
             }
           ],
-          temperature: 0.1,
-          max_tokens: 300
+          temperature: modelCfg.temperature,
+          max_tokens: modelCfg.max_tokens
         })
       });
 
@@ -763,6 +871,40 @@ JSON only: {"riskScore":N,"category":"safe|file-write|file-delete|network|system
       console.error('[SafeguardService] Ollama analysis failed:', error);
       return this.fallbackAnalysis(command);
     }
+  }
+
+  // Minimal exec-command prompt for small models (≤1B params)
+  createAnalysisPromptMinimal(command) {
+    return `You are a security judge. Score this shell command (risk 0-10).
+
+COMMAND: ${command}
+
+DANGEROUS PATTERNS (score HIGH):
+- "rm -rf", "rm -f" any path → score 8
+- "sudo" anything → score 8
+- "curl ... | bash" or "wget ... | sh" → score 9
+- "chmod 777", "chown root" → score 7
+- "dd if=", "mkfs", disk format commands → score 10
+- "pkill -9", "killall", killing processes → score 7
+- delete files outside home directory → score 8
+
+SAFE PATTERNS (score LOW):
+- "ls", "cat", "grep", "find", "echo", "pwd", "wc" → score 1
+- "git status", "git log", "git diff" → score 1
+- "git commit", "git push", "git pull" → score 3
+- "npm install", "npm run", "node file.js", "python file.py" → score 3
+- "mkdir", "cp", "mv" inside home or project dir → score 3
+- curl to localhost/127.0.0.1 → score 1
+
+SCORES:
+0-2 → read-only, safe, allowed=true
+3-5 → normal dev work, allowed=true
+6-7 → risky system changes, allowed=false
+8-9 → dangerous (rm -rf, sudo, destructive), allowed=false
+10 → catastrophic, allowed=false
+
+Output ONLY valid JSON, no other text:
+{"riskScore":N,"category":"safe|file-write|file-delete|network|system|destructive","reasoning":"one sentence","allowed":true/false,"warnings":[]}`;
   }
 
   createAnalysisPrompt(command) {
