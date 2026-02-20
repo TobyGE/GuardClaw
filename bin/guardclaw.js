@@ -19,6 +19,7 @@ Usage:
   guardclaw start [options]         Start the GuardClaw server
   guardclaw stop                    Stop the GuardClaw server
   guardclaw config <command>        Manage configuration
+  guardclaw plugin <command>        Manage the OpenClaw interceptor plugin
   guardclaw update                  Update GuardClaw to latest version
   guardclaw help                    Show this help message
   guardclaw version                 Show version
@@ -28,6 +29,11 @@ Config Commands:
   guardclaw config get-token            Show current token (from .env)
   guardclaw config detect-token         Auto-detect token from OpenClaw config
   guardclaw config show                 Show all config values
+
+Plugin Commands:
+  guardclaw plugin install              Install the OpenClaw interceptor plugin
+  guardclaw plugin uninstall            Uninstall the OpenClaw interceptor plugin
+  guardclaw plugin status               Show plugin installation status
 
 Start Options:
   --port <port>              Port to run on (default: 3001)
@@ -305,6 +311,146 @@ function handleConfigCommand() {
   }
 }
 
+function handlePluginCommand() {
+  const subcommand = process.argv[3];
+  const openclawConfigPath = join(os.homedir(), '.openclaw', 'openclaw.json');
+  const pluginSrcDir = join(rootDir, 'plugin', 'guardclaw-interceptor');
+  const pluginInstallDir = join(os.homedir(), '.openclaw', 'plugins', 'guardclaw-interceptor');
+  const pluginId = 'guardclaw-interceptor';
+
+  function readOpenClawConfig() {
+    if (!fs.existsSync(openclawConfigPath)) {
+      throw new Error(`OpenClaw config not found at ${openclawConfigPath}\nIs OpenClaw installed?`);
+    }
+    return JSON.parse(fs.readFileSync(openclawConfigPath, 'utf8'));
+  }
+
+  function saveOpenClawConfig(cfg) {
+    fs.writeFileSync(openclawConfigPath, JSON.stringify(cfg, null, 2));
+  }
+
+  function isInstalled(cfg) {
+    const paths = cfg?.plugins?.load?.paths || [];
+    return paths.includes(pluginInstallDir);
+  }
+
+  switch (subcommand) {
+    case 'install': {
+      console.log('📦 Installing GuardClaw interceptor plugin...\n');
+
+      // 1. Copy plugin files
+      if (!fs.existsSync(pluginSrcDir)) {
+        console.error(`❌ Plugin source not found: ${pluginSrcDir}`);
+        process.exit(1);
+      }
+      fs.mkdirSync(pluginInstallDir, { recursive: true });
+      for (const file of fs.readdirSync(pluginSrcDir)) {
+        fs.copyFileSync(join(pluginSrcDir, file), join(pluginInstallDir, file));
+      }
+      console.log(`✅ Plugin files copied to: ${pluginInstallDir}`);
+
+      // 2. Update openclaw.json
+      let cfg;
+      try {
+        cfg = readOpenClawConfig();
+      } catch (err) {
+        console.error(`❌ ${err.message}`);
+        process.exit(1);
+      }
+
+      if (!cfg.plugins) cfg.plugins = {};
+      if (!cfg.plugins.load) cfg.plugins.load = {};
+      if (!cfg.plugins.load.paths) cfg.plugins.load.paths = [];
+      if (!cfg.plugins.entries) cfg.plugins.entries = {};
+
+      // Remove any old paths pointing to a guardclaw-interceptor dir
+      cfg.plugins.load.paths = cfg.plugins.load.paths.filter(
+        p => !p.endsWith('guardclaw-interceptor') || p === pluginInstallDir
+      );
+      if (!cfg.plugins.load.paths.includes(pluginInstallDir)) {
+        cfg.plugins.load.paths.push(pluginInstallDir);
+      }
+      cfg.plugins.entries[pluginId] = { enabled: true };
+
+      saveOpenClawConfig(cfg);
+      console.log(`✅ OpenClaw config updated: ${openclawConfigPath}`);
+      console.log(`✅ Plugin enabled: ${pluginId}\n`);
+      console.log('⚠️  Restart OpenClaw Gateway to activate:');
+      console.log('   openclaw gateway restart\n');
+      console.log('💡 To disable blocking from GuardClaw Dashboard:');
+      console.log('   Click the 🛡️ shield icon → Disable Blocking');
+      break;
+    }
+
+    case 'uninstall': {
+      console.log('🗑️  Uninstalling GuardClaw interceptor plugin...\n');
+
+      let cfg;
+      try {
+        cfg = readOpenClawConfig();
+      } catch (err) {
+        console.error(`❌ ${err.message}`);
+        process.exit(1);
+      }
+
+      // Remove from paths
+      if (cfg?.plugins?.load?.paths) {
+        cfg.plugins.load.paths = cfg.plugins.load.paths.filter(p => p !== pluginInstallDir);
+      }
+      // Disable in entries
+      if (cfg?.plugins?.entries?.[pluginId]) {
+        cfg.plugins.entries[pluginId].enabled = false;
+      }
+      saveOpenClawConfig(cfg);
+      console.log(`✅ Plugin removed from OpenClaw config`);
+
+      // Remove plugin files
+      if (fs.existsSync(pluginInstallDir)) {
+        fs.rmSync(pluginInstallDir, { recursive: true });
+        console.log(`✅ Plugin files removed: ${pluginInstallDir}`);
+      }
+
+      console.log('\n⚠️  Restart OpenClaw Gateway to apply:');
+      console.log('   openclaw gateway restart\n');
+      break;
+    }
+
+    case 'status': {
+      let cfg;
+      try {
+        cfg = readOpenClawConfig();
+      } catch (err) {
+        console.error(`❌ ${err.message}`);
+        process.exit(1);
+      }
+
+      const installed = isInstalled(cfg);
+      const enabled = cfg?.plugins?.entries?.[pluginId]?.enabled;
+      const filesExist = fs.existsSync(pluginInstallDir);
+
+      console.log('🔌 GuardClaw Interceptor Plugin Status\n');
+      console.log(`  Files installed : ${filesExist ? '✅ Yes' : '❌ No'}  (${pluginInstallDir})`);
+      console.log(`  In OpenClaw config: ${installed ? '✅ Yes' : '❌ No'}`);
+      console.log(`  Enabled         : ${enabled ? '✅ Yes' : '❌ No (disabled or not installed)'}`);
+      console.log();
+      if (!installed || !filesExist) {
+        console.log('  → Run: guardclaw plugin install');
+      } else if (!enabled) {
+        console.log('  → Enable via GuardClaw Dashboard (🛡️ Blocking toggle)');
+        console.log('  → Or run: guardclaw plugin install  (re-enables)');
+      } else {
+        console.log('  → Plugin is active. Restart gateway if recently changed.');
+      }
+      break;
+    }
+
+    default:
+      console.log('Plugin commands: install | uninstall | status');
+      console.log('Run "guardclaw help" for usage information.');
+      process.exit(1);
+  }
+}
+
 function updateGuardClaw() {
   console.log('🔄 Updating GuardClaw to latest version...\n');
   
@@ -452,6 +598,9 @@ switch (command) {
     break;
   case 'config':
     handleConfigCommand();
+    break;
+  case 'plugin':
+    handlePluginCommand();
     break;
   case 'update':
   case 'upgrade':

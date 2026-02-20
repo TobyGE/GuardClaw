@@ -1,0 +1,11 @@
+{
+  "id": "guardclaw-interceptor",
+  "name": "GuardClaw Interceptor",
+  "description": "Intercepts tool calls and evaluates risk via GuardClaw before execution. Requires GuardClaw to be running.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
