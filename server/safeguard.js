@@ -417,15 +417,14 @@ Start with { and end with }.
 Format: {"riskScore":N,"category":"...","reasoning":"...","allowed":true/false,"warnings":[]}`
     },
 
-    // qwen2.5-0.5b-instruct: tiny model — direct instructions, very low temperature
+    // qwen2.5-0.5b-instruct: tiny model — step-by-step decision, very low temperature
     'qwen2.5-0.5b-instruct': {
       temperature: 0.05,
       max_tokens: 150,
       promptStyle: 'minimal',
-      system: `You are a security risk scorer for an AI agent.
-Read the action, match it against the patterns given, output a risk score.
-Output ONLY valid JSON. No explanations outside the JSON. No markdown.
-Start your response with { and end with }.`
+      system: `You are a security scorer. Follow the steps in the prompt exactly.
+Output ONLY valid JSON. Nothing before or after the JSON.
+Start with { and end with }.`
     },
 
     // gpt-oss-20b: capable model — full detail, richer reasoning
@@ -464,37 +463,33 @@ Format: {"riskScore":N,"category":"safe|file-read|file-write|file-delete|network
 
   // Minimal prompt for small/weak models (0.5b etc.)
   createToolAnalysisPromptMinimal(action) {
-    return `You are a security judge. Score this AI agent action from 0 to 10.
-
-TOOL: ${action.tool}
+    return `TOOL: ${action.tool}
 ACTION: ${action.summary}
 
-DANGEROUS PATTERNS (score HIGH):
-- "rm -rf", "rm -f" any path → score 8
-- "sudo" anything → score 7-9
-- "curl ... | bash" or "wget ... | sh" → score 9
-- "chmod 777", "chown root" → score 7
-- "dd if=", "mkfs", disk format → score 10
-- "pkill -9", killing critical processes → score 7
-- deleting files outside home directory → score 8
+STEP 1 — Does the action contain any of these? Answer YES or NO.
+A) "rm -rf" or "rm -fr" or "rm -f"
+B) "sudo"
+C) pipe to bash/sh after curl or wget
+D) "chmod 777" or "chown root" or "mkfs" or "dd if="
+E) write or delete files in /etc, /usr, /System, /Library
 
-SAFE PATTERNS (score LOW):
-- "cat", "ls", "grep", "find", "echo" → score 1
-- "git status", "git log", "git diff" → score 1
-- "git commit", "git push", "git pull" → score 3
-- "npm install", "npm run", "node", "python" → score 3
-- "mkdir", "cp", "mv" inside home/project dir → score 3
-- reading files with "read" tool → score 1
+STEP 2 — If YES to any above, use this score:
+A → riskScore: 9, category: file-delete, allowed: false
+B → riskScore: 8, category: system, allowed: false
+C → riskScore: 9, category: network, allowed: false
+D → riskScore: 8, category: system, allowed: false
+E → riskScore: 8, category: file-write, allowed: false
 
-SCORE MEANING:
-0-2 → safe, allowed=true
-3-5 → low risk dev work, allowed=true
-6-7 → risky (system changes, external calls), allowed=false
-8-9 → dangerous (rm -rf, sudo, destructive), allowed=false
-10 → catastrophic (delete root, format disk), allowed=false
+STEP 3 — If NO to all above, check the tool:
+- Tool is "read", "memory_search", "memory_get", "web_search" → riskScore: 1, allowed: true
+- Tool is "write" or "edit" in home/project dir → riskScore: 3, allowed: true
+- Tool is "exec" with git/npm/node commands → riskScore: 3, allowed: true
+- Tool is "browser" navigating to URL → riskScore: 3, allowed: true
+- Tool is "message" sending to known channel → riskScore: 4, allowed: true
+- Anything else → riskScore: 5, allowed: true
 
-Output ONLY valid JSON, no other text:
-{"riskScore":N,"category":"safe|file-write|file-delete|network|system|destructive","reasoning":"one sentence explaining the risk","allowed":true/false,"warnings":[]}`;
+Output ONLY this JSON (no other text):
+{"riskScore":N,"category":"safe|file-write|file-delete|network|system|destructive","reasoning":"one sentence","allowed":true/false,"warnings":[]}`;
   }
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -788,15 +783,6 @@ Output ONLY valid JSON, no other text:
     // Per-model config
     const modelCfg = this.getModelConfig(modelToUse);
 
-    // Small models: run expanded pre-filter first — skip LLM for obvious cases
-    if (modelCfg.promptStyle === 'minimal') {
-      const quickResult = this.quickAnalysisExpanded(command);
-      if (quickResult) {
-        console.log(`[SafeguardService] Pre-filter hit: ${command.slice(0,60)} → score ${quickResult.riskScore}`);
-        return quickResult;
-      }
-    }
-
     const prompt = (modelCfg.promptStyle === 'minimal')
       ? this.createAnalysisPromptMinimal(command)
       : this.createAnalysisPrompt(command);
@@ -875,36 +861,35 @@ Output ONLY valid JSON, no other text:
 
   // Minimal exec-command prompt for small models (≤1B params)
   createAnalysisPromptMinimal(command) {
-    return `You are a security judge. Score this shell command (risk 0-10).
+    return `Score this shell command. Output JSON only.
 
 COMMAND: ${command}
 
-DANGEROUS PATTERNS (score HIGH):
-- "rm -rf", "rm -f" any path → score 8
-- "sudo" anything → score 8
-- "curl ... | bash" or "wget ... | sh" → score 9
-- "chmod 777", "chown root" → score 7
-- "dd if=", "mkfs", disk format commands → score 10
-- "pkill -9", "killall", killing processes → score 7
-- delete files outside home directory → score 8
+IF the command contains "rm -rf" or "rm -fr":
+  → {"riskScore":9,"category":"file-delete","reasoning":"Recursive force delete","allowed":false,"warnings":["Recursive delete"]}
 
-SAFE PATTERNS (score LOW):
-- "ls", "cat", "grep", "find", "echo", "pwd", "wc" → score 1
-- "git status", "git log", "git diff" → score 1
-- "git commit", "git push", "git pull" → score 3
-- "npm install", "npm run", "node file.js", "python file.py" → score 3
-- "mkdir", "cp", "mv" inside home or project dir → score 3
-- curl to localhost/127.0.0.1 → score 1
+IF the command contains "sudo":
+  → {"riskScore":8,"category":"system","reasoning":"Elevated privilege via sudo","allowed":false,"warnings":["sudo"]}
 
-SCORES:
-0-2 → read-only, safe, allowed=true
-3-5 → normal dev work, allowed=true
-6-7 → risky system changes, allowed=false
-8-9 → dangerous (rm -rf, sudo, destructive), allowed=false
-10 → catastrophic, allowed=false
+IF the command contains "| bash" or "| sh" or "| zsh":
+  → {"riskScore":9,"category":"network","reasoning":"Download and execute script","allowed":false,"warnings":["Remote code execution"]}
 
-Output ONLY valid JSON, no other text:
-{"riskScore":N,"category":"safe|file-write|file-delete|network|system|destructive","reasoning":"one sentence","allowed":true/false,"warnings":[]}`;
+IF the command contains "chmod 777" or "chown root" or "mkfs" or "dd if=":
+  → {"riskScore":8,"category":"system","reasoning":"Dangerous system modification","allowed":false,"warnings":["System modification"]}
+
+IF the command contains "pkill" or "killall" or "shutdown" or "reboot":
+  → {"riskScore":7,"category":"system","reasoning":"Process or system termination","allowed":false,"warnings":["Process kill"]}
+
+IF the command starts with "ls" or "cat" or "grep" or "find" or "head" or "tail" or "echo" or "pwd":
+  → {"riskScore":1,"category":"safe","reasoning":"Read-only operation","allowed":true,"warnings":[]}
+
+IF the command starts with "git" or "npm" or "node" or "python" or "pip":
+  → {"riskScore":3,"category":"safe","reasoning":"Normal development command","allowed":true,"warnings":[]}
+
+Otherwise:
+  → {"riskScore":5,"category":"safe","reasoning":"General command, no obvious risk","allowed":true,"warnings":[]}
+
+Output ONLY the JSON for the matching case. No other text.`;
   }
 
   createAnalysisPrompt(command) {
@@ -946,11 +931,6 @@ SCORE 10 (catastrophic, allowed=false) — system destruction:
 - rm -rf / or rm -rf /*
 - dd if=... of=/dev/...
 - mkfs, diskutil eraseDisk
-
-IMPORTANT OVERRIDES:
-- Pipeline ending in grep/awk/python print = score of the SOURCE command, max 2
-- cd <dir> && <cmd> = ignore cd, score based on <cmd> only
-- localhost curl = always 0-2 regardless of what follows the pipe
 
 Output ONLY valid JSON, nothing else:
 {"riskScore": <number>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<1-2 sentences specifically about this command>", "allowed": <true|false>, "warnings": []}`;
