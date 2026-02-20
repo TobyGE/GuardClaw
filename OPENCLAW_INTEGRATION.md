@@ -80,7 +80,7 @@ GUARDCLAW_ENABLED=true
 
 ### Step 4: Configure Risk Thresholds in GuardClaw
 
-Edit `~/clawd/.env`:
+Edit `~/guardclaw/.env`:
 
 ```bash
 # Auto-allow tools with risk score <= 6 (default: 6)
@@ -136,7 +136,7 @@ tail -f ~/.openclaw/logs/gateway.log | grep GuardClaw
 
 **GuardClaw logs:**
 ```bash
-tail -f ~/clawd/live.log | grep "Pre-execution\|Tool check"
+tail -f ~/guardclaw/live.log | grep "Pre-execution\|Tool check"
 ```
 
 ## 🎛️ Configuration Options
@@ -225,7 +225,7 @@ curl -X POST http://localhost:3002/api/check-tool \
 
 **Check thresholds:**
 ```bash
-grep "THRESHOLD" ~/clawd/.env
+grep "THRESHOLD" ~/guardclaw/.env
 ```
 
 **Temporarily disable:**
@@ -252,7 +252,7 @@ Then restart OpenClaw.
 
 You can customize the decision logic in GuardClaw:
 
-Edit `~/clawd/server/index.js`, find the `/api/check-tool` endpoint and modify:
+Edit `~/guardclaw/server/index.js`, find the `/api/check-tool` endpoint and modify:
 
 ```javascript
 // Example: Block all file deletions

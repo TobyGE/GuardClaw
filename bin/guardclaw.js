@@ -68,8 +68,8 @@ function stopServer() {
   console.log('🛑 Stopping GuardClaw...\n');
   
   try {
-    // Find GuardClaw processes
-    const result = execSync('ps aux | grep -E "node.*guardclaw|node.*server/index.js" | grep -v grep', { 
+    // Find GuardClaw processes - more specific pattern to avoid matching other node processes
+    const result = execSync('ps aux | grep "[n]ode.*guardclaw.*server/index.js"', { 
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore']
     }).trim();
@@ -79,19 +79,21 @@ function stopServer() {
       return;
     }
     
-    const lines = result.split('\n');
+    const lines = result.split('\n').filter(line => line.trim());
     let stopped = 0;
     
     for (const line of lines) {
-      const match = line.match(/\s+(\d+)\s+/);
-      if (match) {
-        const pid = match[1];
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const pid = parts[1]; // PID is second column
         try {
-          process.kill(pid, 'SIGTERM');
+          process.kill(pid, 'SIGKILL'); // Use SIGKILL for immediate termination
           stopped++;
           console.log(`✅ Stopped GuardClaw (PID ${pid})`);
         } catch (err) {
-          console.error(`⚠️  Could not stop process ${pid}:`, err.message);
+          if (err.code !== 'ESRCH') { // Ignore "process not found" errors
+            console.error(`⚠️  Could not stop process ${pid}:`, err.message);
+          }
         }
       }
     }

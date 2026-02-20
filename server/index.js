@@ -503,6 +503,52 @@ app.post('/api/tool-executed', async (req, res) => {
   }
 });
 
+// ─── Pre-Execution Risk Evaluation API (uses LM Studio) ──────────────────────
+
+app.post('/api/evaluate', async (req, res) => {
+  const { toolName, params } = req.body;
+  
+  if (!toolName) {
+    return res.status(400).json({ error: 'toolName is required' });
+  }
+  
+  try {
+    let analysis;
+    
+    if (toolName === 'exec') {
+      // For exec, analyze the command with full LLM analysis
+      const cmd = params.command || '';
+      analysis = await safeguardService.analyzeCommand(cmd);
+    } else {
+      // For other tools, analyze the action
+      analysis = await safeguardService.analyzeToolAction({
+        tool: toolName,
+        summary: JSON.stringify(params),
+        ...params
+      });
+    }
+    
+    // Return evaluation result
+    res.json({
+      action: analysis.riskScore >= 8 ? 'ask' : 'allow',
+      risk: analysis.riskScore,
+      reason: analysis.reasoning || analysis.category,
+      details: analysis.warnings?.join('; ') || analysis.reasoning || '',
+      backend: analysis.backend
+    });
+  } catch (error) {
+    console.error('[GuardClaw] /api/evaluate failed:', error);
+    // On error, default to allow (fail-open for availability)
+    res.json({
+      action: 'allow',
+      risk: 5,
+      reason: '分析失败，默认允许',
+      details: error.message,
+      backend: 'fallback'
+    });
+  }
+});
+
 // ─── Config Management APIs ──────────────────────────────────────────────────
 
 app.post('/api/config/token', async (req, res) => {

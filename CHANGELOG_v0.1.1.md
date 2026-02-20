@@ -114,7 +114,7 @@ If you're upgrading from v0.1.0:
 Try the new features:
 ```bash
 # Update client assets
-cd ~/clawd
+cd ~/guardclaw
 npm run build
 
 # Check your config

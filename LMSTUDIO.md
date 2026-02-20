@@ -282,5 +282,5 @@ SAFEGUARD_BACKEND=fallback  # 使用模式匹配
 **需要帮助？** 检查 GuardClaw 日志：
 
 ```bash
-tail -f ~/clawd/guardclaw/guardclaw.log
+tail -f ~/guardclaw/guardclaw/guardclaw.log
 ```

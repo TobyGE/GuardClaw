@@ -235,7 +235,7 @@ LMSTUDIO_MODEL=llama-3.1-8b-instruct
 
 1. 查看 GuardClaw 日志：
    ```bash
-   tail -f ~/clawd/guardclaw.log
+   tail -f ~/guardclaw/guardclaw.log
    ```
 
 2. 测试 LM Studio API：
