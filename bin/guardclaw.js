@@ -36,7 +36,7 @@ Plugin Commands:
   guardclaw plugin status               Show plugin installation status
 
 Start Options:
-  --port <port>              Port to run on (default: 3001)
+  --port <port>              Port to run on (default: 3002)
   --openclaw-url <url>       OpenClaw Gateway URL (default: ws://127.0.0.1:18789)
   --openclaw-token <token>   OpenClaw authentication token
   --anthropic-key <key>      Anthropic API key for safeguard
@@ -547,7 +547,7 @@ function startServer() {
     console.warn('⚠️  No OPENCLAW_TOKEN set. This may be required for remote connections.');
   }
 
-  const port = env.PORT || 3001;
+  const port = env.PORT || 3002;
   const url = `http://localhost:${port}`;
 
   console.log('🛡️  Starting GuardClaw...');
