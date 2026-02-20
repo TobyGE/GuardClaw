@@ -479,6 +479,32 @@ Output ONLY valid JSON. Start with { end with }.`;
   quickAnalysis(command) {
     const cmd = command.trim();
 
+    // For chained commands (&&, ;), analyze the most significant segment
+    // If ALL segments are safe/low-risk, use the highest risk among them
+    if (cmd.includes('&&') || cmd.includes('; ')) {
+      const segments = cmd.split(/\s*(?:&&|;)\s*/).map(s => s.trim()).filter(Boolean);
+      // Check if every segment is individually safe/low-risk
+      const segResults = segments.map(seg => this._quickAnalyzeSegment(seg));
+      if (segResults.every(r => r !== null)) {
+        // All segments have quick results - return the highest risk
+        const worst = segResults.reduce((a, b) => a.riskScore > b.riskScore ? a : b);
+        return worst;
+      }
+      // At least one segment needs AI — fall through
+    }
+
+    return this._quickAnalyzeSegment(cmd);
+  }
+
+  _quickAnalyzeSegment(cmd) {
+    cmd = cmd.trim();
+
+    // Ignore leading "cd <dir>" — it's navigation, not an action
+    const cdStripped = cmd.replace(/^cd\s+\S+\s*/, '').trim();
+    if (cdStripped && cdStripped !== cmd) {
+      return this._quickAnalyzeSegment(cdStripped);
+    }
+
     // Obvious safe commands (read-only, info gathering)
     const safePatterns = [
       /^ls(\s|$)/, /^pwd(\s|$)/, /^date(\s|$)/, /^echo\s+/, 
@@ -495,6 +521,9 @@ Output ONLY valid JSON. Start with { end with }.`;
       /^(openclaw|guardclaw)\s+status(\s|$|\|)/,
       // Known CLI tools doing read-only status checks piped to grep/head/tail
       /^[\w.-]+\s+status\s+(2>&1\s*)?\|\s*(grep|head|tail|wc)/,
+      // curl to localhost/127.0.0.1 (local API calls, always safe)
+      /^curl\s+(-s\s+)?https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?[^\s|]*(\s+2>&1)?\s*(\||$)/,
+      /^curl\s+(-s\s+)?https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?[^\s|]*\s*$/,
     ];
 
     for (const pattern of safePatterns) {
@@ -503,6 +532,33 @@ Output ONLY valid JSON. Start with { end with }.`;
           riskScore: 1,
           category: 'safe',
           reasoning: 'Read-only command (rule-based)',
+          allowed: true,
+          warnings: [],
+          backend: 'rules'
+        };
+      }
+    }
+
+    // Low-risk patterns: common dev workflow — score 3, no block
+    const lowRiskPatterns = [
+      { pattern: /^git\s+(add|commit|push|pull|fetch|merge|rebase|stash|checkout|switch|restore)(\s|$)/, reason: 'Git version control operation' },
+      { pattern: /^npm\s+(install|ci|build|run|test|start|publish)(\s|$)/, reason: 'npm package operation' },
+      { pattern: /^npx\s+/, reason: 'npx command execution' },
+      { pattern: /^node\s+/, reason: 'Node.js script execution' },
+      { pattern: /^python3?\s+-c\s+"(import|print)/, reason: 'Python inline read/print script' },
+      { pattern: /^pip3?\s+(install|list|show|freeze)(\s|$)/, reason: 'Python package operation' },
+      { pattern: /^mkdir\s+/, reason: 'Directory creation' },
+      { pattern: /^touch\s+/, reason: 'File creation' },
+      { pattern: /^cp\s+/, reason: 'File copy' },
+      { pattern: /^mv\s+(?!.*\/)/, reason: 'File rename/move (local)' },
+    ];
+
+    for (const { pattern, reason } of lowRiskPatterns) {
+      if (pattern.test(cmd)) {
+        return {
+          riskScore: 3,
+          category: 'safe',
+          reasoning: `${reason} (rule-based)`,
           allowed: true,
           warnings: [],
           backend: 'rules'
