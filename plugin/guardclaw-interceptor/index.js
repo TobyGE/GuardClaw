@@ -59,23 +59,40 @@ export default function (api) {
         globalList.push(callData);
         pendingCalls.set('__global__', globalList);
 
-        // Clear block message: shown to the LLM agent
         const displayInput = formatParams(event.toolName, event.params);
+
+        // Inject a direct user-facing message — don't rely on agent to relay info
+        const riskEmoji = result.risk >= 9 ? '🔴' : '🟠';
+        const userMsg = [
+          `🛡️ **GuardClaw blocked a tool call**`,
+          ``,
+          `**Tool:** \`${event.toolName}\``,
+          `**Input:** \`${displayInput}\``,
+          `**Risk Score:** ${riskEmoji} ${result.risk}/10`,
+          `**Reason:** ${result.reason}`,
+          ``,
+          `What would you like to do?`,
+          `• \`/approve-last\` — Allow this once`,
+          `• \`/deny-last\` — Cancel`,
+        ].join('\n');
+
+        // Fire-and-forget: inject directly to user, don't block the hook response
+        fetch(`${GUARDCLAW_URL}/api/chat-inject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionKey: context.sessionKey,
+            message: userMsg,
+          }),
+          signal: AbortSignal.timeout(3000),
+        }).catch(err => api.logger.warn(`[GuardClaw] Failed to inject block notice: ${err.message}`));
+
+        // Block reason for the agent: minimal, just instructs to wait for retry signal
         const blockMsg = [
-          `[GUARDCLAW SAFETY BLOCK]`,
-          `Tool:       ${event.toolName}`,
-          `Input:      ${displayInput}`,
-          `Risk Score: ${result.risk}/10`,
-          `Reason:     ${result.reason}`,
-          ``,
-          `This tool call was intercepted before execution.`,
-          `Tell the user clearly what was blocked and why, then ask:`,
-          `  1. Allow this execution`,
-          `  2. Deny it`,
-          ``,
-          `IMPORTANT: If the user allows it, you will immediately receive a`,
-          `[GUARDCLAW RETRY APPROVED] signal. When you see that signal,`,
-          `retry this exact tool call right away — do not wait for further input.`,
+          `[GUARDCLAW SAFETY BLOCK] Tool call intercepted.`,
+          `Tool: ${event.toolName} | Input: ${displayInput} | Risk: ${result.risk}/10`,
+          `A notification has been sent to the user with details and options.`,
+          `Wait silently. If the user approves, you will receive [GUARDCLAW RETRY APPROVED] — retry immediately when you see it.`,
         ].join('\n');
 
         return { block: true, blockReason: blockMsg };
