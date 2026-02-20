@@ -36,7 +36,7 @@ export default function (api) {
           params: event.params,
           sessionKey: context.sessionKey,
         }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(2000),
       });
 
       const result = await response.json();
