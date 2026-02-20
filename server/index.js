@@ -549,6 +549,30 @@ app.post('/api/evaluate', async (req, res) => {
   }
 });
 
+// ─── Chat Inject API (used by plugin to trigger agent retry after approval) ──
+
+app.post('/api/chat-inject', async (req, res) => {
+  const { sessionKey, message } = req.body;
+  if (!sessionKey || !message) {
+    return res.status(400).json({ error: 'sessionKey and message required' });
+  }
+  if (!openclawClient || !openclawClient.connected) {
+    return res.status(503).json({ error: 'OpenClaw not connected' });
+  }
+  try {
+    const idempotencyKey = `guardclaw-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await openclawClient.request('chat.send', {
+      sessionKey,
+      message,
+      idempotencyKey,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[GuardClaw] chat-inject failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Config Management APIs ──────────────────────────────────────────────────
 
 app.post('/api/config/token', async (req, res) => {
