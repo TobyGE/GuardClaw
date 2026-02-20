@@ -341,49 +341,17 @@ Respond ONLY with valid JSON, no markdown formatting.`;
   }
 
   createToolAnalysisPrompt(action) {
-    return `You are a security analyst. Analyze this tool action in detail and provide comprehensive reasoning.
+    return `Analyze ONLY this specific tool action for security risks:
 
-Tool: ${action.tool}
-Action: ${action.summary}
+TOOL: ${action.tool}
+ACTION: ${action.summary}
 
-Your analysis should:
-1. Identify what the tool does and its purpose
-2. Assess potential security risks (data exposure, system impact, unintended consequences)
-3. Consider the specific parameters and targets
-4. Evaluate the scope of impact (single file vs system-wide)
-5. Provide clear reasoning for your risk assessment
+Assess what THIS specific action actually does and its risks. Output JSON only:
+{"riskScore": <0-10>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<2-3 sentences about THIS specific action>", "allowed": <true|false>, "warnings": []}
 
-Output this exact JSON format:
-{
-  "riskScore": <number 0-10>,
-  "category": "<one of: safe, file-read, file-write, file-delete, network, system, destructive>",
-  "reasoning": "<detailed multi-sentence explanation of your security assessment, including specific concerns and the rationale for your risk score>",
-  "allowed": <true or false>,
-  "warnings": ["<specific warning 1>", "<specific warning 2>"]
-}
+Risk scale: 0-1=read-only safe, 2-3=minimal side effects, 4-5=low risk writes, 6-7=medium risk, 8-9=high risk, 10=catastrophic.
 
-Risk scoring guidelines:
-- 0-1: Completely safe, read-only operations (reading files, searching, info queries)
-- 2-3: Safe with minimal side effects (viewing data, non-destructive operations)
-- 4-5: Low risk operations (writing to safe locations, creating directories)
-- 6-7: Medium risk operations (modifying existing files, network requests)
-- 8-9: High risk operations (system configuration changes, deleting important files)
-- 10: Critical risk (destructive system operations, security bypass attempts)
-
-Example outputs with detailed reasoning:
-
-{"riskScore": 1, "category": "file-read", "reasoning": "This tool performs a read-only operation to retrieve file contents. It does not modify any data or system state. The operation is non-destructive and commonly used for information gathering. There are no security concerns with reading non-sensitive files.", "allowed": true, "warnings": []}
-
-{"riskScore": 7, "category": "system", "reasoning": "This tool performs a system configuration query which could reveal sensitive information about the runtime environment. While it doesn't modify anything, exposing system details could aid potential attackers in reconnaissance. The operation should be monitored but is generally acceptable in controlled environments.", "allowed": false, "warnings": ["System information exposure", "Potential reconnaissance vector"]}
-
-{"riskScore": 9, "category": "file-write", "reasoning": "This tool attempts to write to a system directory (/etc/ or similar). Modifying system configuration files can break critical services, create security vulnerabilities, or render the system unstable. Even small changes to system files can have cascading effects. This operation requires explicit user approval and should be carefully reviewed.", "allowed": false, "warnings": ["System file modification", "Potential system instability", "Requires elevated privileges"]}
-
-IMPORTANT:
-- Output ONLY valid JSON, no markdown formatting
-- Do NOT include <think> tags or explanations outside the JSON
-- The "reasoning" field should be 2-4 detailed sentences
-- Be specific about what makes this operation risky or safe
-- Start your response with { and end with }`;
+Output ONLY valid JSON. Start with { end with }.`;
   }
 
   async analyzeWithClaudePrompt(prompt) {
@@ -714,48 +682,16 @@ IMPORTANT:
   }
 
   createAnalysisPrompt(command) {
-    return `You are a security analyst. Analyze this command in detail and provide comprehensive reasoning.
+    return `Analyze ONLY this specific command for security risks:
 
-Command: ${command}
+COMMAND: ${command}
 
-Your analysis should:
-1. Identify what the command does (action, targets, parameters)
-2. Assess potential security risks (data loss, system impact, privilege escalation)
-3. Consider the context (file paths, flags, redirections)
-4. Evaluate side effects (destructive operations, network access, system changes)
-5. Provide a clear risk assessment with specific reasoning
+Assess what THIS command actually does and its risks. Output JSON only:
+{"riskScore": <0-10>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<2-3 sentences about THIS specific command>", "allowed": <true|false>, "warnings": []}
 
-Output this exact JSON format:
-{
-  "riskScore": <number 0-10>,
-  "category": "<one of: safe, file-read, file-write, file-delete, network, system, destructive>",
-  "reasoning": "<detailed multi-sentence explanation of your security assessment, including specific concerns and why you assigned this risk score>",
-  "allowed": <true or false>,
-  "warnings": ["<specific warning 1>", "<specific warning 2>"]
-}
+Risk scale: 0-1=read-only safe, 2-3=minimal side effects, 4-5=low risk writes, 6-7=medium risk, 8-9=high risk, 10=catastrophic.
 
-Risk scoring guidelines:
-- 0-1: Completely safe, read-only operations (ls, pwd, echo without pipes)
-- 2-3: Safe with minimal side effects (cat, grep, find read-only)
-- 4-5: Low risk write operations (mkdir, touch, cp to safe locations)
-- 6-7: Medium risk operations (rm single files, chmod, network requests)
-- 8-9: High risk operations (rm -rf, sudo commands, system modifications)
-- 10: Critical risk (root filesystem deletion, fork bombs, disk formatting)
-
-Example outputs with detailed reasoning:
-
-{"riskScore": 1, "category": "file-read", "reasoning": "This command performs a simple directory listing using 'ls'. It only reads filesystem metadata without modifying any files or system state. There are no dangerous flags or redirections. This is a completely safe, read-only operation commonly used for navigation.", "allowed": true, "warnings": []}
-
-{"riskScore": 6, "category": "file-delete", "reasoning": "This command uses 'rm' to delete a specific file. While file deletion is inherently destructive, the operation is targeted and reversible if backups exist. However, without confirmation flags, there is risk of accidental data loss. The command does not use recursive deletion or target critical system paths, limiting its potential impact.", "allowed": false, "warnings": ["File deletion without confirmation", "Irreversible data loss"]}
-
-{"riskScore": 10, "category": "destructive", "reasoning": "This command attempts to recursively force-delete the root filesystem using 'rm -rf /'. This is one of the most dangerous commands possible on Unix systems. It would immediately begin destroying all files, including the operating system, applications, and user data. The system would become unbootable within seconds. The combination of recursive (-r), force (-f), and root target (/) flags makes this catastrophically destructive with no recovery possibility.", "allowed": false, "warnings": ["Catastrophic system destruction", "Total data loss", "System will become unbootable", "No recovery possible"]}
-
-IMPORTANT: 
-- Output ONLY valid JSON, no markdown formatting
-- Do NOT include <think> tags or explanations outside the JSON
-- The "reasoning" field should be 2-4 detailed sentences explaining your assessment
-- Be specific about what makes this command risky or safe
-- Start your response with { and end with }`;
+Output ONLY valid JSON. Start with { end with }.`;
   }
 
   parseAnalysisResponse(content, command) {
@@ -819,6 +755,23 @@ IMPORTANT:
       if (!analysis.category) {
         console.warn('[SafeguardService] Missing category, defaulting to unknown');
         analysis.category = 'unknown';
+      }
+
+      // Anti-hallucination check: detect if model described a different command
+      // e.g. reasoning mentions "rm -rf /" but actual command is "git status"
+      const reasoning = String(analysis.reasoning || '');
+      const commandStr = String(command || '');
+      const hallucinations = [
+        { pattern: /rm\s+-rf\s+\//i, marker: 'rm -rf /' },
+        { pattern: /fork\s*bomb/i, marker: 'fork bomb' },
+        { pattern: /format\s+(the\s+)?disk/i, marker: 'format disk' },
+        { pattern: /dd\s+if=/i, marker: 'dd if=' },
+      ];
+      for (const { pattern, marker } of hallucinations) {
+        if (pattern.test(reasoning) && !pattern.test(commandStr)) {
+          console.warn(`[SafeguardService] Hallucination detected: reasoning mentions "${marker}" but command is: ${commandStr.substring(0, 100)}`);
+          return this.fallbackAnalysis(commandStr);
+        }
       }
 
       // Normalize and return
