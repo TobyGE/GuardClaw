@@ -349,7 +349,14 @@ ACTION: ${action.summary}
 Assess what THIS specific action actually does and its risks. Output JSON only:
 {"riskScore": <0-10>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<2-3 sentences about THIS specific action>", "allowed": <true|false>, "warnings": []}
 
-Risk scale: 0-1=read-only safe, 2-3=minimal side effects, 4-5=low risk writes, 6-7=medium risk, 8-9=high risk, 10=catastrophic.
+Risk scale:
+0-2: Read-only ops (reading files, searching, web fetch, memory read) → SAFE
+3-5: Writing to normal user files/dirs → LOW RISK
+6-7: Modifying existing files, external messages, system config → MEDIUM RISK
+8-9: Deleting files, system-wide changes → HIGH RISK
+10: Catastrophic destruction → CRITICAL
+
+Key: read, web_search, web_fetch, memory_search, memory_get — always 0-2.
 
 Output ONLY valid JSON. Start with { end with }.`;
   }
@@ -478,7 +485,20 @@ Output ONLY valid JSON. Start with { end with }.`;
       /^cat\s+[^|>]/, /^head\s+/, /^tail\s+/, /^grep\s+/,
       /^which\s+/, /^type\s+/, /^whoami(\s|$)/, /^hostname(\s|$)/,
       /^df(\s|$)/, /^du\s+/, /^ps(\s|$)/, /^top(\s|$)/,
-      /^env(\s|$)/, /^printenv/, /^uname/, /^uptime(\s|$)/
+      /^env(\s|$)/, /^printenv/, /^uname/, /^uptime(\s|$)/,
+      // Status/info commands (read-only by nature)
+      /\bstatus\b.*(\||$)/, /^\w+\s+status(\s|$)/,
+      /\bstatus\s+2>&1\b/,
+      // Pipeline ending in grep/head/tail/wc (read-only filtering)
+      /\|\s*(grep|head|tail|wc|sort|uniq|awk|sed|cut|tr)\s/,
+      /\|\s*(grep|head|tail|wc|sort|uniq|awk|sed|cut|tr)\s*$/,
+      // git read-only commands
+      /^git\s+(status|log|diff|show|branch|remote|tag|ls-files|describe)(\s|$)/,
+      // npm/node info
+      /^npm\s+(list|ls|version|info|view|outdated)(\s|$)/,
+      /^node\s+--version(\s|$)/, /^node\s+-v(\s|$)/,
+      // curl/wget read-only (GET, no output redirect)
+      /^curl\s+(?!.*-[Xo].*POST)(?!.*>)[^\|]*$/,
     ];
 
     for (const pattern of safePatterns) {
@@ -689,7 +709,14 @@ COMMAND: ${command}
 Assess what THIS command actually does and its risks. Output JSON only:
 {"riskScore": <0-10>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<2-3 sentences about THIS specific command>", "allowed": <true|false>, "warnings": []}
 
-Risk scale: 0-1=read-only safe, 2-3=minimal side effects, 4-5=low risk writes, 6-7=medium risk, 8-9=high risk, 10=catastrophic.
+Risk scale:
+0-2: Read-only, info gathering, status checks, grep/head/tail pipelines → SAFE
+3-5: File writes to safe locations, creating dirs → LOW RISK
+6-7: Deleting files, network writes, system config changes → MEDIUM RISK
+8-9: rm -rf, sudo destructive, system modifications → HIGH RISK
+10: Root filesystem deletion, fork bombs → CATASTROPHIC
+
+Key: status checks, grep/awk pipelines, git status, ls — these are 0-2 ALWAYS.
 
 Output ONLY valid JSON. Start with { end with }.`;
   }
