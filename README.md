@@ -53,6 +53,9 @@ guardclaw start
 
 Done! GuardClaw is now monitoring your agent.
 
+> **Want active blocking?** Install the OpenClaw plugin to intercept dangerous
+> commands before they run. See [Enable Command Blocking](#2-enable-command-blocking-openclaw-plugin) under Advanced Configuration.
+
 ## Essential Commands
 
 ```bash
@@ -165,35 +168,70 @@ This one-line patch broadcasts tool events to all WebSocket clients with the
 
 **Verify:** Check GuardClaw's Streaming Steps—you should now see read/write/exec with full input/output details.
 
-### 2. Enable Command Blocking (OpenClaw)
+### 2. Enable Command Blocking (OpenClaw Plugin)
 
-GuardClaw can **automatically block dangerous commands** before execution
-using OpenClaw's built-in approval mechanism. No source code modification
-required!
+By default, GuardClaw is a **passive observer**: it shows you risk scores and
+reasoning, but cannot stop a command from running. If you want GuardClaw to
+actually *intercept* dangerous tool calls before they execute, install the
+OpenClaw interceptor plugin.
 
-**Configure blocking mode:**
+#### Without the plugin (Monitor Only)
 
-Click the 🚫 button in GuardClaw's header to open blocking settings:
+- ✅ Full dashboard with risk scores, reasoning, and audit trail
+- ✅ See every tool call, exec command, file read/write in real time
+- ✅ Zero impact on agent behavior — pure observation
+- ❌ Cannot block or pause dangerous commands
 
-- **Monitor Only** (👀) - Observe and log, never interfere
-- **Auto Mode** (🚫) - Automatically allow/block based on risk scores
-- **Prompt Mode** - Ask for your approval on medium-risk commands
+#### With the plugin (Active Blocking)
 
-**Risk thresholds:**
+- ✅ Everything above, plus:
+- 🛡️ **Pre-execution interception** — dangerous commands are blocked *before* they run
+- ⚠️ **Approval prompts** — medium-risk commands pause and ask you: `/approve-last` or `/deny-last`
+- 🎛️ **One-click toggle** — enable/disable blocking from the Dashboard shield icon
+- 📋 `/pending` — see all commands currently waiting for your decision
 
-- **≤6**: Auto-allow (low risk)
-- **7-8**: Prompt for approval (medium risk, only in Prompt mode)
-- **≥9**: Auto-block (high risk)
+#### Install
 
-**Whitelist/Blacklist:**
+```bash
+# Install the plugin (copies files + updates openclaw.json)
+guardclaw plugin install
 
-- Add patterns like `git status`, `npm install`, `rm -rf *`
-- Supports wildcards: `npm *`, `git *`, `docker exec *`
-- Blacklist overrides all other rules
+# Restart OpenClaw Gateway to activate
+openclaw gateway restart
+```
 
-**How it works:** OpenClaw sends `exec.approval.request` events before
-executing shell commands. GuardClaw's LLM analyzes the command and responds
-with allow/deny. All decisions are logged with full reasoning in the Timeline.
+That's it. The plugin lives at `~/.openclaw/plugins/guardclaw-interceptor/`
+and is registered automatically.
+
+#### Manage
+
+```bash
+guardclaw plugin status      # Check if installed and enabled
+guardclaw plugin uninstall   # Remove plugin + clean up config
+```
+
+You can also toggle blocking on/off at any time from the GuardClaw Dashboard
+without restarting anything — the shield 🛡️ button (left of Settings) controls
+both the local LLM analysis and the OpenClaw plugin in sync.
+
+#### How blocking works
+
+When the plugin is enabled, every tool call goes through this flow:
+
+```
+Agent wants to run a tool
+        ↓
+OpenClaw plugin hooks before_tool_call
+        ↓
+GuardClaw LLM scores the risk (0–10)
+        ↓
+  Score ≤ 6  →  Allow automatically
+  Score 7–8  →  Block + ask user (/approve-last or /deny-last)
+  Score ≥ 9  →  Block automatically, no prompt
+```
+
+Thresholds and whitelist/blacklist patterns are configurable from the
+Dashboard → 🛡️ Blocking Configuration.
 
 ## Tech Stack
 
