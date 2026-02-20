@@ -798,26 +798,72 @@ app.post('/api/blocking/toggle', (req, res) => {
     return res.status(400).json({ error: 'enabled must be a boolean' });
   }
   
-  // Update .env file
-  const envPath = path.join(process.cwd(), '.env');
-  let envContent = fs.readFileSync(envPath, 'utf8');
-  
-  if (envContent.includes('GUARDCLAW_BLOCKING_ENABLED=')) {
-    envContent = envContent.replace(
-      /GUARDCLAW_BLOCKING_ENABLED=.*/,
-      `GUARDCLAW_BLOCKING_ENABLED=${enabled}`
-    );
-  } else {
-    envContent += `\nGUARDCLAW_BLOCKING_ENABLED=${enabled}\n`;
+  try {
+    // Update .env file
+    const envPath = path.join(process.cwd(), '.env');
+    let envContent = fs.readFileSync(envPath, 'utf8');
+    
+    if (envContent.includes('GUARDCLAW_BLOCKING_ENABLED=')) {
+      envContent = envContent.replace(
+        /GUARDCLAW_BLOCKING_ENABLED=.*/,
+        `GUARDCLAW_BLOCKING_ENABLED=${enabled}`
+      );
+    } else {
+      envContent += `\nGUARDCLAW_BLOCKING_ENABLED=${enabled}\n`;
+    }
+    
+    fs.writeFileSync(envPath, envContent);
+    
+    // Update OpenClaw plugin configuration
+    const openclawConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    let needsGatewayRestart = false;
+    
+    if (fs.existsSync(openclawConfigPath)) {
+      try {
+        const openclawConfig = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf8'));
+        
+        // Ensure plugin structure exists
+        if (!openclawConfig.plugins) openclawConfig.plugins = {};
+        if (!openclawConfig.plugins.entries) openclawConfig.plugins.entries = {};
+        
+        // Update guardclaw-interceptor plugin enabled state
+        if (!openclawConfig.plugins.entries['guardclaw-interceptor']) {
+          openclawConfig.plugins.entries['guardclaw-interceptor'] = {};
+        }
+        
+        const wasEnabled = openclawConfig.plugins.entries['guardclaw-interceptor'].enabled;
+        openclawConfig.plugins.entries['guardclaw-interceptor'].enabled = enabled;
+        
+        // Save updated config
+        fs.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2));
+        
+        if (wasEnabled !== enabled) {
+          needsGatewayRestart = true;
+        }
+        
+        console.log(`[GuardClaw] Updated OpenClaw plugin: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+      } catch (err) {
+        console.error('[GuardClaw] Failed to update OpenClaw config:', err);
+      }
+    }
+    
+    const message = needsGatewayRestart 
+      ? `Blocking ${enabled ? 'enabled' : 'disabled'}. ⚠️ OpenClaw Gateway restart required: openclaw gateway restart`
+      : `Blocking setting updated to ${enabled ? 'ENABLED' : 'DISABLED'}.`;
+    
+    res.json({ 
+      success: true, 
+      enabled,
+      needsGatewayRestart,
+      message
+    });
+  } catch (error) {
+    console.error('[GuardClaw] Toggle blocking error:', error);
+    res.status(500).json({ 
+      error: 'Failed to toggle blocking',
+      message: error.message 
+    });
   }
-  
-  fs.writeFileSync(envPath, envContent);
-  
-  res.json({ 
-    success: true, 
-    enabled,
-    message: 'Blocking setting updated. Please restart GuardClaw for changes to take effect.'
-  });
 });
 
 app.post('/api/blocking/whitelist', (req, res) => {

@@ -34,8 +34,15 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
       
       if (response.ok) {
         const data = await response.json();
-        setMessage(data.message);
+        setMessage(data.message || `Blocking ${data.enabled ? 'enabled' : 'disabled'}`);
         fetchStatus();
+        
+        // Reload page after 2 seconds if Gateway restart is needed
+        if (data.needsGatewayRestart) {
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        }
       }
     } catch (error) {
       setMessage('Failed to toggle blocking: ' + error.message);
