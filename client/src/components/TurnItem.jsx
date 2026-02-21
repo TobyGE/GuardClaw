@@ -278,46 +278,7 @@ function TurnItem({ turn }) {
                 {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
               </div>
 
-              {/* Also show streaming steps from parent if available */}
-              {parent.streamingSteps?.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-800">
-                  <div className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-2">
-                    Streaming Steps ({parent.streamingSteps.length})
-                  </div>
-                  <div className="space-y-1">
-                    {parent.streamingSteps.map((step, idx) => {
-                      const stepRisk = step.safeguard ? getRiskLevel(step.safeguard.riskScore) : null;
-                      const stepIcon = step.type === 'thinking' ? '💭' :
-                                       step.type === 'tool_use' ? '🔧' :
-                                       step.type === 'exec' ? '⚡' :
-                                       step.type === 'text' ? '💬' : '📝';
-                      return (
-                        <div key={step.id || idx} className="bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 text-xs">
-                          <div className="flex items-center space-x-2">
-                            <span>{stepIcon}</span>
-                            <span className="font-medium">{step.type === 'tool_use' && step.toolName ? step.toolName : step.type}</span>
-                            {stepRisk && (
-                              <span className={`px-1.5 py-0.5 rounded font-medium ${stepRisk.color}`}>
-                                {stepRisk.label} ({step.safeguard.riskScore})
-                              </span>
-                            )}
-                          </div>
-                          {step.content && (
-                            <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-20 overflow-y-auto">
-                              {step.content}
-                            </div>
-                          )}
-                          {step.metadata?.input && (
-                            <code className="block mt-1 bg-gray-100 dark:bg-gray-900 p-1 rounded overflow-x-auto whitespace-pre-wrap">
-                              {JSON.stringify(step.metadata.input, null, 2).substring(0, 300)}
-                            </code>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {/* streamingSteps from parent removed — tool calls shown via ToolCallRow above */}
             </div>
           )}
 
