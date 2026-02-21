@@ -17,6 +17,12 @@ export default function (api) {
   // Approved whitelist: commandKey → expiry timestamp (5 min)
   const approvedCommands = new Map();
 
+  // Run-level lock: once a tool in a session is blocked, all subsequent
+  // tool calls in that session are silently blocked (no LLM, no notification)
+  // until the user approves or denies. Cleared on /approve-last or /deny-last.
+  // Auto-expires after 10 minutes as a safety net.
+  const blockedSessions = new Map(); // sessionKey → { since, firstBlock }
+
   api.on('before_tool_call', async (event, context) => {
     const commandKey = `${event.toolName}:${JSON.stringify(event.params)}`;
     const approvalExpiry = approvedCommands.get(commandKey);
@@ -25,6 +31,26 @@ export default function (api) {
       approvedCommands.delete(commandKey);
       api.logger.info(`[GuardClaw] ✅ Approved command executing: ${event.toolName}`);
       return {};
+    }
+
+    // Check run-level lock: if this session already has a block pending,
+    // silently block all subsequent tools — no LLM call, no extra notification.
+    const sessionLock = blockedSessions.get(context.sessionKey);
+    if (sessionLock) {
+      const ageMin = (Date.now() - sessionLock.since) / 60000;
+      if (ageMin < 10) {
+        api.logger.info(
+          `[GuardClaw] 🔒 Session locked — silently blocking ${event.toolName} (pending approval for ${sessionLock.firstBlock})`
+        );
+        return {
+          block: true,
+          blockReason: `[GUARDCLAW SAFETY BLOCK] Session is locked pending user approval for a previous blocked tool call (${sessionLock.firstBlock}). Wait silently.`,
+        };
+      } else {
+        // Lock expired — clear it and proceed normally
+        api.logger.info(`[GuardClaw] ⏰ Session lock expired, clearing for ${context.sessionKey}`);
+        blockedSessions.delete(context.sessionKey);
+      }
     }
 
     try {
@@ -58,6 +84,13 @@ export default function (api) {
         const globalList = pendingCalls.get('__global__') || [];
         globalList.push(callData);
         pendingCalls.set('__global__', globalList);
+
+        // Lock this session so subsequent tool calls in the same run are silently blocked
+        blockedSessions.set(context.sessionKey, {
+          since: Date.now(),
+          firstBlock: event.toolName,
+        });
+        api.logger.info(`[GuardClaw] 🔒 Session locked: ${context.sessionKey} (first block: ${event.toolName})`);
 
         const displayInput = formatParams(event.toolName, event.params);
 
@@ -127,6 +160,10 @@ export default function (api) {
           sessionList.splice(idx, 1);
           pendingCalls.set(call.sessionKey, sessionList);
         }
+
+        // Clear the session lock so new tool calls are allowed through again
+        blockedSessions.delete(call.sessionKey);
+        api.logger.info(`[GuardClaw] 🔓 Session unlocked: ${call.sessionKey}`);
       }
 
       // Add to whitelist (5 min)
@@ -181,6 +218,10 @@ export default function (api) {
           sessionList.splice(idx, 1);
           pendingCalls.set(call.sessionKey, sessionList);
         }
+
+        // Clear the session lock
+        blockedSessions.delete(call.sessionKey);
+        api.logger.info(`[GuardClaw] 🔓 Session unlocked (denied): ${call.sessionKey}`);
       }
 
       const displayInput = formatParams(call.toolName, call.params);
