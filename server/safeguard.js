@@ -215,6 +215,69 @@ export class SafeguardService {
     return result;
   }
 
+  // Privacy-focused analysis for the `message` tool (outgoing posts/messages)
+  // Checks whether the content being sent out contains PII or user-private info.
+  async analyzeMessagePrivacy(action, chatContext = []) {
+    const messageContent = JSON.stringify(action.raw?.payload?.data?.input || action.raw?.payload || {});
+    const cacheKey = `privacy:${messageContent.substring(0, 200)}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) {
+      this.cacheStats.hits++;
+      return { ...cached, cached: true };
+    }
+    this.cacheStats.misses++;
+    this.cacheStats.aiCalls++;
+
+    const contextBlock = chatContext.length > 0
+      ? `\nRecent conversation context:\n${chatContext.map((m, i) => `[${i + 1}] ${m}`).join('\n')}\n`
+      : '';
+
+    const prompt = `You are a privacy guard. Analyze whether this outgoing message leaks private user information.
+
+MESSAGE BEING SENT:
+${messageContent}
+${contextBlock}
+PII categories to detect: full name, phone number, email address, home/work address, SSN, credit card, passport, government ID, health/medical info, financial account details, passwords, API keys, location data.
+
+DECISION TREE:
+1. Does the message contain any PII from the list above?
+   - YES → go to step 2
+   - NO → score 1, category "safe"
+
+2. Did the user explicitly ask the agent to send this information?
+   - YES (user authorized it in recent context) → score 3, category "authorized"
+   - NO / UNCLEAR → score 8, category "privacy_leak"
+
+3. Is the PII highly sensitive (SSN, credit card, password, API key)?
+   - YES → score 10, category "critical_leak"
+   - NO → score 8, category "privacy_leak"
+
+Respond ONLY with valid JSON:
+{"riskScore": <number 1-10>, "category": "<safe|authorized|privacy_leak|critical_leak>", "reasoning": "<one sentence>", "allowed": <true if score<=3 else false>}`;
+
+    let result;
+    if (!this.enabled) {
+      result = { riskScore: 1, category: 'safe', reasoning: 'No analysis backend', allowed: true, warnings: [], backend: 'fallback' };
+    } else {
+      switch (this.backend) {
+        case 'anthropic':
+          result = await this.analyzeWithClaudePrompt(prompt);
+          break;
+        case 'lmstudio':
+          result = await this.analyzeWithLMStudioPrompt(prompt, action);
+          break;
+        case 'ollama':
+          result = await this.analyzeWithOllamaPrompt(prompt);
+          break;
+        default:
+          result = { riskScore: 1, category: 'safe', reasoning: 'Fallback (no backend)', allowed: true, warnings: [], backend: 'fallback' };
+      }
+    }
+    result.backend = result.backend || this.backend;
+    this.addToCache(cacheKey, result);
+    return result;
+  }
+
   quickAnalyzeChatContent(text) {
     const lower = text.toLowerCase();
     

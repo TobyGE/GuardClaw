@@ -1163,7 +1163,21 @@ async function handleAgentEvent(event) {
     console.log('[GuardClaw] Analyzing:', action.type, action.summary);
 
     try {
-      const analysis = await safeguardService.analyzeAction(action);
+      let analysis;
+
+      // Special path: `message` tool gets privacy analysis with chat context
+      if (eventDetails.tool === 'message') {
+        const recentChatContext = eventStore.getRecentEvents(200)
+          .filter(e => e.safeguard?.isContext && e.description)
+          .slice(-5)
+          .map(e => e.description?.substring(0, 300))
+          .filter(Boolean);
+        analysis = await safeguardService.analyzeMessagePrivacy(action, recentChatContext);
+        console.log('[GuardClaw] 🔒 Privacy analysis for message tool:', analysis.riskScore);
+      } else {
+        analysis = await safeguardService.analyzeAction(action);
+      }
+
       storedEvent.safeguard = analysis;
 
       if (analysis.riskScore >= 8) {
@@ -1183,34 +1197,6 @@ async function handleAgentEvent(event) {
     }
   } else {
     storedEvent.safeguard = classifyNonExecEvent(eventDetails);
-  }
-
-  // For chat-message/chat-update events with streaming steps:
-  // Use the HIGHEST risk score from all steps (worst-case)
-  if ((eventDetails.type === 'chat-update' || eventDetails.type === 'chat-message') && 
-      analyzedSteps.length > 0) {
-    
-    const stepsWithSafeguard = analyzedSteps.filter(s => s.safeguard?.riskScore !== undefined);
-    
-    if (stepsWithSafeguard.length > 0) {
-      // Find the step with highest risk
-      const maxRiskStep = stepsWithSafeguard.reduce((max, step) => 
-        step.safeguard.riskScore > max.safeguard.riskScore ? step : max
-      );
-      
-      // Use the worst-case risk for the overall event
-      storedEvent.safeguard = {
-        ...maxRiskStep.safeguard,
-        reasoning: `Highest risk from ${stepsWithSafeguard.length} analyzed steps: ${maxRiskStep.safeguard.reasoning || 'N/A'}`,
-        worstStep: {
-          type: maxRiskStep.type,
-          toolName: maxRiskStep.toolName,
-          riskScore: maxRiskStep.safeguard.riskScore
-        }
-      };
-      
-      console.log(`[GuardClaw] 📊 Chat event risk: using max from steps (${maxRiskStep.safeguard.riskScore}) instead of overall (${storedEvent.safeguard?.riskScore || 0})`);
-    }
   }
 
   eventStore.addEvent(storedEvent);
@@ -1518,10 +1504,7 @@ function shouldSkipEvent(eventDetails) {
 function shouldAnalyzeEvent(eventDetails) {
   if (eventDetails.type === 'exec-started') return true;
   if (eventDetails.type === 'tool-call') return true;
-  // Always analyze chat-update/agent-message that have content
-  if (eventDetails.type === 'chat-update') return true;
-  if (eventDetails.type === 'agent-message') return true;
-  if (eventDetails.type === 'chat-message') return true;
+  // chat-update / agent-message / chat-message are stored for context only — not LLM-scored
   return false;
 }
 
@@ -1581,11 +1564,12 @@ function classifyNonExecEvent(eventDetails) {
     };
   }
 
-  if (type === 'chat-update' || type === 'agent-message') {
+  if (type === 'chat-update' || type === 'agent-message' || type === 'chat-message') {
     return {
-      riskScore: 0,
-      category: 'safe',
-      reasoning: 'Chat message',
+      isContext: true,       // UI: render as conversation context, not a security event
+      riskScore: null,
+      category: 'context',
+      reasoning: 'Conversation message — stored for context only',
       allowed: true,
       warnings: [],
       backend: 'classification'

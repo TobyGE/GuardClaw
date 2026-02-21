@@ -151,6 +151,11 @@ function TurnItem({ turn }) {
 
   // ── Case 2: standalone event (no tool calls) ──
   if (toolCalls.length === 0) {
+    // Chat messages with no tool calls → render as conversation context bubble
+    const isChat = parent.type === 'chat-update' || parent.type === 'chat-message';
+    if (isChat || parent.safeguard?.isContext) {
+      return <ChatContextBubble event={parent} />;
+    }
     return <StandaloneEvent event={parent} />;
   }
 
@@ -312,6 +317,49 @@ function TurnItem({ turn }) {
         {/* Timestamp */}
         <div className="text-sm text-gc-text-dim ml-4 whitespace-nowrap flex-shrink-0">
           {formatTime(parent.timestamp || Date.now())}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- ChatContextBubble: conversation message shown as context, not a security event ---------- */
+function ChatContextBubble({ event }) {
+  const [expanded, setExpanded] = useState(false);
+  const content = event.summary || event.description || '';
+  const isFinal = event.subType === 'final' || event.type === 'chat-message';
+  const preview = content.substring(0, 120);
+  const hasMore = content.length > 120;
+
+  return (
+    <div className="px-6 py-3 hover:bg-gc-border/5 transition-colors border-l-2 border-blue-400/30">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center space-x-2 mb-1">
+            <span className="text-xs font-medium text-blue-500 dark:text-blue-400">
+              {isFinal ? '🤖 Agent' : '💬 Chat'}
+            </span>
+            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+              context
+            </span>
+          </div>
+          {content && (
+            <div
+              className="text-sm text-gc-text-dim cursor-pointer"
+              onClick={() => hasMore && setExpanded(!expanded)}
+            >
+              {expanded ? content : preview}
+              {hasMore && !expanded && (
+                <span className="text-blue-400 ml-1">… show more</span>
+              )}
+              {hasMore && expanded && (
+                <span className="text-blue-400 ml-1 cursor-pointer" onClick={() => setExpanded(false)}> show less</span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="text-xs text-gc-text-dim ml-4 whitespace-nowrap flex-shrink-0">
+          {formatTime(event.timestamp || Date.now())}
         </div>
       </div>
     </div>
