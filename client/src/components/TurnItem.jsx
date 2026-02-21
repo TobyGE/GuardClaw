@@ -22,6 +22,39 @@ const TOOL_ICONS = {
   session_status: '📊',
 };
 
+// Generate a human-readable summary from a list of tool-call events
+function summarizeToolCalls(toolCalls) {
+  if (!toolCalls.length) return '';
+
+  // Count by tool name
+  const counts = {};
+  for (const tc of toolCalls) {
+    const name = tc.tool || tc.subType || 'tool';
+    counts[name] = (counts[name] || 0) + 1;
+  }
+
+  const labels = {
+    exec: (n) => `running ${n} command${n > 1 ? 's' : ''}`,
+    read: (n) => `reading ${n} file${n > 1 ? 's' : ''}`,
+    write: (n) => `writing ${n} file${n > 1 ? 's' : ''}`,
+    edit: (n) => `editing ${n} file${n > 1 ? 's' : ''}`,
+    web_fetch: (n) => `fetching ${n} URL${n > 1 ? 's' : ''}`,
+    web_search: (n) => `searching the web`,
+    browser: (n) => `browsing`,
+    message: (n) => `sending ${n} message${n > 1 ? 's' : ''}`,
+    memory_search: (n) => `searching memory`,
+    memory_get: (n) => `reading memory`,
+    image: (n) => `analyzing image${n > 1 ? 's' : ''}`,
+    tts: (n) => `generating speech`,
+  };
+
+  const parts = Object.entries(counts).map(([name, n]) =>
+    labels[name] ? labels[name](n) : `${name}${n > 1 ? ` ×${n}` : ''}`
+  );
+
+  return parts.join(', ');
+}
+
 function toolIcon(name) {
   if (!name) return '🔧';
   return TOOL_ICONS[name] || '🔧';
@@ -130,17 +163,18 @@ function TurnItem({ turn }) {
 
   // ── Case 1: orphan tool-calls only (agent still running / no parent) ──
   if (!parent) {
+    const summary = summarizeToolCalls(toolCalls);
     return (
       <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <span className="text-gc-text-dim text-sm animate-pulse">⏳</span>
             <span className="text-sm font-medium text-gc-text-dim">Agent working…</span>
-            <span className="text-xs text-gc-text-dim">({toolCalls.length} tool{toolCalls.length !== 1 ? 's' : ''})</span>
+            <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{summary}</span>
           </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-gc-text-dim">{toolCalls[0] ? formatTime(toolCalls[0].timestamp) : ''}</span>
-          </div>
+          <span className="text-xs text-gc-text-dim ml-4 whitespace-nowrap">
+            {toolCalls[0] ? formatTime(toolCalls[0].timestamp) : ''}
+          </span>
         </div>
         <div className="space-y-2">
           {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
