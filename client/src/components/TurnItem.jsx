@@ -155,11 +155,35 @@ function ToolCallRow({ event }) {
   );
 }
 
+/* ---------- ReplyText: expandable agent reply snippet ---------- */
+const REPLY_PREVIEW = 200;
+
+function ReplyText({ text, expanded, onToggle }) {
+  if (!text) return null;
+  const hasMore = text.length > REPLY_PREVIEW;
+  return (
+    <p
+      className="text-sm text-gc-text bg-gc-bg px-3 py-2 rounded border-l-2 border-blue-400/50 break-words whitespace-pre-wrap cursor-default"
+      onClick={hasMore ? onToggle : undefined}
+      style={hasMore ? { cursor: 'pointer' } : {}}
+    >
+      {expanded || !hasMore ? text : text.substring(0, REPLY_PREVIEW)}
+      {hasMore && !expanded && (
+        <span className="text-blue-400 ml-1 select-none">… show more</span>
+      )}
+      {hasMore && expanded && (
+        <span className="text-blue-400 ml-1 select-none"> show less</span>
+      )}
+    </p>
+  );
+}
+
 /* ---------- TurnItem: one agent response turn ---------- */
 function TurnItem({ turn }) {
   const { parent, toolCalls, reply } = turn;
   const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showFullReply, setShowFullReply] = useState(false);
 
   // ── Case 1: orphan tool-calls only (agent still running / no parent) ──
   if (!parent) {
@@ -184,9 +208,7 @@ function TurnItem({ turn }) {
         </div>
         {/* Agent reply text */}
         {replyText && (
-          <p className="text-sm text-gc-text mb-3 bg-gc-bg px-3 py-2 rounded border-l-2 border-blue-400/50">
-            {replyText.substring(0, 300)}{replyText.length > 300 ? '…' : ''}
-          </p>
+          <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
         )}
         <div className="space-y-2">
           {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
@@ -232,9 +254,7 @@ function TurnItem({ turn }) {
           {/* Agent reply text */}
           {replyText && (
             <div className="mb-3">
-              <p className="text-sm text-gc-text bg-gc-bg px-3 py-2 rounded border-l-2 border-blue-400/50 break-words">
-                {replyText.substring(0, 300)}{replyText.length > 300 ? '…' : ''}
-              </p>
+              <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
             </div>
           )}
 
