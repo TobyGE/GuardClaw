@@ -253,6 +253,11 @@ export class SafeguardService {
       };
     }
 
+    // write / edit: judge path + content together
+    if (action.tool === 'write' || action.tool === 'edit') {
+      return this.analyzeWriteAction(action);
+    }
+
     // Check cache first
     const cacheKey = `${action.tool}:${action.summary}`;
     const cached = this.getFromCache(cacheKey);
@@ -285,6 +290,124 @@ export class SafeguardService {
       }
     }
 
+    this.addToCache(cacheKey, result);
+    return result;
+  }
+
+  // Specialized analysis for write / edit tool calls.
+  // Judges both the file path and the content being written.
+  async analyzeWriteAction(action) {
+    const input = action.parsedInput || {};
+    const filePath = input.file_path || input.path || '';
+    const content = input.content || input.new_string || '';
+    const oldStr = input.old_string || '';
+
+    // Fast-path: writing to clearly safe project/home paths with no suspicious content
+    const SAFE_PATH_PREFIXES = [
+      `${process.env.HOME}/guardclaw`,
+      `${process.env.HOME}/openclaw`,
+      `${process.env.HOME}/.openclaw/workspace`,
+      `${process.env.HOME}/projects`,
+      `${process.env.HOME}/Desktop`,
+      `/tmp/`,
+    ];
+    const DANGER_PATHS = [
+      /\/\.ssh\/(authorized_keys|config|id_rsa)/,
+      /\/\.aws\/credentials/,
+      /\/\.bashrc|\/\.zshrc|\/\.profile/,
+      /\/etc\/(?:passwd|shadow|sudoers|crontab|hosts)/,
+      /\/Library\/LaunchAgents\//,
+      /\/Library\/LaunchDaemons\//,
+      /\/(usr|bin|sbin|System)\//,
+    ];
+
+    // Danger path override — always goes to LLM regardless of content
+    for (const re of DANGER_PATHS) {
+      if (re.test(filePath)) {
+        const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool);
+        return this.runLLMPrompt(prompt, action);
+      }
+    }
+
+    // Content: detect high-signal danger patterns fast (skip LLM for obvious cases)
+    const DANGER_CONTENT = [
+      { re: /sk-[a-zA-Z0-9]{32,}/, reason: 'OpenAI API key in file content' },
+      { re: /PRIVATE KEY-----/, reason: 'Private key in file content' },
+      { re: /curl\s+.*\|\s*(bash|sh)/, reason: 'Remote code execution in script' },
+      { re: /:\(\)\s*\{.*;\s*\}/, reason: 'Fork bomb pattern' },
+    ];
+    for (const { re, reason } of DANGER_CONTENT) {
+      if (re.test(content)) {
+        return {
+          riskScore: 8,
+          category: 'file-write',
+          reasoning: reason,
+          allowed: false,
+          warnings: [reason],
+          backend: 'rules',
+        };
+      }
+    }
+
+    // Safe path + no dangerous content — build LLM prompt with content snippet
+    const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool);
+    return this.runLLMPrompt(prompt, action);
+  }
+
+  createWriteAnalysisPrompt(filePath, content, oldStr, tool) {
+    const snippet = content.length > 600 ? content.substring(0, 600) + '\n…(truncated)' : content;
+    const oldSnippet = oldStr.length > 200 ? oldStr.substring(0, 200) + '…' : oldStr;
+    const isEdit = tool === 'edit';
+
+    return `You are a security judge. An AI agent is about to ${isEdit ? 'edit' : 'write'} a file.
+
+FILE PATH: ${filePath || '(unknown)'}
+${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snippet}`}
+
+SCORING RULES:
+
+SCORE 1-3 (safe, allowed=true):
+- Writing to project dirs (~/guardclaw, ~/openclaw, ~/projects, /tmp, ~/Desktop)
+- Normal source code, config, documentation, markdown, JSON
+- No sensitive data in content
+
+SCORE 4-6 (medium, allowed=true — flag for review):
+- Writing to home dir root (~/filename) with unclear purpose
+- Content contains environment variables or tokens that look like placeholders
+
+SCORE 7-8 (high risk, allowed=false):
+- Writing to shell config (~/.bashrc, ~/.zshrc, ~/.profile) — could add persistent backdoor
+- Writing to crontab or launchd plists — could add persistence
+- Writing API keys, passwords, or private keys into a file
+
+SCORE 9-10 (critical, allowed=false):
+- Writing to ~/.ssh/authorized_keys — adds unauthorized SSH access
+- Writing to /etc/passwd, /etc/shadow, sudoers — privilege escalation
+- Writing to system binaries or LaunchDaemons — persistent malware
+
+Output ONLY valid JSON:
+{"riskScore": <1-10>, "category": "safe|file-write|credential-leak|persistence|privilege-escalation", "reasoning": "<1-2 sentences about this specific path and content>", "allowed": <true/false>, "warnings": []}`;
+  }
+
+  // Run LLM with a prompt, routing to the configured backend.
+  async runLLMPrompt(prompt, action) {
+    const cacheKey = prompt.substring(0, 300);
+    const cached = this.getFromCache(cacheKey);
+    if (cached) { this.cacheStats.hits++; return { ...cached, cached: true }; }
+    this.cacheStats.misses++;
+    this.cacheStats.aiCalls++;
+
+    let result;
+    if (!this.enabled) {
+      result = this.fallbackToolAnalysis(action);
+    } else {
+      switch (this.backend) {
+        case 'anthropic': result = await this.analyzeWithClaudePrompt(prompt); break;
+        case 'lmstudio': result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
+        case 'ollama':   result = await this.analyzeWithOllamaPrompt(prompt); break;
+        default:         result = this.fallbackToolAnalysis(action);
+      }
+    }
     this.addToCache(cacheKey, result);
     return result;
   }

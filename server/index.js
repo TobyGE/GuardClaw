@@ -409,7 +409,9 @@ app.post('/api/check-tool', async (req, res) => {
     // Build action object for analysis
     const action = {
       type: toolName,
-      summary: `${toolName}: ${JSON.stringify(params || {})}`,
+      tool: toolName,
+      summary: `${toolName}: ${JSON.stringify(params || {}).substring(0, 120)}`,
+      parsedInput: params || {},   // full params — write/edit uses this to judge content
       details: {
         tool: toolName,
         params: params || {},
@@ -1441,11 +1443,13 @@ async function analyzeStreamingStep(step) {
         backend: 'classification'
       };
     } else if (step.type === 'tool_use') {
-      // Analyze tool call
+      // Analyze tool call — pass full parsedInput so write/edit can judge content
+      const input = step.parsedInput || step.metadata?.input || {};
       const action = {
         type: step.toolName || 'unknown',
         tool: step.toolName,
-        summary: `${step.toolName}: ${JSON.stringify(step.parsedInput || {}).substring(0, 100)}`,
+        summary: `${step.toolName}: ${JSON.stringify(input).substring(0, 120)}`,
+        parsedInput: input,  // full input — safeguard.js uses this for write/edit
         metadata: step.metadata
       };
       return await safeguardService.analyzeAction(action);
