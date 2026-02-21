@@ -50,14 +50,14 @@ Install the OpenClaw plugin to enable **pre-execution interception**:
 | Risk scores + audit trail | ✅ | ✅ |
 | Real-time tool call visibility | ✅ | ✅ |
 | Block dangerous commands | ❌ | ✅ |
-| Approval prompts for medium-risk | ❌ | ✅ |
+| Approval prompts for high-risk (score ≥ 8) | ❌ | ✅ |
 
 ```bash
 guardclaw plugin install
 openclaw gateway restart
 ```
 
-Once enabled, the 🛡️ button in the Dashboard toggles blocking on/off without a restart. Medium-risk commands pause and ask `/approve-last` or `/deny-last`. Score ≥ 9 auto-blocks.
+Once enabled, the 🛡️ button in the Dashboard toggles blocking on/off without a restart. Tools with a risk score ≥ 8 are paused and require human approval — respond with `/approve-last` or `/deny-last`. Below 8, tools run freely and risk scores are logged in the dashboard.
 
 ## Commands
 
