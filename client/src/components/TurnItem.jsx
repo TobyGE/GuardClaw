@@ -196,9 +196,11 @@ function TurnItem({ turn }) {
   // ── Case 3: chat-update/chat-message with tool calls → full turn ──
   const riskLevel = getRiskLevel(parent.safeguard?.riskScore);
   const content = parent.summary || parent.description || '';
+  const isContext = parent.safeguard?.isContext;
 
   // Determine how many unique tool names
   const toolNames = [...new Set(toolCalls.map(tc => tc.tool || tc.subType).filter(Boolean))];
+  const toolSummary = summarizeToolCalls(toolCalls);
 
   return (
     <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
@@ -206,8 +208,8 @@ function TurnItem({ turn }) {
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center space-x-3 mb-2">
-            <span className="text-gc-text font-medium">💬 chat-message</span>
-            {riskLevel && (
+            <span className="text-gc-text font-medium">🤖 Agent turn</span>
+            {riskLevel && !isContext && (
               <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
                 {riskLevel.label} ({parent.safeguard?.riskScore}/10)
               </span>
@@ -217,34 +219,31 @@ function TurnItem({ turn }) {
           {/* Summary / content */}
           {content && (
             <div className="mb-3">
-              <code className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded inline-block max-w-full break-words whitespace-pre-wrap">
+              <p className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded max-w-full break-words">
                 {content.substring(0, 200)}{content.length > 200 ? '…' : ''}
-              </code>
+              </p>
             </div>
           )}
 
           {/* Action buttons */}
           <div className="flex items-center space-x-4 mt-2">
-            {/* Details button — always shown when there are tool calls */}
+            {/* Details button */}
             <button
               onClick={() => setShowDetails(!showDetails)}
               className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center space-x-1"
             >
               <span>{showDetails ? '▼' : '▶'}</span>
-              <span>
-                📋 Details ({toolCalls.length} tool{toolCalls.length !== 1 ? 's' : ''}
-                {toolNames.length > 0 ? `: ${toolNames.slice(0, 3).join(', ')}${toolNames.length > 3 ? '…' : ''}` : ''})
-              </span>
+              <span>📋 Details ({toolSummary})</span>
             </button>
 
-            {/* Security Analysis button */}
-            {parent.safeguard?.riskScore !== undefined && (
+            {/* Security Analysis button — only if actually scored (not context) */}
+            {!isContext && parent.safeguard?.riskScore != null && (
               <button
                 onClick={() => setShowAnalysis(!showAnalysis)}
                 className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
               >
                 <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span>🛡️ Security Analysis ({parent.safeguard?.category || 'general'} - {parent.safeguard?.riskScore}/10)</span>
+                <span>🛡️ Security Analysis ({parent.safeguard?.category || 'general'} — {parent.safeguard?.riskScore}/10)</span>
               </button>
             )}
           </div>
@@ -436,13 +435,13 @@ function StandaloneEvent({ event }) {
             </div>
           )}
 
-          {event.safeguard?.riskScore !== undefined && (
+          {event.safeguard?.riskScore != null && (
             <button
               onClick={() => setShowAnalysis(!showAnalysis)}
               className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
             >
               <span>{showAnalysis ? '▼' : '▶'}</span>
-              <span>🛡️ Security Analysis ({event.safeguard?.category || 'general'} - {event.safeguard?.riskScore}/10)</span>
+              <span>🛡️ Security Analysis ({event.safeguard?.category || 'general'} — {event.safeguard?.riskScore}/10)</span>
             </button>
           )}
 
