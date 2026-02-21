@@ -227,7 +227,32 @@ export class SafeguardService {
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);
     }
-    
+
+    // Fast-path: clearly safe tools — no side effects, no writes, no network posts
+    const SAFE_TOOLS = new Set([
+      'read',           // read files (any path — exfiltration caught by message privacy check)
+      'memory_search',  // semantic search over local memory files
+      'memory_get',     // read snippet from memory file
+      'web_search',     // search query (read-only)
+      'web_fetch',      // fetch URL content (read-only)
+      'session_status', // status info
+      'sessions_list',  // list sessions
+      'sessions_history', // read session history
+      'image',          // image analysis
+      'canvas',         // display/present content
+    ]);
+    if (SAFE_TOOLS.has(action.tool)) {
+      this.cacheStats.ruleCalls++;
+      return {
+        riskScore: 1,
+        category: 'safe',
+        reasoning: `Read-only tool: ${action.tool}`,
+        allowed: true,
+        warnings: [],
+        backend: 'rules',
+      };
+    }
+
     // Check cache first
     const cacheKey = `${action.tool}:${action.summary}`;
     const cached = this.getFromCache(cacheKey);
