@@ -295,7 +295,7 @@ Respond ONLY with valid JSON, no markdown formatting.`;
     const tool = action.tool;
     
     // Obvious safe tools (read-only)
-    if (['read', 'web_search', 'web_fetch', 'memory_search', 'memory_get'].includes(tool)) {
+    if (['read', 'web_search', 'web_fetch', 'memory_search', 'memory_get', 'process', 'session_status', 'sessions_list', 'sessions_history', 'image', 'tts'].includes(tool)) {
       return {
         riskScore: 1,
         category: 'safe',
@@ -897,6 +897,13 @@ Output ONLY the JSON for the matching case. No other text.`;
 
 COMMAND TO ANALYZE:
 ${command}
+
+ALWAYS SAFE — score 1, allowed=true, no matter what else the command contains:
+- grep, egrep, fgrep, rg (any grep variant with any flags or pipes)
+- head, tail, wc, awk, sed, sort, uniq, cut, tr (text processing)
+- ls, ll, la, find (without -delete or -exec rm)
+- cat, less, more, diff, file
+- 2>/dev/null or >/dev/null redirects do NOT make a command dangerous
 
 SCORING RULES (check in order, use the FIRST match):
 
