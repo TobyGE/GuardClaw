@@ -24,21 +24,37 @@ function groupEventsIntoTurns(events) {
 
   for (const event of chronological) {
     const type = event.type || '';
+    const isChat = type === 'chat-update' || type === 'chat-message';
+    const isContext = event.safeguard?.isContext;
 
-    if (type === 'chat-update' || type === 'chat-message') {
-      // This is a parent: absorb any pending tool-calls
-      turns.push({
-        parent: event,
-        toolCalls: pendingToolCalls,
-        id: event.id || `turn-${event.timestamp}`,
-      });
-      pendingToolCalls = [];
+    if (isChat) {
+      if (pendingToolCalls.length > 0) {
+        // chat event after tool calls → full agent turn with this as the reply/parent
+        turns.push({
+          parent: event,
+          toolCalls: pendingToolCalls,
+          id: event.id || `turn-${event.timestamp}`,
+        });
+        pendingToolCalls = [];
+      } else {
+        // Standalone chat message with no preceding tool calls
+        // Check if the last turn is an agent turn with no reply yet → attach as reply
+        const last = turns[turns.length - 1];
+        if (last && last.toolCalls.length > 0 && !last.reply && isContext) {
+          last.reply = event;
+        } else {
+          turns.push({
+            parent: event,
+            toolCalls: [],
+            id: event.id || `turn-${event.timestamp}`,
+          });
+        }
+      }
     } else if (type === 'tool-call') {
       pendingToolCalls.push(event);
     } else {
-      // Other event types (exec-started, exec-completed, etc.) — flush orphans then show standalone
+      // Other event types — flush orphans then show standalone
       if (pendingToolCalls.length > 0) {
-        // flush into an orphan turn before adding this
         turns.push({
           parent: null,
           toolCalls: [...pendingToolCalls],

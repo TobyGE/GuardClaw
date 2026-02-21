@@ -157,25 +157,37 @@ function ToolCallRow({ event }) {
 
 /* ---------- TurnItem: one agent response turn ---------- */
 function TurnItem({ turn }) {
-  const { parent, toolCalls } = turn;
+  const { parent, toolCalls, reply } = turn;
   const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
 
   // ── Case 1: orphan tool-calls only (agent still running / no parent) ──
   if (!parent) {
     const summary = summarizeToolCalls(toolCalls);
+    const replyText = reply?.description || reply?.summary || '';
     return (
       <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-            <span className="text-gc-text-dim text-sm animate-pulse">⏳</span>
-            <span className="text-sm font-medium text-gc-text-dim">Agent working…</span>
+            {replyText
+              ? <span className="text-base">🤖</span>
+              : <span className="text-gc-text-dim text-sm animate-pulse">⏳</span>
+            }
+            <span className="text-sm font-medium text-gc-text-dim">
+              {replyText ? 'Agent turn' : 'Agent working…'}
+            </span>
             <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{summary}</span>
           </div>
           <span className="text-xs text-gc-text-dim ml-4 whitespace-nowrap">
             {toolCalls[0] ? formatTime(toolCalls[0].timestamp) : ''}
           </span>
         </div>
+        {/* Agent reply text */}
+        {replyText && (
+          <p className="text-sm text-gc-text mb-3 bg-gc-bg px-3 py-2 rounded border-l-2 border-blue-400/50">
+            {replyText.substring(0, 300)}{replyText.length > 300 ? '…' : ''}
+          </p>
+        )}
         <div className="space-y-2">
           {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
         </div>
@@ -195,7 +207,8 @@ function TurnItem({ turn }) {
 
   // ── Case 3: chat-update/chat-message with tool calls → full turn ──
   const riskLevel = getRiskLevel(parent.safeguard?.riskScore);
-  const content = parent.summary || parent.description || '';
+  // Prefer: actual agent reply text > parent description > AI-generated summary
+  const replyText = reply?.description || reply?.summary || parent.description || parent.summary || '';
   const isContext = parent.safeguard?.isContext;
 
   // Determine how many unique tool names
@@ -216,11 +229,11 @@ function TurnItem({ turn }) {
             )}
           </div>
 
-          {/* Summary / content */}
-          {content && (
+          {/* Agent reply text */}
+          {replyText && (
             <div className="mb-3">
-              <p className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded max-w-full break-words">
-                {content.substring(0, 200)}{content.length > 200 ? '…' : ''}
+              <p className="text-sm text-gc-text bg-gc-bg px-3 py-2 rounded border-l-2 border-blue-400/50 break-words">
+                {replyText.substring(0, 300)}{replyText.length > 300 ? '…' : ''}
               </p>
             </div>
           )}
