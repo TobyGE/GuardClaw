@@ -215,12 +215,7 @@ function TurnItem({ turn }) {
             )}
           </div>
 
-          {/* Streaming steps from the parent event (if backend populated them) */}
-          {parent.streamingSteps?.length > 0 && !showDetails && (
-            <div className="mt-1 text-xs text-gc-text-dim">
-              + {parent.streamingSteps.length} streaming step{parent.streamingSteps.length !== 1 ? 's' : ''} in Details
-            </div>
-          )}
+          {/* streamingSteps hint removed — Details button already shows the count */}
 
           {/* ── Details Panel ── */}
           {showDetails && (
