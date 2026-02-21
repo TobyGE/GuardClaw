@@ -1,5 +1,63 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+// ---------------------------------------------------------------------------
+// Rule-based fast-path: commands that are clearly safe skip LLM entirely.
+// Everything else (including ambiguous commands) goes to LLM.
+// ---------------------------------------------------------------------------
+
+// Danger overrides — these patterns make ANY command unsafe regardless of base.
+const DANGER_PATTERNS = [
+  /\|\s*(sh|bash|zsh|fish|python[23]?|perl|ruby|node|php)\b/,  // pipe to interpreter
+  /\beval\s/,                                                    // eval
+  /base64\s+(-d|--decode)\s*\|/,                                 // decode + pipe
+];
+
+// Safe base commands (read-only, no side-effects)
+const SAFE_BASE = new Set([
+  'ls', 'cat', 'head', 'tail', 'grep', 'echo', 'printf',
+  'wc', 'sort', 'uniq', 'pwd', 'which', 'env', 'date',
+  'whoami', 'id', 'hostname', 'less', 'more', 'file', 'stat',
+  'uptime', 'type', 'true', 'false', 'cd', 'diff', 'tr', 'cut',
+  'ps', 'df', 'du', 'lsof', 'uname', 'sw_vers',
+]);
+
+function isClearlySafe(command) {
+  if (!command || typeof command !== 'string') return false;
+  const cmd = command.trim();
+  if (!cmd) return false;
+
+  // Apply danger overrides first — these disqualify any command
+  for (const re of DANGER_PATTERNS) {
+    if (re.test(cmd)) return false;
+  }
+
+  // Extract base command (strip leading path like /usr/bin/ls → ls)
+  const base = cmd.split(/\s+/)[0].replace(/^.*\//, '');
+
+  // Simple read-only commands
+  if (SAFE_BASE.has(base)) return true;
+
+  // find: safe only without -exec / -execdir
+  if (base === 'find' && !/\s-exec(dir)?\s/.test(cmd)) return true;
+
+  // git: read-only subcommands only
+  if (base === 'git' && /^git\s+(status|log|diff|branch|show|fetch|stash\s+list|describe|remote|shortlog|tag|blame|rev-parse|ls-files|ls-remote|submodule\s+status)\b/.test(cmd)) return true;
+
+  // package managers: install / build / test (not publish / deploy / exec)
+  if (/^(npm|npx|yarn|pnpm)\s+/.test(cmd) && /\s(install|i|ci|add|build|test|run\s+\S+|list|ls|audit|outdated|info|show|help|version)\b/.test(cmd)
+      && !/\s(publish|exec\s|dlx\s)/.test(cmd)) return true;
+
+  if (/^pip[23]?\s+(install|show|list|freeze|check|download)\b/.test(cmd)) return true;
+  if (/^cargo\s+(build|test|check|fmt|clippy|doc|help)\b/.test(cmd)) return true;
+
+  // Version flags only
+  if (/^(node|python[23]?|ruby|go|java|rustc|tsc|php|perl)\s+(--version|-V|-v)$/.test(cmd)) return true;
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+
 export class SafeguardService {
   constructor(apiKey, backend = 'fallback', config = {}) {
     this.backend = backend || process.env.SAFEGUARD_BACKEND || 'fallback';
@@ -84,6 +142,19 @@ export class SafeguardService {
   }
 
   async analyzeCommand(command) {
+    // Fast-path: obviously safe commands skip LLM entirely
+    if (isClearlySafe(command)) {
+      this.cacheStats.ruleCalls++;
+      return {
+        riskScore: 1,
+        category: 'safe',
+        reasoning: 'Rule-based: read-only / standard dev workflow command',
+        allowed: true,
+        warnings: [],
+        backend: 'rules',
+      };
+    }
+
     // Check cache first
     const cached = this.getFromCache(command);
     if (cached) {
@@ -92,7 +163,6 @@ export class SafeguardService {
     }
     this.cacheStats.misses++;
 
-    // Always use LM Studio (no rule-based shortcuts)
     this.cacheStats.aiCalls++;
     let result;
     
@@ -133,7 +203,6 @@ export class SafeguardService {
     }
     this.cacheStats.misses++;
 
-    // Always use LM Studio (no rule-based shortcuts)
     this.cacheStats.aiCalls++;
     let result;
     
