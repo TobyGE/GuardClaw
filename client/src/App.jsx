@@ -290,20 +290,20 @@ function App() {
           <div className="bg-gc-card border border-gc-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
               <span className="text-3xl">{failClosed ? '🔒' : '🔓'}</span>
-              <h2 className="text-xl font-bold text-gc-primary">离线保护模式</h2>
+              <h2 className="text-xl font-bold text-gc-primary">Offline Protection Mode</h2>
             </div>
 
             <div className="text-gc-text text-sm space-y-3 mb-6">
               <p>
-                当 GuardClaw 服务离线（崩溃、重启、网络断开）时，agent 的工具调用应该如何处理？
+                What should happen to agent tool calls when GuardClaw goes offline (crash, restart, or network issue)?
               </p>
               <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
-                <div className="font-semibold text-orange-400 mb-1">🔒 Fail-Closed（当前：{failClosed ? '开启' : '关闭'}）</div>
-                <p className="text-xs text-gc-muted">高风险工具（exec、write、browser 等）在 GuardClaw 离线期间全部 block，只允许只读操作。安全性优先，但 agent 可用性降低。</p>
+                <div className="font-semibold text-orange-400 mb-1">🔒 Fail-Closed {failClosed && <span className="text-xs font-normal opacity-70">(current)</span>}</div>
+                <p className="text-xs text-gc-muted">High-risk tools (exec, write, browser, etc.) are blocked while GuardClaw is offline. Only read-only operations are allowed. Prioritizes safety over availability.</p>
               </div>
               <div className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-3">
-                <div className="font-semibold text-gray-400 mb-1">🔓 Fail-Open</div>
-                <p className="text-xs text-gc-muted">GuardClaw 离线时所有工具正常运行，不受限制。可用性优先，但无保护。</p>
+                <div className="font-semibold text-gray-400 mb-1">🔓 Fail-Open {!failClosed && <span className="text-xs font-normal opacity-70">(current)</span>}</div>
+                <p className="text-xs text-gc-muted">All tools run freely when GuardClaw is offline — no restrictions. Prioritizes availability over safety.</p>
               </div>
             </div>
 
@@ -316,7 +316,7 @@ function App() {
                     : 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
                 }`}
               >
-                🔒 开启 Fail-Closed
+                🔒 Enable Fail-Closed
               </button>
               <button
                 onClick={() => applyFailClosed(false)}
@@ -326,10 +326,10 @@ function App() {
                     : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
                 }`}
               >
-                🔓 关闭（Fail-Open）
+                🔓 Disable (Fail-Open)
               </button>
             </div>
-            <p className="text-xs text-gc-muted text-center mt-3">设置会立即生效并持久化</p>
+            <p className="text-xs text-gc-muted text-center mt-3">Changes take effect immediately and persist across restarts.</p>
           </div>
         </div>
       )}
