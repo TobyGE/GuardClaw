@@ -232,7 +232,7 @@ app.get('/api/events', (req, res) => {
 // no LLM calls, no database queries. Includes PID so the plugin can detect
 // kill commands targeting this process.
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, pid: process.pid, ts: Date.now(), failClosed: failClosedEnabled });
+  res.json({ ok: true, pid: process.pid, ts: Date.now(), failClosed: failClosedEnabled, blockingEnabled });
 });
 
 app.get('/api/status', async (req, res) => {

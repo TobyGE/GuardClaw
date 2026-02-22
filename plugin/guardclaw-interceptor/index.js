@@ -34,6 +34,7 @@ export default function (api) {
   let guardclawAvailable = true;
   let guardclawPid = null; // fetched from /api/health, used for PID-based kill detection
   let failClosedEnabled = true; // cached from /api/health; user can toggle via dashboard
+  let blockingEnabled = true;   // cached from /api/health; false = monitor mode (no blocking)
 
   const checkGuardClawHealth = async () => {
     try {
@@ -48,6 +49,7 @@ export default function (api) {
         guardclawAvailable = true;
         if (data.pid) guardclawPid = data.pid;
         if (typeof data.failClosed === 'boolean') failClosedEnabled = data.failClosed;
+        if (typeof data.blockingEnabled === 'boolean') blockingEnabled = data.blockingEnabled;
       } else {
         if (guardclawAvailable) api.logger.warn('[GuardClaw] ⚠️ GuardClaw health check failed — entering fail-closed mode');
         guardclawAvailable = false;
@@ -86,7 +88,8 @@ export default function (api) {
     }
 
     // ── PID self-protection: block kill commands targeting GuardClaw ───────
-    if (event.toolName === 'exec' && guardclawPid) {
+    // Only active in blocking mode — in monitor mode, agent can restart GuardClaw freely.
+    if (blockingEnabled && event.toolName === 'exec' && guardclawPid) {
       const cmd = event.params?.command || '';
       if (new RegExp(`kill\\b.*\\b${guardclawPid}\\b`).test(cmd) ||
           new RegExp(`pkill\\b.*\\b${guardclawPid}\\b`).test(cmd)) {
