@@ -62,14 +62,22 @@ export default function (api) {
   // ─────────────────────────────────────────────────────────────────────────
 
   api.on('before_tool_call', async (event, context) => {
-    // ── Fail-closed: block everything if GuardClaw is offline ──────────────
-    if (!guardclawAvailable) {
+    // ── Fail-closed: block dangerous tools if GuardClaw is offline ────────
+    // Read-only / clearly safe tools are allowed through even when offline —
+    // they carry no meaningful risk and blocking them makes the agent unusable.
+    const OFFLINE_SAFE_TOOLS = new Set([
+      'read', 'memory_search', 'memory_get',
+      'web_search', 'web_fetch', 'image',
+      'session_status', 'sessions_list', 'sessions_history',
+      'tts',
+    ]);
+    if (!guardclawAvailable && !OFFLINE_SAFE_TOOLS.has(event.toolName)) {
       api.logger.warn(`[GuardClaw] 🔴 Blocking ${event.toolName} — GuardClaw is offline (fail-closed)`);
       return {
         block: true,
         blockReason: [
           '[GUARDCLAW FAIL-CLOSED] GuardClaw safety monitor is offline.',
-          'All tool calls are blocked until it is restored.',
+          'Dangerous tool calls are blocked until it is restored.',
           'Ask the user to restart GuardClaw: guardclaw start',
         ].join(' '),
       };
@@ -213,17 +221,17 @@ export default function (api) {
         return { block: true, blockReason: blockMsg };
       }
     } catch (err) {
-      // Network-level failure talking to GuardClaw — mark as offline and fail-closed.
-      // (Timeout from a slow LLM is a different case; heartbeat /api/health is fast
-      //  and would still succeed in that scenario, keeping guardclawAvailable = true.)
-      guardclawAvailable = false;
-      api.logger.warn(`[GuardClaw] ⚠️ Evaluate call failed — entering fail-closed mode: ${err.message}`);
+      // /api/evaluate failed — could be GuardClaw down, or just a slow LLM causing
+      // a timeout. Do NOT update guardclawAvailable here; let the heartbeat own that
+      // state so a slow LLM response doesn't incorrectly trigger fail-closed.
+      // Still block this specific tool call conservatively.
+      api.logger.warn(`[GuardClaw] ⚠️ Evaluate call failed (blocking conservatively): ${err.message}`);
       return {
         block: true,
         blockReason: [
-          '[GUARDCLAW FAIL-CLOSED] Could not reach GuardClaw safety monitor.',
+          '[GUARDCLAW] Could not get safety evaluation — blocking conservatively.',
           `Error: ${err.message}`,
-          'All tool calls are blocked until GuardClaw is restored. Run: guardclaw start',
+          'If GuardClaw is offline, run: guardclaw start',
         ].join(' '),
       };
     }
