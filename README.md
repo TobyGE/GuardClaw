@@ -99,8 +99,9 @@ guardclaw help
 | [Auto-retry after approval — no re-typing needed](docs/ROADMAP.md#auto-retry-after-approval) | ✅ Done | 2026-02-20 |
 | [Direct user notification on block](docs/ROADMAP.md#direct-user-notification-on-block) | ✅ Done | 2026-02-20 |
 | [Run-level lock — single notification per run](docs/ROADMAP.md#run-level-lock) | ✅ Done | 2026-02-20 |
-| [Fail-closed on GuardClaw disconnect](docs/ROADMAP.md#fail-closed-on-guardclaw-disconnect) | 🔲 Planned | — |
+| [Fail-closed on GuardClaw disconnect](docs/ROADMAP.md#fail-closed-on-guardclaw-disconnect) | ✅ Done | 2026-02-22 |
 | [Approve/deny buttons in dashboard](docs/ROADMAP.md#approvedeny-buttons-in-dashboard) | 🔲 Planned | — |
+
 
 **Dashboard & UX**
 

@@ -98,9 +98,13 @@ When the first tool in a session run is blocked, the entire run is locked — su
 ### Fail-closed on GuardClaw disconnect
 If the GuardClaw process crashes or the plugin loses its connection, tools currently execute unblocked (fail-open).
 
-Planned fix:
-- Plugin heartbeat to GuardClaw; if unreachable → block tool execution until connection is restored
-- GuardClaw records its own PID at startup; any `kill`/`pkill` targeting that PID → score-9 rule-based block
+Implemented (2026-02-22):
+- `GET /api/health` — lightweight endpoint returning `{ok, pid, ts}` instantly (no LLM, no DB). Used by the plugin heartbeat.
+- Plugin runs `checkGuardClawHealth()` on startup + every 15s. If unreachable → `guardclawAvailable = false`.
+- `before_tool_call`: if `guardclawAvailable = false` → block immediately with `[GUARDCLAW FAIL-CLOSED]` message before any LLM call.
+- `fetch` to `/api/evaluate` failure (network error) → also sets `guardclawAvailable = false` + fails closed.
+- Fast recovery: successful evaluate response immediately restores `guardclawAvailable = true` without waiting for heartbeat.
+- PID self-protection: plugin fetches GuardClaw PID from `/api/health` at startup; dynamically blocks `kill`/`pkill <pid>` commands targeting that PID. Complemented by name-based rules in `safeguard.js` HIGH_RISK_PATTERNS (`pkill.*guardclaw` → score 9).
 
 ### Approve/deny buttons in dashboard
 Click instead of typing `/approve-last` or `/deny-last` in chat.
