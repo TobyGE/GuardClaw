@@ -289,7 +289,7 @@ function App() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowFailClosedModal(false)}>
           <div className="bg-gc-card border border-gc-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
-              <span className="text-3xl">{failClosed ? '🔒' : '🔓'}</span>
+              <span className="text-3xl">{failClosed ? '🔒' : '🔑'}</span>
               <h2 className="text-xl font-bold text-gc-primary">Offline Protection Mode</h2>
             </div>
 
@@ -302,7 +302,7 @@ function App() {
                 <p className="text-xs text-gc-muted">High-risk tools (exec, write, browser, etc.) are blocked while GuardClaw is offline. Only read-only operations are allowed. Prioritizes safety over availability.</p>
               </div>
               <div className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-3">
-                <div className="font-semibold text-gray-400 mb-1">🔓 Fail-Open {!failClosed && <span className="text-xs font-normal opacity-70">(current)</span>}</div>
+                <div className="font-semibold text-gray-400 mb-1">🔑 Fail-Open {!failClosed && <span className="text-xs font-normal opacity-70">(current)</span>}</div>
                 <p className="text-xs text-gc-muted">All tools run freely when GuardClaw is offline — no restrictions. Prioritizes availability over safety.</p>
               </div>
             </div>
@@ -326,7 +326,7 @@ function App() {
                     : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
                 }`}
               >
-                🔓 Disable (Fail-Open)
+                🔑 Disable (Fail-Open)
               </button>
             </div>
             <p className="text-xs text-gc-muted text-center mt-3">Changes take effect immediately and persist across restarts.</p>
@@ -350,9 +350,9 @@ function App() {
                   ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
                   : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
               }`}
-              title={failClosed ? 'Fail-Closed: 开启' : 'Fail-Closed: 关闭'}
+              title={failClosed ? 'Fail-Closed: On' : 'Fail-Closed: Off'}
             >
-              {failClosed ? '🔒' : '🔓'}
+              {failClosed ? '🔒' : '🔑'}
             </button>
             {/* Blocking Status Button */}
             {blockingStatus && (
