@@ -28,7 +28,66 @@ export default function (api) {
   // Key: `toolName:JSON.stringify(params)` → { sessionKey, timestamp }
   const pendingResultKeys = new Map();
 
+  // ─── Fail-closed: heartbeat state ────────────────────────────────────────
+  // Start optimistic (true) so plugin doesn't block on startup before first
+  // health check completes. Flips to false as soon as GuardClaw is unreachable.
+  let guardclawAvailable = true;
+  let guardclawPid = null; // fetched from /api/health, used for PID-based kill detection
+
+  const checkGuardClawHealth = async () => {
+    try {
+      const res = await fetch(`${GUARDCLAW_URL}/api/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (!guardclawAvailable) {
+          api.logger.info('[GuardClaw] ✅ GuardClaw back online — protection restored');
+        }
+        guardclawAvailable = true;
+        if (data.pid) guardclawPid = data.pid;
+      } else {
+        if (guardclawAvailable) api.logger.warn('[GuardClaw] ⚠️ GuardClaw health check failed — entering fail-closed mode');
+        guardclawAvailable = false;
+      }
+    } catch {
+      if (guardclawAvailable) api.logger.warn('[GuardClaw] ⚠️ GuardClaw unreachable — entering fail-closed mode');
+      guardclawAvailable = false;
+    }
+  };
+
+  // Run immediately (to grab PID + confirm GuardClaw is alive), then every 15s
+  checkGuardClawHealth();
+  setInterval(checkGuardClawHealth, 15000);
+  // ─────────────────────────────────────────────────────────────────────────
+
   api.on('before_tool_call', async (event, context) => {
+    // ── Fail-closed: block everything if GuardClaw is offline ──────────────
+    if (!guardclawAvailable) {
+      api.logger.warn(`[GuardClaw] 🔴 Blocking ${event.toolName} — GuardClaw is offline (fail-closed)`);
+      return {
+        block: true,
+        blockReason: [
+          '[GUARDCLAW FAIL-CLOSED] GuardClaw safety monitor is offline.',
+          'All tool calls are blocked until it is restored.',
+          'Ask the user to restart GuardClaw: guardclaw start',
+        ].join(' '),
+      };
+    }
+
+    // ── PID self-protection: block kill commands targeting GuardClaw ───────
+    if (event.toolName === 'exec' && guardclawPid) {
+      const cmd = event.params?.command || '';
+      if (new RegExp(`kill\\b.*\\b${guardclawPid}\\b`).test(cmd) ||
+          new RegExp(`pkill\\b.*\\b${guardclawPid}\\b`).test(cmd)) {
+        api.logger.warn(`[GuardClaw] 🛡️ Blocked kill targeting GuardClaw PID ${guardclawPid}`);
+        return {
+          block: true,
+          blockReason: `[GUARDCLAW SELF-PROTECTION] Blocked attempt to kill GuardClaw process (PID ${guardclawPid}).`,
+        };
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
     // Store sessionKey mapping for after_tool_call correlation (context.sessionKey is undefined there)
     if (context.sessionKey) {
       const resultKey = `${event.toolName}:${JSON.stringify(event.params)}`;
@@ -79,6 +138,12 @@ export default function (api) {
         }),
         signal: AbortSignal.timeout(2000),
       });
+
+      // Successful response — GuardClaw is alive; fast-restore if previously offline
+      if (!guardclawAvailable) {
+        guardclawAvailable = true;
+        api.logger.info('[GuardClaw] ✅ GuardClaw responded — protection restored');
+      }
 
       const result = await response.json();
 
@@ -148,7 +213,19 @@ export default function (api) {
         return { block: true, blockReason: blockMsg };
       }
     } catch (err) {
-      api.logger.warn(`[GuardClaw] Check failed (is GuardClaw running?): ${err.message}`);
+      // Network-level failure talking to GuardClaw — mark as offline and fail-closed.
+      // (Timeout from a slow LLM is a different case; heartbeat /api/health is fast
+      //  and would still succeed in that scenario, keeping guardclawAvailable = true.)
+      guardclawAvailable = false;
+      api.logger.warn(`[GuardClaw] ⚠️ Evaluate call failed — entering fail-closed mode: ${err.message}`);
+      return {
+        block: true,
+        blockReason: [
+          '[GUARDCLAW FAIL-CLOSED] Could not reach GuardClaw safety monitor.',
+          `Error: ${err.message}`,
+          'All tool calls are blocked until GuardClaw is restored. Run: guardclaw start',
+        ].join(' '),
+      };
     }
 
     return {};

@@ -223,6 +223,13 @@ app.get('/api/events', (req, res) => {
 
 // ─── API endpoints ───────────────────────────────────────────────────────────
 
+// Lightweight health check — used by the plugin heartbeat. Responds instantly,
+// no LLM calls, no database queries. Includes PID so the plugin can detect
+// kill commands targeting this process.
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, pid: process.pid, ts: Date.now() });
+});
+
 app.get('/api/status', async (req, res) => {
   const pollerStats = sessionPoller ? sessionPoller.getStats() : { mode: 'disabled', consecutiveErrors: 0, seenCommands: 0, polling: false, hasAdminScope: false };
   const cacheStats = safeguardService.getCacheStats();
