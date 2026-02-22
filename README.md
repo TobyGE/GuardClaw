@@ -72,7 +72,7 @@ guardclaw help
 ## Roadmap / TODO
 
 ### Security Coverage
-- [ ] **Chained tool analysis** — detect dangerous sequences rather than isolated calls (e.g. `web_fetch` → `exec`, `read(sensitive file)` → `message`). Single-point scoring misses multi-step attacks and is the practical solution for prompt injection consequences.
+- [x] **Chained tool analysis** — detect dangerous sequences rather than isolated calls (e.g. `web_fetch` → `exec`, `read(sensitive file)` → `message`). Each session maintains a rolling tool history (inputs + outputs); when an exit-type tool fires, the full trace is sent to the LLM in one call for holistic judgment.
 - [ ] **`write`/`edit` path analysis** — flag writes to sensitive locations (`~/.bashrc`, `~/.ssh/authorized_keys`, crontab) since these are persistent and execute later without further tool calls.
 - [ ] **`sessions_send` analysis** — cross-session message injection; an agent can send instructions into other sessions.
 - [ ] **Tool result inspection** — detect when a tool's output contains secrets/PII that then flows into a `message` or `exec` (e.g. agent reads an API key and immediately sends it out).
