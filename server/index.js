@@ -73,9 +73,6 @@ const eventStore = new EventStore();
 // Tracks recent tool calls per session including outputs, for LLM chain analysis
 const toolHistoryStore = new Map(); // sessionKey → Array<ToolHistoryEntry>
 const MAX_TOOL_HISTORY = 10;
-const SENSITIVE_PATH_RE = /\.ssh|\.env|\.netrc|id_rsa|id_ed25519|password|secret|token|credential|\.aws|authorized_keys|\.pgpass|\.docker/i;
-const SENSITIVE_EXEC_RE = /cat\s+.*\.(ssh|env|aws)|printenv\b|env\s*$|passwd\b|shadow\b|keychain|secret|credential|api.?key/i;
-
 function extractResultText(result) {
   if (!result) return '';
   if (typeof result === 'string') return result;
@@ -86,45 +83,24 @@ function extractResultText(result) {
   return JSON.stringify(result);
 }
 
-function detectSensitiveAccess(toolName, params) {
-  if (toolName === 'read' || toolName === 'edit') {
-    const p = params?.file_path || params?.path || '';
-    return SENSITIVE_PATH_RE.test(p);
-  }
-  if (toolName === 'exec') {
-    return SENSITIVE_EXEC_RE.test(params?.command || '');
-  }
-  if (toolName === 'web_fetch' || toolName === 'browser') {
-    return true; // any external content is potentially tainted
-  }
-  return false;
-}
-
 function addToToolHistory(sessionKey, toolName, params, result) {
   if (!sessionKey) return;
   const history = toolHistoryStore.get(sessionKey) || [];
   const resultText = extractResultText(result);
   const resultSnippet = resultText.length > 400 ? resultText.substring(0, 400) + '…[truncated]' : resultText;
-  history.push({
-    toolName,
-    params,
-    resultSnippet,
-    hasSensitiveAccess: detectSensitiveAccess(toolName, params),
-    timestamp: Date.now(),
-  });
+  history.push({ toolName, params, resultSnippet, timestamp: Date.now() });
   if (history.length > MAX_TOOL_HISTORY) history.shift();
   toolHistoryStore.set(sessionKey, history);
 }
 
 function getChainHistory(sessionKey, currentTool) {
   if (!sessionKey) return null;
-  const history = toolHistoryStore.get(sessionKey) || [];
-  if (history.length === 0) return null;
-  // Only trigger chain analysis for exit-type tools when there's sensitive history
+  // Only trigger chain analysis for exit-type tools (data can leave the machine)
   const EXIT_TOOLS = new Set(['message', 'sessions_send', 'sessions_spawn', 'exec']);
   if (!EXIT_TOOLS.has(currentTool)) return null;
-  const hasSensitive = history.some(h => h.hasSensitiveAccess);
-  return hasSensitive ? history : null;
+  const history = toolHistoryStore.get(sessionKey) || [];
+  // Always send the full trace — let the LLM judge, not keyword heuristics
+  return history.length > 0 ? history : null;
 }
 
 // ─── Multi-backend client setup ──────────────────────────────────────────────
