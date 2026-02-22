@@ -73,6 +73,32 @@ const eventStore = new EventStore();
 // Tracks recent tool calls per session including outputs, for LLM chain analysis
 const toolHistoryStore = new Map(); // sessionKey → Array<ToolHistoryEntry>
 const MAX_TOOL_HISTORY = 10;
+
+// ─── Evaluation Cache (dedup plugin vs streaming analysis) ───────────────────
+// When the plugin calls /api/evaluate, we cache the result so the streaming
+// processor can reuse it instead of making a second LLM call for the same tool.
+// Key: `${sessionKey}:${toolName}:${stableParamsJson}`, TTL: 60s
+const evaluationCache = new Map(); // key → { result, expiresAt }
+const EVAL_CACHE_TTL_MS = 60_000;
+
+function evalCacheKey(sessionKey, toolName, params) {
+  // Sort keys for stable JSON regardless of insertion order
+  const stable = JSON.stringify(params || {}, Object.keys(params || {}).sort());
+  return `${sessionKey || '_'}:${toolName}:${stable}`;
+}
+
+function setCachedEvaluation(sessionKey, toolName, params, result) {
+  const key = evalCacheKey(sessionKey, toolName, params);
+  evaluationCache.set(key, { result, expiresAt: Date.now() + EVAL_CACHE_TTL_MS });
+}
+
+function getCachedEvaluation(sessionKey, toolName, params) {
+  const key = evalCacheKey(sessionKey, toolName, params);
+  const entry = evaluationCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { evaluationCache.delete(key); return null; }
+  return entry.result;
+}
 function extractResultText(result) {
   if (!result) return '';
   if (typeof result === 'string') return result;
@@ -604,6 +630,9 @@ app.post('/api/evaluate', async (req, res) => {
       }, chainHistory);
     }
     
+    // Cache result so streaming processor reuses it instead of calling LLM again
+    setCachedEvaluation(sessionKey, toolName, params, analysis);
+
     // Return evaluation result
     res.json({
       action: analysis.riskScore >= 8 ? 'ask' : 'allow',
@@ -1112,9 +1141,19 @@ async function handleAgentEvent(event) {
       const isStartPhase = step.phase === 'start' || !step.endTime;
       const statusEmoji = isStartPhase ? '⚡' : '🔍';
       const statusText = isStartPhase ? 'REAL-TIME' : 'POST-EXEC';
-      
-      console.log(`[GuardClaw] ${statusEmoji} ${statusText} analyzing: ${step.toolName} (phase: ${step.phase})`);
-      const stepAnalysis = await analyzeStreamingStep(step);
+
+      // Check if plugin already evaluated this exact tool call — reuse result, skip LLM
+      const stepParams = step.parsedInput || step.metadata?.input || {};
+      const cachedAnalysis = getCachedEvaluation(sessionKey, step.toolName, stepParams);
+
+      let stepAnalysis;
+      if (cachedAnalysis) {
+        stepAnalysis = cachedAnalysis;
+        console.log(`[GuardClaw] ♻️  Cache hit for ${step.toolName} — reusing plugin evaluation (score=${cachedAnalysis.riskScore})`);
+      } else {
+        console.log(`[GuardClaw] ${statusEmoji} ${statusText} analyzing: ${step.toolName} (phase: ${step.phase})`);
+        stepAnalysis = await analyzeStreamingStep(step);
+      }
       step.safeguard = stepAnalysis;
       
       // Alert for high-risk operations (even if already executing)
