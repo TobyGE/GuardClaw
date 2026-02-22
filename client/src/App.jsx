@@ -364,11 +364,11 @@ function App() {
                     : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
                 }`}
                 title={blockingStatus.active 
-                  ? `Blocking Active (${blockingStatus.mode}): Auto-allow ≤${blockingStatus.thresholds?.autoAllow}, Auto-block ≥${blockingStatus.thresholds?.autoBlock}\n\nClick to configure`
-                  : 'Blocking Disabled - Monitor Only\n\nClick to configure'
+                  ? `🛡️ Active Blocking (${blockingStatus.mode}): Auto-allow ≤${blockingStatus.thresholds?.autoAllow}, Auto-block ≥${blockingStatus.thresholds?.autoBlock}\n\nClick to configure`
+                  : '📡 Monitor Only — tool calls are logged but not blocked\n\nClick to configure'
                 }
               >
-                {blockingStatus.active ? '🚫' : '👀'}
+                {blockingStatus.active ? '🛡️' : '📡'}
               </button>
             )}
             <button

@@ -82,7 +82,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">{isActive ? '🚫' : '👀'}</span>
+            <span className="text-3xl">{isActive ? '🛡️' : '📡'}</span>
             <h2 className="text-xl font-bold text-gc-primary">Blocking Configuration</h2>
           </div>
           <button onClick={onClose} className="text-gc-muted hover:text-gc-text text-2xl leading-none">×</button>
@@ -112,7 +112,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
               }`}
             >
               <div className="font-semibold text-red-400 mb-1">
-                🚫 Active Blocking
+                🛡️ Active Blocking
                 {isActive && <span className="ml-2 text-xs font-normal opacity-70">(current)</span>}
               </div>
               <p className="text-xs text-gc-muted leading-relaxed">
@@ -131,7 +131,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
               }`}
             >
               <div className="font-semibold text-gray-400 mb-1">
-                👀 Monitor Only
+                📡 Monitor Only
                 {!isActive && <span className="ml-2 text-xs font-normal opacity-70">(current)</span>}
               </div>
               <p className="text-xs text-gc-muted leading-relaxed">
