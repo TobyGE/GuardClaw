@@ -87,7 +87,7 @@ guardclaw help
 | [`nodes invoke` analysis](docs/ROADMAP.md#nodes-invoke-analysis) | ✅ Done | 2026-02-21 |
 | [Prompt injection defense on LLM judge](docs/ROADMAP.md#prompt-injection-defense-on-llm-judge) | ✅ Done | 2026-02-22 |
 | [Cross-session security tracking](docs/ROADMAP.md#cross-session-security-tracking) | 🔲 Planned | — |
-| [Write-file content scanning](docs/ROADMAP.md#write-file-content-scanning) | 🔲 Planned | — |
+| [Write/Edit content scanning](docs/ROADMAP.md#writeedit-content-scanning--expanded-secret-detection) | ✅ Done | 2026-02-22 |
 
 **Active Blocking**
 
