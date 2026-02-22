@@ -423,8 +423,31 @@ export class SafeguardService {
 
     // Content: detect high-signal danger patterns fast (skip LLM for obvious cases)
     const DANGER_CONTENT = [
+      // ── Credentials & API keys ──────────────────────────────────────────────
+      // OpenAI / generic sk- keys
       { re: /sk-[a-zA-Z0-9]{32,}/, reason: 'OpenAI API key in file content' },
-      { re: /PRIVATE KEY-----/, reason: 'Private key in file content' },
+      // Anthropic
+      { re: /sk-ant-[a-zA-Z0-9\-]{20,}/, reason: 'Anthropic API key in file content' },
+      // AWS access key ID
+      { re: /AKIA[A-Z0-9]{16}/, reason: 'AWS access key ID in file content' },
+      // GitHub tokens
+      { re: /ghp_[a-zA-Z0-9]{36}/, reason: 'GitHub personal access token in file content' },
+      { re: /github_pat_[a-zA-Z0-9_]{82}/, reason: 'GitHub fine-grained token in file content' },
+      { re: /ghs_[a-zA-Z0-9]{36}/, reason: 'GitHub Actions secret in file content' },
+      // Slack tokens
+      { re: /xox[baprs]-[a-zA-Z0-9\-]{10,}/, reason: 'Slack token in file content' },
+      // Stripe live keys
+      { re: /sk_live_[a-zA-Z0-9]{24,}/, reason: 'Stripe live secret key in file content' },
+      // SendGrid
+      { re: /SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}/, reason: 'SendGrid API key in file content' },
+      // Google API key
+      { re: /AIza[a-zA-Z0-9_\-]{35}/, reason: 'Google API key in file content' },
+      // JWT tokens (3-part base64url)
+      { re: /eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+/, reason: 'JWT token in file content' },
+      // ── Private keys & certificates ──────────────────────────────────────────
+      { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, reason: 'Private key in file content' },
+      { re: /-----BEGIN CERTIFICATE-----/, reason: 'Certificate in file content (possible credential)' },
+      // ── Dangerous shell patterns ──────────────────────────────────────────────
       { re: /curl\s+.*\|\s*(bash|sh)/, reason: 'Remote code execution in script' },
       { re: /:\(\)\s*\{.*;\s*\}/, reason: 'Fork bomb pattern' },
     ];
@@ -471,6 +494,7 @@ SCORE 7-8 (high risk, allowed=false):
 - Writing to shell config (~/.bashrc, ~/.zshrc, ~/.profile) — could add persistent backdoor
 - Writing to crontab or launchd plists — could add persistence
 - Writing API keys, passwords, or private keys into a file
+- Content contains tokens matching known secret formats: sk-*, AKIA*, ghp_*, xox*, sk_live_*, AIza*, JWT (eyJ...)
 
 SCORE 9-10 (critical, allowed=false):
 - Writing to ~/.ssh/authorized_keys — adds unauthorized SSH access
