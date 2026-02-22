@@ -342,21 +342,31 @@ export class SafeguardService {
       `${process.env.HOME}/Desktop`,
       `/tmp/`,
     ];
-    const DANGER_PATHS = [
-      /\/\.ssh\/(authorized_keys|config|id_rsa)/,
-      /\/\.aws\/credentials/,
-      /\/\.bashrc|\/\.zshrc|\/\.profile/,
-      /\/etc\/(?:passwd|shadow|sudoers|crontab|hosts)/,
-      /\/Library\/LaunchAgents\//,
-      /\/Library\/LaunchDaemons\//,
-      /\/(usr|bin|sbin|System)\//,
+    // Persistence / backdoor paths — rule-based fast path, no LLM needed.
+    // Writing to these is high-risk regardless of content.
+    const PERSISTENCE_PATHS = [
+      { re: /\/\.ssh\/authorized_keys$/, reason: 'SSH authorized_keys — backdoor risk' },
+      { re: /\/\.ssh\/(config|id_rsa|id_ed25519)/, reason: 'SSH credentials or config' },
+      { re: /\/\.aws\/credentials/, reason: 'AWS credentials file' },
+      { re: /\/\.(bashrc|zshrc|bash_profile|zprofile|profile|bash_login)$/, reason: 'Shell startup file — persistent code execution' },
+      { re: /\/etc\/(?:passwd|shadow|sudoers|crontab|hosts)/, reason: 'Critical system file' },
+      { re: /\/var\/spool\/cron|\/etc\/cron/, reason: 'Cron job — persistent execution' },
+      { re: /\/Library\/Launch(Agents|Daemons)\//, reason: 'macOS LaunchAgent/Daemon — persistent execution' },
+      { re: /\/\.git\/hooks\//, reason: 'Git hook — executes on git operations' },
+      { re: /\/(usr|bin|sbin|System)\//, reason: 'System binary path' },
     ];
 
-    // Danger path override — always goes to LLM regardless of content
-    for (const re of DANGER_PATHS) {
+    for (const { re, reason } of PERSISTENCE_PATHS) {
       if (re.test(filePath)) {
-        const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool);
-        return this.runLLMPrompt(prompt, action);
+        this.cacheStats.ruleCalls++;
+        return {
+          riskScore: 9,
+          category: 'file-write',
+          reasoning: `${reason}: ${filePath}`,
+          allowed: false,
+          warnings: [reason],
+          backend: 'rules',
+        };
       }
     }
 
