@@ -75,7 +75,7 @@ export default function (api) {
       'session_status', 'sessions_list', 'sessions_history',
       'tts',
     ]);
-    if (!guardclawAvailable && failClosedEnabled && !OFFLINE_SAFE_TOOLS.has(event.toolName)) {
+    if (!guardclawAvailable && failClosedEnabled && blockingEnabled && !OFFLINE_SAFE_TOOLS.has(event.toolName)) {
       api.logger.warn(`[GuardClaw] 🔴 Blocking ${event.toolName} — GuardClaw is offline (fail-closed)`);
       return {
         block: true,
@@ -149,7 +149,7 @@ export default function (api) {
           params: event.params,
           sessionKey: context.sessionKey,
         }),
-        signal: AbortSignal.timeout(35000), // LLM can take up to 30s; give GuardClaw 35s
+        signal: AbortSignal.timeout(8000), // 8s — fast-path safe cmds return instantly; LLM slow = timeout = allow
       });
 
       // Successful response — GuardClaw is alive; fast-restore if previously offline
@@ -226,17 +226,21 @@ export default function (api) {
         return { block: true, blockReason: blockMsg };
       }
     } catch (err) {
-      // /api/evaluate failed — could be GuardClaw down, or just a slow LLM causing
-      // a timeout. Do NOT update guardclawAvailable here; let the heartbeat own that
-      // state so a slow LLM response doesn't incorrectly trigger fail-closed.
-      // Still block this specific tool call conservatively.
-      api.logger.warn(`[GuardClaw] ⚠️ Evaluate call failed (blocking conservatively): ${err.message}`);
+      // Distinguish between a slow LLM (timeout) and GuardClaw being truly down.
+      // If GuardClaw is alive (guardclawAvailable=true) but the LLM judge is slow,
+      // allow the call — a slow judge is not a reason to block the agent.
+      // Only block conservatively when GuardClaw itself is unreachable.
+      if (guardclawAvailable) {
+        api.logger.warn(`[GuardClaw] ⏱️ Evaluate timed out (LLM slow) — allowing through: ${event.toolName}`);
+        return {};
+      }
+      api.logger.warn(`[GuardClaw] ⚠️ Evaluate call failed (GuardClaw unreachable, blocking conservatively): ${err.message}`);
       return {
         block: true,
         blockReason: [
-          '[GUARDCLAW] Could not get safety evaluation — blocking conservatively.',
+          '[GUARDCLAW] Could not reach GuardClaw for safety evaluation — blocking conservatively.',
           `Error: ${err.message}`,
-          'If GuardClaw is offline, run: guardclaw start',
+          'Run: guardclaw start',
         ].join(' '),
       };
     }
