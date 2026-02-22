@@ -190,7 +190,8 @@ const sessionPoller = openclawClient
 
 // Approval handler (only works with OpenClaw)
 // Blocking feature (optional)
-const blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
+// Use `let` so the toggle endpoint can update it at runtime without gateway restart
+let blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
 
 // Fail-closed: when GuardClaw is offline, block dangerous tools (default: true)
 // Can be toggled at runtime via POST /api/config/fail-closed
@@ -647,14 +648,18 @@ app.post('/api/evaluate', async (req, res) => {
     // Cache result so streaming processor reuses it instead of calling LLM again
     setCachedEvaluation(sessionKey, toolName, params, analysis);
 
-    // Return evaluation result
+    // Return evaluation result.
+    // In monitor mode (blockingEnabled=false), always return 'allow' so the plugin
+    // never intercepts — monitoring and blocking are consistent from the user's POV.
+    const shouldBlock = blockingEnabled && analysis.riskScore >= 8;
     res.json({
-      action: analysis.riskScore >= 8 ? 'ask' : 'allow',
+      action: shouldBlock ? 'ask' : 'allow',
       risk: analysis.riskScore,
       chainRisk: analysis.chainRisk || false,
       reason: analysis.reasoning || analysis.category,
       details: analysis.warnings?.join('; ') || analysis.reasoning || '',
-      backend: analysis.backend
+      backend: analysis.backend,
+      blockingEnabled,
     });
   } catch (error) {
     console.error('[GuardClaw] /api/evaluate failed:', error);
@@ -966,6 +971,10 @@ app.post('/api/blocking/toggle', (req, res) => {
     return res.status(400).json({ error: 'enabled must be a boolean' });
   }
   
+  // Update in-memory state immediately — evaluate endpoint checks this at runtime
+  blockingEnabled = enabled;
+  console.log(`[GuardClaw] Blocking ${enabled ? 'enabled' : 'disabled (monitor mode)'}`);
+
   try {
     // Update .env file
     const envPath = path.join(process.cwd(), '.env');
