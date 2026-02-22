@@ -71,20 +71,58 @@ guardclaw help
 
 ## Roadmap / TODO
 
-| # | Feature | Status | Completed |
-|---|---------|--------|-----------|
-| 1 | [Chained tool analysis](docs/ROADMAP.md#1-chained-tool-analysis) | ✅ Done | 2026-02-21 |
-| 2 | [`write`/`edit` path analysis](docs/ROADMAP.md#2-writeedit-path-analysis) | ✅ Done | 2026-02-21 |
-| 3 | [Tool result inspection](docs/ROADMAP.md#3-tool-result-inspection) | ✅ Done | 2026-02-21 |
-| 4 | [`canvas eval` analysis](docs/ROADMAP.md#4-canvas-eval-analysis) | ✅ Done | 2026-02-21 |
-| 5 | [`nodes invoke` analysis](docs/ROADMAP.md#5-nodes-invoke-analysis) | ✅ Done | 2026-02-21 |
-| 6 | [Cross-session security tracking](docs/ROADMAP.md#6-cross-session-security-tracking) | 🔲 Planned | — |
-| 7 | [Fail-closed on GuardClaw disconnect](docs/ROADMAP.md#7-fail-closed-on-guardclaw-disconnect) | 🔲 Planned | — |
-| 8 | [Prompt injection defense on LLM judge](docs/ROADMAP.md#8-prompt-injection-defense-on-llm-judge) | 🔲 Planned | — |
-| 9 | [Write-file content scanning](docs/ROADMAP.md#9-write-file-content-scanning) | 🔲 Planned | — |
-| 10 | [Approve/deny buttons in dashboard](docs/ROADMAP.md#10-approvedeny-buttons-in-dashboard) | 🔲 Planned | — |
+**Core Analysis**
 
-→ [Full roadmap with details](docs/ROADMAP.md)
+| Feature | Status | Date |
+|---------|--------|------|
+| [Real-time tool event monitoring](docs/ROADMAP.md#real-time-tool-event-monitoring) | ✅ Done | 2026-02-15 |
+| [Risk scoring with local LLM](docs/ROADMAP.md#risk-scoring-with-local-llm) | ✅ Done | 2026-02-15 |
+| [Safe-tool fast path — skip LLM for clearly safe tools](docs/ROADMAP.md#safe-tool-fast-path) | ✅ Done | 2026-02-20 |
+| [Per-model prompt configs (qwen3-1.7b / 0.5b / gpt-oss)](docs/ROADMAP.md#per-model-prompt-configs) | ✅ Done | 2026-02-20 |
+| [Chained tool analysis](docs/ROADMAP.md#chained-tool-analysis) | ✅ Done | 2026-02-21 |
+| [`write`/`edit` path analysis — persistence & backdoor detection](docs/ROADMAP.md#writeedit-path-analysis) | ✅ Done | 2026-02-21 |
+| [Tool result inspection via `after_tool_call`](docs/ROADMAP.md#tool-result-inspection) | ✅ Done | 2026-02-21 |
+| [`canvas eval` analysis](docs/ROADMAP.md#canvas-eval-analysis) | ✅ Done | 2026-02-21 |
+| [`nodes invoke` analysis](docs/ROADMAP.md#nodes-invoke-analysis) | ✅ Done | 2026-02-21 |
+| [`message` tool privacy analysis](docs/ROADMAP.md#message-tool-privacy-analysis) | ✅ Done | 2026-02-20 |
+| [Cross-session security tracking](docs/ROADMAP.md#cross-session-security-tracking) | 🔲 Planned | — |
+| [Prompt injection defense on LLM judge](docs/ROADMAP.md#prompt-injection-defense-on-llm-judge) | 🔲 Planned | — |
+| [Write-file content scanning](docs/ROADMAP.md#write-file-content-scanning) | 🔲 Planned | — |
+
+**Active Blocking**
+
+| Feature | Status | Date |
+|---------|--------|------|
+| [OpenClaw plugin — pre-execution interception](docs/ROADMAP.md#openclaw-plugin--pre-execution-interception) | ✅ Done | 2026-02-20 |
+| [One-click blocking toggle in dashboard](docs/ROADMAP.md#one-click-blocking-toggle) | ✅ Done | 2026-02-20 |
+| [Approval workflow (`/approve-last` / `/deny-last`)](docs/ROADMAP.md#approval-workflow) | ✅ Done | 2026-02-15 |
+| [Auto-retry after approval — no re-typing needed](docs/ROADMAP.md#auto-retry-after-approval) | ✅ Done | 2026-02-20 |
+| [Direct user notification on block](docs/ROADMAP.md#direct-user-notification-on-block) | ✅ Done | 2026-02-20 |
+| [Run-level lock — single notification per run](docs/ROADMAP.md#run-level-lock) | ✅ Done | 2026-02-20 |
+| [Fail-closed on GuardClaw disconnect](docs/ROADMAP.md#fail-closed-on-guardclaw-disconnect) | 🔲 Planned | — |
+| [Approve/deny buttons in dashboard](docs/ROADMAP.md#approvedeny-buttons-in-dashboard) | 🔲 Planned | — |
+
+**Dashboard & UX**
+
+| Feature | Status | Date |
+|---------|--------|------|
+| [AI-powered event summaries](docs/ROADMAP.md#ai-powered-event-summaries) | ✅ Done | 2026-02-15 |
+| [Conversation turn grouping in event list](docs/ROADMAP.md#conversation-turn-grouping) | ✅ Done | 2026-02-20 |
+| [Click-to-filter stats cards](docs/ROADMAP.md#click-to-filter-stats-cards) | ✅ Done | 2026-02-15 |
+| [Days Protected tracking](docs/ROADMAP.md#days-protected-tracking) | ✅ Done | 2026-02-11 |
+| [Light / dark mode](docs/ROADMAP.md#light--dark-mode) | ✅ Done | 2026-02-11 |
+| [Auto-open browser on start](docs/ROADMAP.md#auto-open-browser-on-start) | ✅ Done | 2026-02-15 |
+
+**Integration & Setup**
+
+| Feature | Status | Date |
+|---------|--------|------|
+| [Web UI + CLI configuration management](docs/ROADMAP.md#web-ui--cli-configuration-management) | ✅ Done | 2026-02-15 |
+| [LLM backend config UI — LM Studio + Ollama](docs/ROADMAP.md#llm-backend-config-ui) | ✅ Done | 2026-02-15 |
+| [`patch-openclaw.sh` — one-command OpenClaw patching](docs/ROADMAP.md#patch-openclawsh) | ✅ Done | 2026-02-20 |
+| [nanobot support](docs/ROADMAP.md#nanobot-support) | ✅ Done | 2026-02-13 |
+
+→ [Full details for each feature](docs/ROADMAP.md)
 
 ## Links
 
