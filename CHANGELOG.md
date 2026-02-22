@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.0 (2026-02-22)
+
+### New: Chained Tool Analysis
+- **`after_tool_call` hook integration** — GuardClaw now captures real tool outputs via OpenClaw's native `after_tool_call` plugin hook (no OpenClaw code changes required)
+- **Session tool history** — each session maintains a rolling window of the last 10 tool calls including inputs + outputs, stored in `toolHistoryStore`
+- **Chain-aware LLM analysis** — when an "exit-type" tool (`message`, `sessions_send`, `sessions_spawn`, `exec`) is called after sensitive history (SSH keys, `.env` files, external content), the full session history is appended to the LLM prompt for holistic risk assessment
+- **`chainRisk` flag** — LLM returns `chainRisk: true/false` in addition to per-step `riskScore`; chain risk is reflected in the block notification and UI
+- **UI: tool output display** — `ToolCallRow` now shows an expandable "Output" section with the actual tool result (truncated at 300 chars with "show more")
+- **UI: `⛓️ chain` badge** — tool calls flagged with chain risk show a purple `⛓️ chain` badge in the dashboard
+
+### Technical
+- New server endpoint: `POST /api/tool-result` — receives tool results from plugin after execution
+- `safeguard.js`: `buildChainContextSection(history)`, `analyzeToolAction(action, chainHistory)`, `analyzeCommand(command, chainHistory)`
+- Plugin: `pendingResultKeys` Map correlates `before_tool_call` (has `sessionKey`) with `after_tool_call` (context has `sessionKey: undefined`)
+- Chain-aware results are not cached (session-specific context)
+- Fast-path bypass when `chainHistory` is present (a "safe" command can be dangerous in context)
+
+
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

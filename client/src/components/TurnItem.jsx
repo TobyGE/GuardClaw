@@ -77,6 +77,28 @@ function formatTime(timestamp) {
   return date.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
+/* ---------- ToolOutput: collapsible tool result display ---------- */
+const OUTPUT_PREVIEW = 300;
+function ToolOutput({ result }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!result) return null;
+  const hasMore = result.length > OUTPUT_PREVIEW;
+  const display = expanded || !hasMore ? result : result.substring(0, OUTPUT_PREVIEW);
+  return (
+    <div>
+      <span className="text-xs text-gc-text-dim">Output:</span>
+      <code
+        className="block mt-1 text-xs bg-black/30 p-2 rounded break-words whitespace-pre-wrap max-h-64 overflow-y-auto border border-gc-border/40 cursor-pointer"
+        onClick={() => hasMore && setExpanded(!expanded)}
+      >
+        {display}
+        {hasMore && !expanded && <span className="text-blue-400 ml-1">… show more</span>}
+        {hasMore && expanded && <span className="text-blue-400 ml-1"> show less</span>}
+      </code>
+    </div>
+  );
+}
+
 /* ---------- ToolCallRow: one collapsed/expanded tool call ---------- */
 function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
@@ -98,6 +120,11 @@ function ToolCallRow({ event }) {
               {riskLevel.label} {event.safeguard?.riskScore}/10
             </span>
           )}
+          {event.safeguard?.chainRisk && (
+            <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-purple-900/40 text-purple-300 border border-purple-700/50">
+              ⛓️ chain
+            </span>
+          )}
           {desc && (
             <code className="text-xs text-gc-text-dim truncate max-w-xs">
               {desc.substring(0, 80)}{desc.length > 80 ? '…' : ''}
@@ -117,6 +144,11 @@ function ToolCallRow({ event }) {
                 {desc}
               </code>
             </div>
+          )}
+
+          {/* Tool output (from after_tool_call hook) */}
+          {event.toolResult && (
+            <ToolOutput result={event.toolResult} />
           )}
 
           {/* streamingSteps for this specific tool-call (if any) */}

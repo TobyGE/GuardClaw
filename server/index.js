@@ -69,6 +69,64 @@ const safeguardService = new SafeguardService(
 
 const eventStore = new EventStore();
 
+// ─── Tool History Store (for chain analysis) ─────────────────────────────────
+// Tracks recent tool calls per session including outputs, for LLM chain analysis
+const toolHistoryStore = new Map(); // sessionKey → Array<ToolHistoryEntry>
+const MAX_TOOL_HISTORY = 10;
+const SENSITIVE_PATH_RE = /\.ssh|\.env|\.netrc|id_rsa|id_ed25519|password|secret|token|credential|\.aws|authorized_keys|\.pgpass|\.docker/i;
+const SENSITIVE_EXEC_RE = /cat\s+.*\.(ssh|env|aws)|printenv\b|env\s*$|passwd\b|shadow\b|keychain|secret|credential|api.?key/i;
+
+function extractResultText(result) {
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  // MCP content format: { content: [{ type: 'text', text: '...' }] }
+  if (result.content && Array.isArray(result.content)) {
+    return result.content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+  }
+  return JSON.stringify(result);
+}
+
+function detectSensitiveAccess(toolName, params) {
+  if (toolName === 'read' || toolName === 'edit') {
+    const p = params?.file_path || params?.path || '';
+    return SENSITIVE_PATH_RE.test(p);
+  }
+  if (toolName === 'exec') {
+    return SENSITIVE_EXEC_RE.test(params?.command || '');
+  }
+  if (toolName === 'web_fetch' || toolName === 'browser') {
+    return true; // any external content is potentially tainted
+  }
+  return false;
+}
+
+function addToToolHistory(sessionKey, toolName, params, result) {
+  if (!sessionKey) return;
+  const history = toolHistoryStore.get(sessionKey) || [];
+  const resultText = extractResultText(result);
+  const resultSnippet = resultText.length > 400 ? resultText.substring(0, 400) + '…[truncated]' : resultText;
+  history.push({
+    toolName,
+    params,
+    resultSnippet,
+    hasSensitiveAccess: detectSensitiveAccess(toolName, params),
+    timestamp: Date.now(),
+  });
+  if (history.length > MAX_TOOL_HISTORY) history.shift();
+  toolHistoryStore.set(sessionKey, history);
+}
+
+function getChainHistory(sessionKey, currentTool) {
+  if (!sessionKey) return null;
+  const history = toolHistoryStore.get(sessionKey) || [];
+  if (history.length === 0) return null;
+  // Only trigger chain analysis for exit-type tools when there's sensitive history
+  const EXIT_TOOLS = new Set(['message', 'sessions_send', 'sessions_spawn', 'exec']);
+  if (!EXIT_TOOLS.has(currentTool)) return null;
+  const hasSensitive = history.some(h => h.hasSensitiveAccess);
+  return hasSensitive ? history : null;
+}
+
 // ─── Multi-backend client setup ──────────────────────────────────────────────
 
 const activeClients = []; // { client, name }
@@ -505,35 +563,76 @@ app.post('/api/tool-executed', async (req, res) => {
   }
 });
 
+/**
+ * Store tool result for chain analysis + attach to UI event
+ * Called by OpenClaw plugin via after_tool_call hook
+ */
+app.post('/api/tool-result', async (req, res) => {
+  const { sessionKey, toolName, params, result, durationMs } = req.body;
+  if (!toolName) return res.status(400).json({ error: 'toolName required' });
+
+  // Store in history for chain analysis
+  addToToolHistory(sessionKey, toolName, params, result);
+  console.log(`[GuardClaw] ⛓️  Tool result stored: ${toolName} (session: ${sessionKey}), history size: ${(toolHistoryStore.get(sessionKey) || []).length}`);
+
+  // Attach result to the most recent matching stored event (for UI display)
+  if (sessionKey) {
+    const resultText = extractResultText(result);
+    const toolResult = resultText.length > 1000 ? resultText.substring(0, 1000) + '…[truncated]' : resultText;
+    const cutoff = Date.now() - 3 * 60 * 1000; // within last 3 min
+    const recentEvents = eventStore.getRecentEvents(200);
+    const matchingEvent = [...recentEvents].reverse().find(e =>
+      e.type === 'tool-call' &&
+      e.tool === toolName &&
+      e.sessionKey === sessionKey &&
+      e.timestamp > cutoff &&
+      !e.toolResult
+    );
+    if (matchingEvent) {
+      eventStore.updateEvent(matchingEvent.id, { toolResult, durationMs });
+      console.log(`[GuardClaw] ✅ Attached result to event ${matchingEvent.id} (${toolName})`);
+    }
+  }
+
+  res.json({ success: true });
+});
+
 // ─── Pre-Execution Risk Evaluation API (uses LM Studio) ──────────────────────
 
 app.post('/api/evaluate', async (req, res) => {
-  const { toolName, params } = req.body;
+  const { toolName, params, sessionKey } = req.body;
   
   if (!toolName) {
     return res.status(400).json({ error: 'toolName is required' });
   }
   
   try {
+    // Get chain history if applicable (exit-type tools with sensitive prior access)
+    const chainHistory = getChainHistory(sessionKey, toolName);
+    if (chainHistory) {
+      console.log(`[GuardClaw] ⛓️  Chain analysis triggered for ${toolName} (${chainHistory.length} history steps, ${chainHistory.filter(h => h.hasSensitiveAccess).length} sensitive)`);
+    }
+
     let analysis;
     
     if (toolName === 'exec') {
       // For exec, analyze the command with full LLM analysis
       const cmd = params.command || '';
-      analysis = await safeguardService.analyzeCommand(cmd);
+      analysis = await safeguardService.analyzeCommand(cmd, chainHistory);
     } else {
       // For other tools, analyze the action
       analysis = await safeguardService.analyzeToolAction({
         tool: toolName,
         summary: JSON.stringify(params),
         ...params
-      });
+      }, chainHistory);
     }
     
     // Return evaluation result
     res.json({
       action: analysis.riskScore >= 8 ? 'ask' : 'allow',
       risk: analysis.riskScore,
+      chainRisk: analysis.chainRisk || false,
       reason: analysis.reasoning || analysis.category,
       details: analysis.warnings?.join('; ') || analysis.reasoning || '',
       backend: analysis.backend

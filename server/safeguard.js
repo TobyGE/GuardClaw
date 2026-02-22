@@ -175,9 +175,10 @@ export class SafeguardService {
     return this.analyzeToolAction(action);
   }
 
-  async analyzeCommand(command) {
+  async analyzeCommand(command, chainHistory = null) {
     // Fast-path: obviously safe commands skip LLM entirely
-    if (isClearlySafe(command)) {
+    // (bypass fast-path if chain history exists — a "safe" command can be dangerous in context)
+    if (isClearlySafe(command) && !chainHistory) {
       this.cacheStats.ruleCalls++;
       return {
         riskScore: 1,
@@ -202,6 +203,30 @@ export class SafeguardService {
     
     if (!this.enabled) {
       result = this.fallbackAnalysis(command);
+    } else if (chainHistory) {
+      // Chain-aware: build enhanced prompt with history and use prompt-based LLM calls
+      const basePrompt = this.createAnalysisPrompt(command);
+      const chainSection = this.buildChainContextSection(chainHistory);
+      const enhancedPrompt = basePrompt.replace(
+        'Output ONLY valid JSON, nothing else:',
+        `${chainSection}\n\nOutput ONLY valid JSON, nothing else (include chainRisk field):`
+      ).replace(
+        '"warnings": []}',
+        '"chainRisk": <true|false>, "warnings": []}'
+      );
+      switch (this.backend) {
+        case 'anthropic':
+          result = await this.analyzeWithClaudePrompt(enhancedPrompt);
+          break;
+        case 'lmstudio':
+          result = await this.analyzeWithLMStudioPrompt(enhancedPrompt, { tool: 'exec', summary: command });
+          break;
+        case 'ollama':
+          result = await this.analyzeWithOllamaPrompt(enhancedPrompt);
+          break;
+        default:
+          result = this.fallbackAnalysis(command);
+      }
     } else {
       switch (this.backend) {
         case 'anthropic':
@@ -218,11 +243,14 @@ export class SafeguardService {
       }
     }
 
-    this.addToCache(command, result);
+    // Don't cache chain-aware results
+    if (!chainHistory) {
+      this.addToCache(command, result);
+    }
     return result;
   }
 
-  async analyzeToolAction(action) {
+  async analyzeToolAction(action, chainHistory = null) {
     // Handle chat content separately
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);
@@ -273,7 +301,7 @@ export class SafeguardService {
     if (!this.enabled) {
       result = this.fallbackToolAnalysis(action);
     } else {
-      const prompt = this.createToolAnalysisPrompt(action);
+      const prompt = this.createToolAnalysisPrompt(action, chainHistory);
       
       switch (this.backend) {
         case 'anthropic':
@@ -290,7 +318,10 @@ export class SafeguardService {
       }
     }
 
-    this.addToCache(cacheKey, result);
+    // Don't cache chain-aware results (history context makes them session-specific)
+    if (!chainHistory) {
+      this.addToCache(cacheKey, result);
+    }
     return result;
   }
 
@@ -654,11 +685,38 @@ Respond ONLY with valid JSON, no markdown formatting.`;
     return null;
   }
 
-  createToolAnalysisPrompt(action) {
+  // Build a chain context section to append to any analysis prompt
+  buildChainContextSection(history) {
+    if (!history || history.length === 0) return '';
+    const lines = history.map(h => {
+      const ago = Math.round((Date.now() - h.timestamp) / 1000);
+      const agoStr = ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)}m ago`;
+      let line = `[${agoStr}] ${h.toolName}: ${JSON.stringify(h.params).substring(0, 120)}`;
+      if (h.resultSnippet) line += `\n  → output: ${h.resultSnippet.substring(0, 200)}`;
+      if (h.hasSensitiveAccess) line += '  ⚠️ SENSITIVE';
+      return line;
+    });
+    return `
+
+RECENT SESSION HISTORY (same run, oldest first):
+${lines.join('\n')}
+
+CHAIN ANALYSIS REQUIRED: Check if the current action + history together form a dangerous pattern.
+Examples of dangerous chains:
+- read(ssh key / .env / secret) → message / sessions_send (credential exfiltration)
+- web_fetch(external) → exec (prompt injection leading to code execution)
+- read(any sensitive file) + output visible above → message with that content
+
+If a dangerous chain is detected, set chainRisk=true and increase riskScore significantly.
+Add chain reasoning to the "reasoning" field.`;
+  }
+
+  createToolAnalysisPrompt(action, chainHistory = null) {
+    const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
     return `You are a security judge for an AI agent. Score the risk of this exact tool action.
 
 TOOL: ${action.tool}
-ACTION: ${action.summary}
+ACTION: ${action.summary}${chainSection}
 
 SCORING RULES (check in order, use the FIRST match):
 
@@ -693,7 +751,7 @@ SCORE 10 (catastrophic, allowed=false):
 - Anything that destroys irreplaceable data or system integrity
 
 Output ONLY valid JSON, nothing else:
-{"riskScore": <number>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<1-2 sentences specifically about this action>", "allowed": <true|false>, "warnings": []}`;
+{"riskScore": <number>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<1-2 sentences specifically about this action>", "allowed": <true|false>, "chainRisk": <true|false>, "warnings": []}`;
   }
 
   async analyzeWithClaudePrompt(prompt) {
@@ -1254,7 +1312,7 @@ SCORE 10 (catastrophic, allowed=false) — system destruction:
 - mkfs, diskutil eraseDisk
 
 Output ONLY valid JSON, nothing else:
-{"riskScore": <number>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<1-2 sentences specifically about this command>", "allowed": <true|false>, "warnings": []}`;
+{"riskScore": <number>, "category": "<safe|file-read|file-write|file-delete|network|system|destructive>", "reasoning": "<1-2 sentences specifically about this command>", "allowed": <true|false>, "chainRisk": false, "warnings": []}`;
   }
 
   parseAnalysisResponse(content, command) {

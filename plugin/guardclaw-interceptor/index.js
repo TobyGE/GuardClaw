@@ -23,7 +23,22 @@ export default function (api) {
   // Auto-expires after 10 minutes as a safety net.
   const blockedSessions = new Map(); // sessionKey → { since, firstBlock }
 
+  // Chain analysis: correlate before_tool_call (has sessionKey) with
+  // after_tool_call (sessionKey is undefined in context).
+  // Key: `toolName:JSON.stringify(params)` → { sessionKey, timestamp }
+  const pendingResultKeys = new Map();
+
   api.on('before_tool_call', async (event, context) => {
+    // Store sessionKey mapping for after_tool_call correlation (context.sessionKey is undefined there)
+    if (context.sessionKey) {
+      const resultKey = `${event.toolName}:${JSON.stringify(event.params)}`;
+      pendingResultKeys.set(resultKey, { sessionKey: context.sessionKey, timestamp: Date.now() });
+      // Clean up stale keys older than 5 minutes
+      for (const [k, v] of pendingResultKeys) {
+        if (Date.now() - v.timestamp > 5 * 60 * 1000) pendingResultKeys.delete(k);
+      }
+    }
+
     const commandKey = `${event.toolName}:${JSON.stringify(event.params)}`;
     const approvalExpiry = approvedCommands.get(commandKey);
 
@@ -96,12 +111,14 @@ export default function (api) {
 
         // Inject a direct user-facing message — don't rely on agent to relay info
         const riskEmoji = result.risk >= 9 ? '🔴' : '🟠';
+        const chainLine = result.chainRisk ? `**⛓️ Chain Risk:** Dangerous sequence detected in session history\n` : '';
         const userMsg = [
           `🛡️ **GuardClaw blocked a tool call**`,
           ``,
           `**Tool:** \`${event.toolName}\``,
           `**Input:** \`${displayInput}\``,
           `**Risk Score:** ${riskEmoji} ${result.risk}/10`,
+          chainLine,
           `**Reason:** ${result.reason}`,
           ``,
           `What would you like to do?`,
@@ -135,6 +152,33 @@ export default function (api) {
     }
 
     return {};
+  });
+
+  // ─── after_tool_call: capture tool output for chain analysis ───────────────
+  api.on('after_tool_call', async (event, _context) => {
+    const resultKey = `${event.toolName}:${JSON.stringify(event.params)}`;
+    const pending = pendingResultKeys.get(resultKey);
+    if (!pending) return; // no matching before_tool_call recorded
+    pendingResultKeys.delete(resultKey);
+
+    const { sessionKey } = pending;
+    try {
+      await fetch(`${GUARDCLAW_URL}/api/tool-result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKey,
+          toolName: event.toolName,
+          params: event.params,
+          result: event.result,
+          durationMs: event.durationMs,
+        }),
+        signal: AbortSignal.timeout(2000),
+      });
+      api.logger.info(`[GuardClaw] ⛓️  Result stored: ${event.toolName} (${sessionKey})`);
+    } catch (err) {
+      api.logger.warn(`[GuardClaw] Failed to store tool result: ${err.message}`);
+    }
   });
 
   api.registerCommand({
