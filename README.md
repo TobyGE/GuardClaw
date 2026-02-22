@@ -77,7 +77,7 @@ guardclaw help
 - [ ] **`sessions_send` analysis** — cross-session message injection; an agent can send instructions into other sessions.
 - [x] **Tool result inspection** — covered by chained tool analysis: tool outputs (including secrets/PII) are stored in session history via `after_tool_call`; when a `message` or `exec` fires, the LLM sees the full trace including prior outputs and judges whether data is being exfiltrated.
 - [ ] **`canvas eval` analysis** — arbitrary JavaScript execution is currently unscored.
-- [ ] **`nodes invoke` analysis** — commands sent to paired physical devices (phones, servers) should be treated as high-risk.
+- [x] **`nodes invoke` analysis** — analyzed by LLM; scoring prompt includes nodes-specific guidance (screen recording / camera without consent → 8-9). Rule-based would over-block legitimate uses (e.g. taking a photo on request).
 
 ### Visibility
 - [ ] **Sub-agent tracking** — `sessions_spawn` creates child agents in separate sessions. Link child sessions to their parent in the dashboard so dangerous activity in sub-agents is visible in context.
