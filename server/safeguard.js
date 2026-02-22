@@ -267,7 +267,7 @@ export class SafeguardService {
       'sessions_list',  // list sessions
       'sessions_history', // read session history
       'image',          // image analysis
-      'canvas',         // display/present content
+      // canvas: only non-eval actions are safe (eval handled separately below)
     ]);
     if (SAFE_TOOLS.has(action.tool)) {
       this.cacheStats.ruleCalls++;
@@ -279,6 +279,16 @@ export class SafeguardService {
         warnings: [],
         backend: 'rules',
       };
+    }
+
+    // canvas: only eval is risky; present/hide/navigate/snapshot are safe
+    if (action.tool === 'canvas') {
+      const canvasAction = action.parsedInput?.action || action.summary;
+      if (!String(canvasAction).includes('eval')) {
+        this.cacheStats.ruleCalls++;
+        return { riskScore: 1, category: 'safe', reasoning: `canvas ${canvasAction}: display-only`, allowed: true, warnings: [], backend: 'rules' };
+      }
+      // eval: fall through to LLM with the JS code prominently shown
     }
 
     // write / edit: judge path + content together
@@ -749,6 +759,7 @@ SCORE 8-9 (high risk, allowed=false) — destructive or privileged:
 - write/edit: overwriting system files, binary files
 - nodes: invoking screen recording, camera on device without consent
 - sessions_spawn: spawning agents for unrelated/unexpected tasks
+- canvas eval: JS that reads cookies/localStorage, makes external fetch, or uses require/child_process
 
 SCORE 10 (catastrophic, allowed=false):
 - exec: rm -rf /, disk formatting
