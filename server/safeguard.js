@@ -727,10 +727,21 @@ If yes, set chainRisk=true and reflect this in riskScore.`;
 
   createToolAnalysisPrompt(action, chainHistory = null) {
     const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+
+    // canvas eval: extract full JS code and show it prominently (summary is truncated to 120 chars)
+    let canvasEvalSection = '';
+    if (action.tool === 'canvas') {
+      const js = action.parsedInput?.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
+      if (js) {
+        const snippet = js.length > 1000 ? js.substring(0, 1000) + '\n…[truncated]' : js;
+        canvasEvalSection = `\nJAVASCRIPT CODE:\n${snippet}`;
+      }
+    }
+
     return `You are a security judge for an AI agent. Score the risk of this exact tool action.
 
 TOOL: ${action.tool}
-ACTION: ${action.summary}${chainSection}
+ACTION: ${action.summary}${canvasEvalSection}${chainSection}
 
 SCORING RULES (check in order, use the FIRST match):
 
@@ -850,8 +861,17 @@ Format: {"riskScore":N,"category":"safe|file-read|file-write|file-delete|network
 
   // Minimal prompt for small/weak models (0.5b etc.)
   createToolAnalysisPromptMinimal(action) {
+    // canvas eval: extract full JS code (same as full prompt)
+    let canvasEvalSection = '';
+    if (action.tool === 'canvas') {
+      const js = action.parsedInput?.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
+      if (js) {
+        const snippet = js.length > 500 ? js.substring(0, 500) + '\n…[truncated]' : js;
+        canvasEvalSection = `\nJAVASCRIPT CODE:\n${snippet}`;
+      }
+    }
     return `TOOL: ${action.tool}
-ACTION: ${action.summary}
+ACTION: ${action.summary}${canvasEvalSection}
 
 STEP 1 — Does the action contain any of these? Answer YES or NO.
 A) "rm -rf" or "rm -fr" or "rm -f"
