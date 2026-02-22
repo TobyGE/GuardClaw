@@ -28,6 +28,7 @@ function App() {
   const [llmConfig, setLlmConfig] = useState(null);
   const [blockingStatus, setBlockingStatus] = useState(null);
   const [failClosed, setFailClosed] = useState(true);
+  const [showFailClosedModal, setShowFailClosedModal] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -231,17 +232,17 @@ function App() {
     }, 2000);
   };
 
-  const toggleFailClosed = async () => {
-    const next = !failClosed;
-    setFailClosed(next);
+  const applyFailClosed = async (enabled) => {
+    setFailClosed(enabled);
+    setShowFailClosedModal(false);
     try {
       await fetch('/api/config/fail-closed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: next }),
+        body: JSON.stringify({ enabled }),
       });
     } catch {
-      setFailClosed(!next); // revert on error
+      setFailClosed(!enabled); // revert on error
     }
   };
 
@@ -283,6 +284,56 @@ function App() {
         currentStatus={blockingStatus}
       />
 
+      {/* Fail-Closed Modal */}
+      {showFailClosedModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowFailClosedModal(false)}>
+          <div className="bg-gc-card border border-gc-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-3xl">{failClosed ? '🔒' : '🔓'}</span>
+              <h2 className="text-xl font-bold text-gc-primary">离线保护模式</h2>
+            </div>
+
+            <div className="text-gc-text text-sm space-y-3 mb-6">
+              <p>
+                当 GuardClaw 服务离线（崩溃、重启、网络断开）时，agent 的工具调用应该如何处理？
+              </p>
+              <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                <div className="font-semibold text-orange-400 mb-1">🔒 Fail-Closed（当前：{failClosed ? '开启' : '关闭'}）</div>
+                <p className="text-xs text-gc-muted">高风险工具（exec、write、browser 等）在 GuardClaw 离线期间全部 block，只允许只读操作。安全性优先，但 agent 可用性降低。</p>
+              </div>
+              <div className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-3">
+                <div className="font-semibold text-gray-400 mb-1">🔓 Fail-Open</div>
+                <p className="text-xs text-gc-muted">GuardClaw 离线时所有工具正常运行，不受限制。可用性优先，但无保护。</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => applyFailClosed(true)}
+                className={`flex-1 py-2 rounded-lg font-medium text-sm transition-all ${
+                  failClosed
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
+                }`}
+              >
+                🔒 开启 Fail-Closed
+              </button>
+              <button
+                onClick={() => applyFailClosed(false)}
+                className={`flex-1 py-2 rounded-lg font-medium text-sm transition-all ${
+                  !failClosed
+                    ? 'bg-gray-500 text-white'
+                    : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
+                }`}
+              >
+                🔓 关闭（Fail-Open）
+              </button>
+            </div>
+            <p className="text-xs text-gc-muted text-center mt-3">设置会立即生效并持久化</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -293,19 +344,15 @@ function App() {
           <div className="flex items-center space-x-2">
             {/* Fail-Closed Toggle */}
             <button
-              onClick={toggleFailClosed}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+              onClick={() => setShowFailClosedModal(true)}
+              className={`inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 ${
                 failClosed
                   ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
                   : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
               }`}
-              title={failClosed
-                ? 'Fail-Closed: ON — Dangerous tools blocked when GuardClaw is offline\nClick to disable'
-                : 'Fail-Closed: OFF — Tools run freely when GuardClaw is offline\nClick to enable'
-              }
+              title={failClosed ? 'Fail-Closed: 开启' : 'Fail-Closed: 关闭'}
             >
               {failClosed ? '🔒' : '🔓'}
-              <span className="hidden sm:inline">{failClosed ? 'Fail-Closed' : 'Fail-Open'}</span>
             </button>
             {/* Blocking Status Button */}
             {blockingStatus && (
