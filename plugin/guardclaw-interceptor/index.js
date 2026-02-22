@@ -149,7 +149,7 @@ export default function (api) {
           params: event.params,
           sessionKey: context.sessionKey,
         }),
-        signal: AbortSignal.timeout(8000), // 8s — fast-path safe cmds return instantly; LLM slow = timeout = allow
+        signal: AbortSignal.timeout(30000), // 30s — matches LLM timeout on server side
       });
 
       // Successful response — GuardClaw is alive; fast-restore if previously offline
@@ -226,21 +226,15 @@ export default function (api) {
         return { block: true, blockReason: blockMsg };
       }
     } catch (err) {
-      // Distinguish between a slow LLM (timeout) and GuardClaw being truly down.
-      // If GuardClaw is alive (guardclawAvailable=true) but the LLM judge is slow,
-      // allow the call — a slow judge is not a reason to block the agent.
-      // Only block conservatively when GuardClaw itself is unreachable.
-      if (guardclawAvailable) {
-        api.logger.warn(`[GuardClaw] ⏱️ Evaluate timed out (LLM slow) — allowing through: ${event.toolName}`);
-        return {};
-      }
-      api.logger.warn(`[GuardClaw] ⚠️ Evaluate call failed (GuardClaw unreachable, blocking conservatively): ${err.message}`);
+      // Any failure (timeout, network error) → conservative block.
+      // Do NOT set guardclawAvailable = false here; let the heartbeat own that state.
+      api.logger.warn(`[GuardClaw] ⚠️ Evaluate failed — blocking conservatively: ${err.message}`);
       return {
         block: true,
         blockReason: [
-          '[GUARDCLAW] Could not reach GuardClaw for safety evaluation — blocking conservatively.',
+          '[GUARDCLAW] Could not get safety evaluation — blocking conservatively.',
           `Error: ${err.message}`,
-          'Run: guardclaw start',
+          'If GuardClaw is offline, run: guardclaw start',
         ].join(' '),
       };
     }
