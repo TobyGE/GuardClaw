@@ -80,23 +80,10 @@ guardclaw help
 - [x] **`nodes invoke` analysis** — analyzed by LLM; scoring prompt includes nodes-specific guidance (screen recording / camera without consent → 8-9). Rule-based would over-block legitimate uses (e.g. taking a photo on request).
 
 ### Visibility
-- [ ] **Cross-session security tracking** — OpenClaw supports multi-agent architectures where agents spawn sub-agents (`sessions_spawn`) and communicate laterally (`sessions_send`). This creates two attack surfaces that single-session chain analysis cannot see:
-
-  **Attack surface 1 — prompt injection lateral movement:**
-  A compromised agent calls `sessions_send` to inject instructions into another session. The receiving agent acts on them without knowing the instruction came from a peer (not the user).
-
-  **Attack surface 2 — cross-session exfiltration:**
-  Session A reads sensitive data → spawns Session B or sends to it → Session B exfiltrates. Each session's chain history is isolated, so neither catches the full chain.
-
-  **Planned solution — injection tagging + session lineage:**
-  1. `injectionLog`: when `sessions_send` fires, GuardClaw records `{ fromSession, targetSession, message, timestamp }`.
-  2. When a `chat-update` arrives in the target session shortly after, GuardClaw correlates it with the log and marks the message as agent-injected in that session's `toolHistoryStore`.
-  3. Chain context then surfaces `[⚠️ INJECTED from agent:X]` before the downstream tool calls — the LLM judge sees the full attack chain and can score it as cross-session prompt injection.
-  4. Dashboard shows `sessions_spawn` lineage as a session tree, so sub-agent activity is visible in context of the parent run that created it.
+- [ ] **Cross-session security tracking** — `sessions_spawn` and `sessions_send` create multi-agent topologies that single-session chain analysis cannot see. A compromised agent can call `sessions_send` to inject instructions into a peer session (prompt injection lateral movement), or read sensitive data in session A and exfiltrate via session B. Planned fix: log injections at `sessions_send` time, tag agent-injected messages in the receiver's chain context (`[⚠️ INJECTED from agent:X]`), and show session spawn lineage as a tree in the dashboard.
 
 ### UX
 - [ ] **Approve/deny buttons in GuardClaw dashboard** — click instead of typing `/approve-last`.
-- [ ] **Batch approval** — when multiple tool calls in a run are similar, offer approve-all.
 
 ## Links
 
