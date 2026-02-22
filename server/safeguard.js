@@ -117,7 +117,7 @@ export class SafeguardService {
   constructor(apiKey, backend = 'fallback', config = {}) {
     this.backend = backend || process.env.SAFEGUARD_BACKEND || 'fallback';
     this.config = {
-      lmstudioUrl: this.normalizeLMStudioUrl(config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://localhost:1234/v1'),
+      lmstudioUrl: this.normalizeLMStudioUrl(config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://127.0.0.1:1234/v1'),
       lmstudioModel: config.lmstudioModel || process.env.LMSTUDIO_MODEL || 'auto',
       ollamaUrl: config.ollamaUrl || process.env.OLLAMA_URL || 'http://localhost:11434',
       ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3'
@@ -170,7 +170,8 @@ export class SafeguardService {
                   messages: opts.messages,
                   temperature: opts.temperature || 0.7,
                   max_tokens: opts.max_tokens || 800
-                })
+                }),
+                signal: AbortSignal.timeout(30000), // 30s max — local LLM can be slow
               });
               if (!response.ok) {
                 throw new Error(`LLM API error: ${response.status}`);

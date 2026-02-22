@@ -1,4 +1,4 @@
-const GUARDCLAW_URL = process.env.GUARDCLAW_URL || 'http://localhost:3002';
+const GUARDCLAW_URL = process.env.GUARDCLAW_URL || 'http://127.0.0.1:3002';
 
 // Format tool params for display
 function formatParams(toolName, params) {
@@ -144,7 +144,7 @@ export default function (api) {
           params: event.params,
           sessionKey: context.sessionKey,
         }),
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(35000), // LLM can take up to 30s; give GuardClaw 35s
       });
 
       // Successful response — GuardClaw is alive; fast-restore if previously offline
