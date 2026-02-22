@@ -75,7 +75,7 @@ guardclaw help
 - [x] **Chained tool analysis** — detect dangerous sequences rather than isolated calls (e.g. `web_fetch` → `exec`, `read(sensitive file)` → `message`). Each session maintains a rolling tool history (inputs + outputs); when an exit-type tool fires, the full trace is sent to the LLM in one call for holistic judgment.
 - [x] **`write`/`edit` path analysis** — rule-based fast path for persistence/backdoor paths: `authorized_keys`, shell startup files (`.bashrc`/`.zshrc`/`.profile` etc), AWS credentials, cron, macOS LaunchAgents/Daemons, git hooks, system paths. Score 9, no LLM call needed.
 - [ ] **`sessions_send` analysis** — cross-session message injection; an agent can send instructions into other sessions.
-- [ ] **Tool result inspection** — detect when a tool's output contains secrets/PII that then flows into a `message` or `exec` (e.g. agent reads an API key and immediately sends it out).
+- [x] **Tool result inspection** — covered by chained tool analysis: tool outputs (including secrets/PII) are stored in session history via `after_tool_call`; when a `message` or `exec` fires, the LLM sees the full trace including prior outputs and judges whether data is being exfiltrated.
 - [ ] **`canvas eval` analysis** — arbitrary JavaScript execution is currently unscored.
 - [ ] **`nodes invoke` analysis** — commands sent to paired physical devices (phones, servers) should be treated as high-risk.
 
