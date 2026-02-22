@@ -1229,11 +1229,18 @@ async function handleAgentEvent(event) {
     
     // Generate summary if we don't have one yet
     if (recentSteps.length > 0 && !session.lastSummary) {
-      const toolSteps = recentSteps.filter(s => s.type === 'tool_use' && s.toolName);
-      if (toolSteps.length > 0) {
-        console.log('[GuardClaw] Generating summary at lifecycle:end');
-        session.lastSummary = await generateEventSummary(recentSteps);
-        console.log('[GuardClaw] Generated summary:', session.lastSummary);
+      const toolStepsForSummary = recentSteps.filter(s => s.type === 'tool_use' && s.toolName);
+      if (toolStepsForSummary.length > 0) {
+        if (shouldGenerateSummary) {
+          // Async summary generation already started in the shouldGenerateSummary block above.
+          // Reuse the fallback summary (already set on storedEvent) to avoid a second LLM call.
+          session.lastSummary = storedEvent.summary;
+          console.log('[GuardClaw] ♻️  Reusing fallback summary for lifecycle:end card (async gen in progress)');
+        } else {
+          console.log('[GuardClaw] Generating summary at lifecycle:end');
+          session.lastSummary = await generateEventSummary(recentSteps);
+          console.log('[GuardClaw] Generated summary:', session.lastSummary);
+        }
       }
     }
     
@@ -1275,41 +1282,52 @@ async function handleAgentEvent(event) {
 
   // Analyze all tool calls with safeguard
   if (shouldAnalyzeEvent(eventDetails)) {
-    const action = extractAction(event, eventDetails);
-    console.log('[GuardClaw] Analyzing:', action.type, action.summary);
+    // For tool-call events: Path 2 (streaming step loop above) already analyzed this step
+    // via analyzeStreamingStep(). Reuse that result to avoid a second LLM call.
+    const streamingAnalysis = eventDetails.type === 'tool-call'
+      ? analyzedSteps.findLast(s => s.toolName === eventDetails.tool && s.safeguard)?.safeguard
+      : null;
 
-    try {
-      let analysis;
+    if (streamingAnalysis) {
+      storedEvent.safeguard = streamingAnalysis;
+      console.log(`[GuardClaw] ♻️  Reusing streaming analysis for ${eventDetails.tool} (score=${streamingAnalysis.riskScore})`);
+    } else {
+      const action = extractAction(event, eventDetails);
+      console.log('[GuardClaw] Analyzing:', action.type, action.summary);
 
-      // Special path: `message` tool gets privacy analysis with chat context
-      if (eventDetails.tool === 'message') {
-        const recentChatContext = eventStore.getRecentEvents(200)
-          .filter(e => e.safeguard?.isContext && e.description)
-          .slice(-5)
-          .map(e => e.description?.substring(0, 300))
-          .filter(Boolean);
-        analysis = await safeguardService.analyzeMessagePrivacy(action, recentChatContext);
-        console.log('[GuardClaw] 🔒 Privacy analysis for message tool:', analysis.riskScore);
-      } else {
-        analysis = await safeguardService.analyzeAction(action);
+      try {
+        let analysis;
+
+        // Special path: `message` tool gets privacy analysis with chat context
+        if (eventDetails.tool === 'message') {
+          const recentChatContext = eventStore.getRecentEvents(200)
+            .filter(e => e.safeguard?.isContext && e.description)
+            .slice(-5)
+            .map(e => e.description?.substring(0, 300))
+            .filter(Boolean);
+          analysis = await safeguardService.analyzeMessagePrivacy(action, recentChatContext);
+          console.log('[GuardClaw] 🔒 Privacy analysis for message tool:', analysis.riskScore);
+        } else {
+          analysis = await safeguardService.analyzeAction(action);
+        }
+
+        storedEvent.safeguard = analysis;
+
+        if (analysis.riskScore >= 8) {
+          console.warn('[GuardClaw] HIGH RISK:', action.summary);
+        } else if (analysis.riskScore >= 4) {
+          console.warn('[GuardClaw] MEDIUM RISK:', action.summary);
+        } else {
+          console.log('[GuardClaw] SAFE:', action.summary);
+        }
+      } catch (error) {
+        console.error('[GuardClaw] Safeguard analysis failed:', error);
+        storedEvent.safeguard = {
+          error: error.message,
+          riskScore: 5,
+          category: 'unknown'
+        };
       }
-
-      storedEvent.safeguard = analysis;
-
-      if (analysis.riskScore >= 8) {
-        console.warn('[GuardClaw] HIGH RISK:', action.summary);
-      } else if (analysis.riskScore >= 4) {
-        console.warn('[GuardClaw] MEDIUM RISK:', action.summary);
-      } else {
-        console.log('[GuardClaw] SAFE:', action.summary);
-      }
-    } catch (error) {
-      console.error('[GuardClaw] Safeguard analysis failed:', error);
-      storedEvent.safeguard = {
-        error: error.message,
-        riskScore: 5,
-        category: 'unknown'
-      };
     }
   } else {
     storedEvent.safeguard = classifyNonExecEvent(eventDetails);
