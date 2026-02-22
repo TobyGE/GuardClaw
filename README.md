@@ -74,13 +74,25 @@ guardclaw help
 ### Security Coverage
 - [x] **Chained tool analysis** — detect dangerous sequences rather than isolated calls (e.g. `web_fetch` → `exec`, `read(sensitive file)` → `message`). Each session maintains a rolling tool history (inputs + outputs); when an exit-type tool fires, the full trace is sent to the LLM in one call for holistic judgment.
 - [x] **`write`/`edit` path analysis** — rule-based fast path for persistence/backdoor paths: `authorized_keys`, shell startup files (`.bashrc`/`.zshrc`/`.profile` etc), AWS credentials, cron, macOS LaunchAgents/Daemons, git hooks, system paths. Score 9, no LLM call needed.
-- [ ] **`sessions_send` analysis** — cross-session message injection; an agent can send instructions into other sessions.
+- [ ] **Cross-session attack detection** — see *Visibility* below.
 - [x] **Tool result inspection** — covered by chained tool analysis: tool outputs (including secrets/PII) are stored in session history via `after_tool_call`; when a `message` or `exec` fires, the LLM sees the full trace including prior outputs and judges whether data is being exfiltrated.
 - [x] **`canvas eval` analysis** — `canvas` is excluded from the safe-tools fast path. Non-eval actions (`present`, `hide`, `navigate`, `snapshot`) → score 1 (rules). `eval` actions → full LLM analysis; prompt includes JS-specific risks (cookie/localStorage access, external `fetch`, `require`/`child_process`).
 - [x] **`nodes invoke` analysis** — analyzed by LLM; scoring prompt includes nodes-specific guidance (screen recording / camera without consent → 8-9). Rule-based would over-block legitimate uses (e.g. taking a photo on request).
 
 ### Visibility
-- [ ] **Sub-agent tracking** — `sessions_spawn` creates child agents in separate sessions. Link child sessions to their parent in the dashboard so dangerous activity in sub-agents is visible in context.
+- [ ] **Cross-session security tracking** — OpenClaw supports multi-agent architectures where agents spawn sub-agents (`sessions_spawn`) and communicate laterally (`sessions_send`). This creates two attack surfaces that single-session chain analysis cannot see:
+
+  **Attack surface 1 — prompt injection lateral movement:**
+  A compromised agent calls `sessions_send` to inject instructions into another session. The receiving agent acts on them without knowing the instruction came from a peer (not the user).
+
+  **Attack surface 2 — cross-session exfiltration:**
+  Session A reads sensitive data → spawns Session B or sends to it → Session B exfiltrates. Each session's chain history is isolated, so neither catches the full chain.
+
+  **Planned solution — injection tagging + session lineage:**
+  1. `injectionLog`: when `sessions_send` fires, GuardClaw records `{ fromSession, targetSession, message, timestamp }`.
+  2. When a `chat-update` arrives in the target session shortly after, GuardClaw correlates it with the log and marks the message as agent-injected in that session's `toolHistoryStore`.
+  3. Chain context then surfaces `[⚠️ INJECTED from agent:X]` before the downstream tool calls — the LLM judge sees the full attack chain and can score it as cross-session prompt injection.
+  4. Dashboard shows `sessions_spawn` lineage as a session tree, so sub-agent activity is visible in context of the parent run that created it.
 
 ### UX
 - [ ] **Approve/deny buttons in GuardClaw dashboard** — click instead of typing `/approve-last`.
