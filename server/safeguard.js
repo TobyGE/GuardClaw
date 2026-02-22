@@ -29,9 +29,11 @@ const HIGH_RISK_PATTERNS = [
   { re: /\bwget\b.*\|\s*(bash|sh|zsh|fish|sudo)\b/,    score: 9, reason: 'wget output piped to shell (remote code execution)' },
   // Python/perl one-liner exec from stdin
   { re: /python[23]?\s+-c\s+['"].*exec\s*\(/,          score: 9, reason: 'Python exec() one-liner (code injection)' },
-  // GuardClaw self-protection — killing the safety monitor by name
-  { re: /pkill.*guardclaw/i,                            score: 9, reason: 'Killing GuardClaw safety monitor process' },
-  { re: /kill(?:all)?\s+.*guardclaw/i,                  score: 9, reason: 'Killing GuardClaw safety monitor process' },
+  // GuardClaw self-protection — killing the safety monitor by name.
+  // Use [^;&|\n]* instead of .* to avoid false positives across command separators
+  // e.g. `kill -9 <pid>; cd ~/guardclaw && guardclaw start` should NOT trigger this.
+  { re: /pkill[^;&|\n]*guardclaw/i,                     score: 9, reason: 'Killing GuardClaw safety monitor process' },
+  { re: /kill(?:all)?[^;&|\n]*guardclaw/i,              score: 9, reason: 'Killing GuardClaw safety monitor process' },
 ];
 
 // Safe base commands (read-only + no destructive side-effects)
