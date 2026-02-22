@@ -288,8 +288,8 @@ app.get('/api/status', async (req, res) => {
     // Blocking status
     blocking: {
       enabled: blockingEnabled,
-      active: !!approvalHandler,
-      mode: approvalHandler ? approvalHandler.mode : null
+      active: blockingEnabled,
+      mode: approvalHandler ? approvalHandler.mode : (blockingEnabled ? 'plugin' : null)
     },
 
     // Fail-closed status
@@ -956,8 +956,8 @@ app.post('/api/config/fail-closed', (req, res) => {
 app.get('/api/blocking/status', (req, res) => {
   res.json({
     enabled: blockingEnabled,
-    active: !!approvalHandler,
-    mode: approvalHandler ? approvalHandler.mode : null,
+    active: blockingEnabled, // reflects runtime toggle, not approvalHandler (which is fixed at startup)
+    mode: approvalHandler ? approvalHandler.mode : (blockingEnabled ? 'plugin' : null),
     thresholds: approvalHandler ? approvalHandler.getStats().thresholds : null,
     whitelist: blockingConfig.whitelist || [],
     blacklist: blockingConfig.blacklist || []
