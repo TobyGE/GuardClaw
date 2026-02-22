@@ -33,6 +33,7 @@ export default function (api) {
   // health check completes. Flips to false as soon as GuardClaw is unreachable.
   let guardclawAvailable = true;
   let guardclawPid = null; // fetched from /api/health, used for PID-based kill detection
+  let failClosedEnabled = true; // cached from /api/health; user can toggle via dashboard
 
   const checkGuardClawHealth = async () => {
     try {
@@ -46,6 +47,7 @@ export default function (api) {
         }
         guardclawAvailable = true;
         if (data.pid) guardclawPid = data.pid;
+        if (typeof data.failClosed === 'boolean') failClosedEnabled = data.failClosed;
       } else {
         if (guardclawAvailable) api.logger.warn('[GuardClaw] ⚠️ GuardClaw health check failed — entering fail-closed mode');
         guardclawAvailable = false;
@@ -71,7 +73,7 @@ export default function (api) {
       'session_status', 'sessions_list', 'sessions_history',
       'tts',
     ]);
-    if (!guardclawAvailable && !OFFLINE_SAFE_TOOLS.has(event.toolName)) {
+    if (!guardclawAvailable && failClosedEnabled && !OFFLINE_SAFE_TOOLS.has(event.toolName)) {
       api.logger.warn(`[GuardClaw] 🔴 Blocking ${event.toolName} — GuardClaw is offline (fail-closed)`);
       return {
         block: true,

@@ -27,6 +27,7 @@ function App() {
   const [currentToken, setCurrentToken] = useState('');
   const [llmConfig, setLlmConfig] = useState(null);
   const [blockingStatus, setBlockingStatus] = useState(null);
+  const [failClosed, setFailClosed] = useState(true);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -56,6 +57,7 @@ function App() {
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
           setLlmConfig(data.llmConfig || null);
           setBlockingStatus(data.blocking || null);
+          if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
           fetchEvents();
         }
       } catch (error) {
@@ -229,6 +231,20 @@ function App() {
     }, 2000);
   };
 
+  const toggleFailClosed = async () => {
+    const next = !failClosed;
+    setFailClosed(next);
+    try {
+      await fetch('/api/config/fail-closed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+    } catch {
+      setFailClosed(!next); // revert on error
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gc-bg">
       {/* Modals */}
@@ -260,6 +276,7 @@ function App() {
           setTimeout(() => {
             fetch('/api/status').then(r => r.json()).then(data => {
               setBlockingStatus(data.blocking || null);
+              if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
             });
           }, 100);
         }}
@@ -274,6 +291,22 @@ function App() {
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Fail-Closed Toggle */}
+            <button
+              onClick={toggleFailClosed}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                failClosed
+                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
+                  : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
+              }`}
+              title={failClosed
+                ? 'Fail-Closed: ON — Dangerous tools blocked when GuardClaw is offline\nClick to disable'
+                : 'Fail-Closed: OFF — Tools run freely when GuardClaw is offline\nClick to enable'
+              }
+            >
+              {failClosed ? '🔒' : '🔓'}
+              <span className="hidden sm:inline">{failClosed ? 'Fail-Closed' : 'Fail-Open'}</span>
+            </button>
             {/* Blocking Status Button */}
             {blockingStatus && (
               <button

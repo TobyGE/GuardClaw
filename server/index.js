@@ -191,6 +191,10 @@ const sessionPoller = openclawClient
 // Approval handler (only works with OpenClaw)
 // Blocking feature (optional)
 const blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
+
+// Fail-closed: when GuardClaw is offline, block dangerous tools (default: true)
+// Can be toggled at runtime via POST /api/config/fail-closed
+let failClosedEnabled = process.env.GUARDCLAW_FAIL_CLOSED !== 'false';
 const approvalHandler = (openclawClient && blockingEnabled)
   ? new ApprovalHandler(openclawClient, safeguardService, eventStore, { blockingConfig })
   : null;
@@ -227,7 +231,7 @@ app.get('/api/events', (req, res) => {
 // no LLM calls, no database queries. Includes PID so the plugin can detect
 // kill commands targeting this process.
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, pid: process.pid, ts: Date.now() });
+  res.json({ ok: true, pid: process.pid, ts: Date.now(), failClosed: failClosedEnabled });
 });
 
 app.get('/api/status', async (req, res) => {
@@ -286,6 +290,9 @@ app.get('/api/status', async (req, res) => {
       active: !!approvalHandler,
       mode: approvalHandler ? approvalHandler.mode : null
     },
+
+    // Fail-closed status
+    failClosed: failClosedEnabled,
 
     // Install tracking
     install: installStats,
@@ -914,6 +921,30 @@ app.post('/api/approvals/resolve', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Fail-closed toggle API
+app.post('/api/config/fail-closed', (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+  failClosedEnabled = enabled;
+  // Persist to .env so it survives restarts
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+    if (envContent.includes('GUARDCLAW_FAIL_CLOSED=')) {
+      envContent = envContent.replace(/GUARDCLAW_FAIL_CLOSED=.*/, `GUARDCLAW_FAIL_CLOSED=${enabled}`);
+    } else {
+      envContent += `\nGUARDCLAW_FAIL_CLOSED=${enabled}\n`;
+    }
+    fs.writeFileSync(envPath, envContent);
+  } catch (err) {
+    console.warn('[GuardClaw] Could not persist fail-closed setting:', err.message);
+  }
+  console.log(`[GuardClaw] Fail-closed ${enabled ? 'enabled' : 'disabled'}`);
+  res.json({ ok: true, failClosed: failClosedEnabled });
 });
 
 // Blocking configuration API
