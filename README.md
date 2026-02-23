@@ -86,7 +86,7 @@ guardclaw help
 | [`canvas eval` analysis](docs/ROADMAP.md#canvas-eval-analysis) | ✅ Done | 2026-02-21 |
 | [`nodes invoke` analysis](docs/ROADMAP.md#nodes-invoke-analysis) | ✅ Done | 2026-02-21 |
 | [Prompt injection defense on LLM judge](docs/ROADMAP.md#prompt-injection-defense-on-llm-judge) | ✅ Done | 2026-02-22 |
-| [Cross-session security tracking](docs/ROADMAP.md#cross-session-security-tracking) | 🔲 Planned | — |
+| [Sub-agent monitoring — independent chain analysis per session](docs/ROADMAP.md#sub-agent-monitoring) | ✅ Done | 2026-02-22 |
 | [Write/Edit content scanning](docs/ROADMAP.md#writeedit-content-scanning--expanded-secret-detection) | ✅ Done | 2026-02-22 |
 
 **Active Blocking**
@@ -100,7 +100,8 @@ guardclaw help
 | [Direct user notification on block](docs/ROADMAP.md#direct-user-notification-on-block) | ✅ Done | 2026-02-20 |
 | [Run-level lock — single notification per run](docs/ROADMAP.md#run-level-lock) | ✅ Done | 2026-02-20 |
 | [Fail-closed on GuardClaw disconnect](docs/ROADMAP.md#fail-closed-on-guardclaw-disconnect) | ✅ Done | 2026-02-22 |
-| [Approve/deny buttons in dashboard](docs/ROADMAP.md#approvedeny-buttons-in-dashboard) | 🔲 Planned | — |
+| [Fail-closed dashboard toggle](docs/ROADMAP.md#fail-closed-dashboard-toggle) | ✅ Done | 2026-02-22 |
+| [Monitor/Blocking mode toggle](docs/ROADMAP.md#monitor-blocking-mode-toggle) | ✅ Done | 2026-02-22 |
 
 
 **Dashboard & UX**
@@ -113,6 +114,7 @@ guardclaw help
 | [Click-to-filter stats cards](docs/ROADMAP.md#click-to-filter-stats-cards) | ✅ Done | 2026-02-15 |
 | [Auto-open browser on start](docs/ROADMAP.md#auto-open-browser-on-start) | ✅ Done | 2026-02-15 |
 | [Conversation turn grouping in event list](docs/ROADMAP.md#conversation-turn-grouping) | ✅ Done | 2026-02-20 |
+| [Session tabs — separate views for main agent and sub-agents](docs/ROADMAP.md#session-tabs) | ✅ Done | 2026-02-22 |
 
 **Integration & Setup**
 
@@ -122,6 +124,14 @@ guardclaw help
 | [Web UI + CLI configuration management](docs/ROADMAP.md#web-ui--cli-configuration-management) | ✅ Done | 2026-02-15 |
 | [LLM backend config UI — LM Studio + Ollama](docs/ROADMAP.md#llm-backend-config-ui) | ✅ Done | 2026-02-15 |
 | [`patch-openclaw.sh` — one-command OpenClaw patching](docs/ROADMAP.md#patch-openclawsh) | ✅ Done | 2026-02-20 |
+
+**Future**
+
+| Feature | Notes |
+|---------|-------|
+| Cross-session chain analysis | Parent→child chain history sharing. Low priority — per-session monitoring already covers most scenarios. |
+| A2A (Agent-to-Agent) protocol monitoring | Monitor inter-agent communication. Waiting for broader A2A adoption in OpenClaw. |
+| Approve/deny buttons in dashboard | Frontend buttons for `/approve-last` and `/deny-last`. Backend already exists. |
 
 → [Full details for each feature](docs/ROADMAP.md)
 
