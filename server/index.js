@@ -397,7 +397,8 @@ app.get('/api/sessions', (req, res) => {
   const sessionMap = new Map(); // sessionKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
 
   for (const event of allEvents) {
-    const key = event.sessionKey;
+    // Normalize legacy session keys to the canonical format
+    const key = (!event.sessionKey || event.sessionKey === 'default') ? 'agent:main:main' : event.sessionKey;
     if (!key) continue;
     const existing = sessionMap.get(key);
     if (existing) {
