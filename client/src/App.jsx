@@ -544,8 +544,8 @@ function App() {
             </div>
           </div>
 
-          {/* Session Tabs */}
-          {sessions.length > 1 && (
+          {/* Session Tabs — only show for OpenClaw events */}
+          {sessions.length > 1 && backendFilter !== 'nanobot' && (
             <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
               <button
                 onClick={() => setSelectedSession(null)}
