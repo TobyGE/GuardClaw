@@ -87,6 +87,12 @@ export default function (api) {
       };
     }
 
+    // Allow OFFLINE_SAFE_TOOLS through immediately when GuardClaw is unavailable —
+    // without this, they'd fall through to /api/evaluate, which throws → conservative block.
+    if (!guardclawAvailable && OFFLINE_SAFE_TOOLS.has(event.toolName)) {
+      return {};
+    }
+
     // ── PID self-protection: block kill commands targeting GuardClaw ───────
     // Only active in blocking mode — in monitor mode, agent can restart GuardClaw freely.
     if (blockingEnabled && event.toolName === 'exec' && guardclawPid) {
