@@ -195,7 +195,7 @@ let blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
 
 // Fail-closed: when GuardClaw is offline, block dangerous tools (default: true)
 // Can be toggled at runtime via POST /api/config/fail-closed
-let failClosedEnabled = process.env.GUARDCLAW_FAIL_CLOSED !== 'false';
+let failClosedEnabled = process.env.GUARDCLAW_FAIL_CLOSED === 'true'; // default OFF — opt-in via env or dashboard
 const approvalHandler = (openclawClient && blockingEnabled)
   ? new ApprovalHandler(openclawClient, safeguardService, eventStore, { blockingConfig })
   : null;
