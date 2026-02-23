@@ -391,11 +391,59 @@ app.post('/api/disconnect', (req, res) => {
   res.json({ status: 'disconnected' });
 });
 
+// ─── Sessions: list unique sessions from stored events ─────────────────────
+app.get('/api/sessions', (req, res) => {
+  const allEvents = eventStore.getRecentEvents(10000);
+  const sessionMap = new Map(); // sessionKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
+
+  for (const event of allEvents) {
+    const key = event.sessionKey;
+    if (!key) continue;
+    const existing = sessionMap.get(key);
+    if (existing) {
+      existing.eventCount++;
+      existing.lastEventTime = Math.max(existing.lastEventTime, event.timestamp || 0);
+    } else {
+      // Derive parent and label from session key
+      // Format: agent:main:main (main) or agent:main:subagent:<uuid> (sub-agent)
+      const isSubagent = key.includes(':subagent:');
+      const parentKey = isSubagent ? key.replace(/:subagent:[^:]+$/, ':main') : null;
+      const shortId = isSubagent ? key.split(':subagent:')[1]?.substring(0, 8) : null;
+      const label = isSubagent ? `Sub-agent ${shortId}` : 'Main Agent';
+
+      sessionMap.set(key, {
+        key,
+        label,
+        parent: parentKey,
+        isSubagent,
+        eventCount: 1,
+        firstEventTime: event.timestamp || 0,
+        lastEventTime: event.timestamp || 0,
+      });
+    }
+  }
+
+  // Sort: main first, then sub-agents by firstEventTime descending
+  const sessions = Array.from(sessionMap.values()).sort((a, b) => {
+    if (!a.isSubagent && b.isSubagent) return -1;
+    if (a.isSubagent && !b.isSubagent) return 1;
+    return b.firstEventTime - a.firstEventTime;
+  });
+
+  res.json({ sessions });
+});
+
 app.get('/api/events/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const filter = req.query.filter; // 'safe', 'warning', 'blocked', or null for all
+  const sessionFilter = req.query.session; // filter by sessionKey
   
   let events = eventStore.getRecentEvents(Math.min(limit, 10000)); // Max 10k
+  
+  // Apply session filter
+  if (sessionFilter) {
+    events = events.filter(event => event.sessionKey === sessionFilter);
+  }
   
   // Apply filter if specified
   if (filter) {

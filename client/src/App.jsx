@@ -20,6 +20,8 @@ function App() {
   const [events, setEvents] = useState([]);
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
   const [backendFilter, setBackendFilter] = useState('all'); // 'all', 'openclaw', 'nanobot'
+  const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
+  const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -60,6 +62,7 @@ function App() {
           setBlockingStatus(data.blocking || null);
           if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
           fetchEvents();
+          fetchSessions();
         }
       } catch (error) {
         console.error('Failed to connect:', error);
@@ -68,11 +71,24 @@ function App() {
       }
     };
 
-    const fetchEvents = async (filter = null, backend = 'all') => {
+    const fetchSessions = async () => {
+      try {
+        const response = await fetch('/api/sessions');
+        if (response.ok) {
+          const data = await response.json();
+          setSessions(data.sessions || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sessions:', error);
+      }
+    };
+
+    const fetchEvents = async (filter = null, backend = 'all', session = null) => {
       try {
         const filterParam = filter ? `&filter=${filter}` : '';
         const backendParam = backend !== 'all' ? `&backend=${backend}` : '';
-        const response = await fetch(`/api/events/history?limit=2000${filterParam}${backendParam}`);
+        const sessionParam = session ? `&session=${encodeURIComponent(session)}` : '';
+        const response = await fetch(`/api/events/history?limit=2000${filterParam}${backendParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
           const filteredEvents = backend === 'all' 
@@ -122,13 +138,29 @@ function App() {
     eventSource.onmessage = (e) => {
       try {
         const newEvent = JSON.parse(e.data);
-        setEvents((prev) => [newEvent, ...prev].slice(0, 100));
+        // Always update stats (global)
         setStats((prev) => ({
           totalEvents: prev.totalEvents + 1,
           safeCommands: newEvent.safeguard?.riskScore <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
           warnings: newEvent.safeguard?.riskScore > 3 && newEvent.safeguard?.riskScore <= 7 ? prev.warnings + 1 : prev.warnings,
           blocked: newEvent.safeguard?.riskScore > 7 ? prev.blocked + 1 : prev.blocked,
         }));
+        // Add to events list (session filtering happens in render)
+        setEvents((prev) => [newEvent, ...prev].slice(0, 500));
+        // If this event has a new sessionKey, refresh sessions list
+        const eventSessionKey = newEvent.sessionKey;
+        if (eventSessionKey) {
+          setSessions((prev) => {
+            const exists = prev.some(s => s.key === eventSessionKey);
+            if (!exists) {
+              // New session detected — trigger a full refresh
+              fetch('/api/sessions').then(r => r.json()).then(data => setSessions(data.sessions || [])).catch(() => {});
+              return prev;
+            }
+            // Update event count for existing session
+            return prev.map(s => s.key === eventSessionKey ? { ...s, eventCount: s.eventCount + 1, lastEventTime: Date.now() } : s);
+          });
+        }
       } catch (error) {
         console.error('Failed to parse event:', error);
       }
@@ -144,6 +176,7 @@ function App() {
     // Periodic refresh to catch async summary updates (every 10 seconds)
     const refreshInterval = setInterval(() => {
       fetchEvents();
+      fetchSessions();
     }, 10000);
 
     return () => {
@@ -152,12 +185,13 @@ function App() {
     };
   }, []);
 
-  // Refetch events when filter or backend changes
+  // Refetch events when filter, backend, or session changes
   useEffect(() => {
     const refetchEvents = async () => {
       try {
         const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
-        const response = await fetch(`/api/events/history?limit=2000${filterParam}`);
+        const sessionParam = selectedSession ? `&session=${encodeURIComponent(selectedSession)}` : '';
+        const response = await fetch(`/api/events/history?limit=2000${filterParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
           const filteredEvents = backendFilter === 'all' 
@@ -175,7 +209,7 @@ function App() {
       }
     };
     refetchEvents();
-  }, [eventFilter, backendFilter]);
+  }, [eventFilter, backendFilter, selectedSession]);
 
   const getGatewayDetails = () => {
     if (!connectionStats) return [];
@@ -509,8 +543,44 @@ function App() {
               )}
             </div>
           </div>
+
+          {/* Session Tabs */}
+          {sessions.length > 1 && (
+            <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
+              <button
+                onClick={() => setSelectedSession(null)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                  selectedSession === null
+                    ? 'bg-gc-primary text-white'
+                    : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
+                }`}
+              >
+                📋 All Sessions
+              </button>
+              {sessions.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setSelectedSession(s.key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                    selectedSession === s.key
+                      ? 'bg-gc-primary text-white'
+                      : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
+                  }`}
+                >
+                  <span>{s.isSubagent ? '🔀' : '🤖'}</span>
+                  <span>{s.label}</span>
+                  <span className="text-[10px] opacity-60">({s.eventCount})</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto">
-            <EventList events={events} />
+            <EventList events={
+              selectedSession
+                ? events.filter(e => e.sessionKey === selectedSession)
+                : events
+            } />
           </div>
         </div>
       </main>
