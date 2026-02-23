@@ -232,14 +232,22 @@ export default function (api) {
         return { block: true, blockReason: blockMsg };
       }
     } catch (err) {
-      // Any failure (timeout, network error) → conservative block.
+      // Evaluate failed (timeout, network error, etc.)
+      // Behaviour is controlled by failClosedEnabled:
+      //   true  → block conservatively (fail-closed)
+      //   false → allow through with a warning (fail-open, default)
       // Do NOT set guardclawAvailable = false here; let the heartbeat own that state.
-      api.logger.warn(`[GuardClaw] ⚠️ Evaluate failed — blocking conservatively: ${err.message}`);
+      const msg = err.message || String(err);
+      if (!failClosedEnabled) {
+        api.logger.warn(`[GuardClaw] ⚠️ Evaluate failed (fail-open) — allowing through: ${msg}`);
+        return {};
+      }
+      api.logger.warn(`[GuardClaw] ⚠️ Evaluate failed — blocking conservatively: ${msg}`);
       return {
         block: true,
         blockReason: [
           '[GUARDCLAW] Could not get safety evaluation — blocking conservatively.',
-          `Error: ${err.message}`,
+          `Error: ${msg}`,
           'If GuardClaw is offline, run: guardclaw start',
         ].join(' '),
       };
