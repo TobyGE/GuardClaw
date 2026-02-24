@@ -88,7 +88,7 @@ function App() {
         const filterParam = filter ? `&filter=${filter}` : '';
         const backendParam = backend !== 'all' ? `&backend=${backend}` : '';
         const sessionParam = session ? `&session=${encodeURIComponent(session)}` : '';
-        const response = await fetch(`/api/events/history?limit=2000${filterParam}${backendParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=9999${filterParam}${backendParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
           const filteredEvents = backend === 'all' 
@@ -191,7 +191,7 @@ function App() {
       try {
         const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
         const sessionParam = selectedSession ? `&session=${encodeURIComponent(selectedSession)}` : '';
-        const response = await fetch(`/api/events/history?limit=2000${filterParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=9999${filterParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
           const filteredEvents = backendFilter === 'all' 
