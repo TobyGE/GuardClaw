@@ -9,6 +9,8 @@ Real-time security monitoring for AI agents — powered by local LLMs. Every too
 - [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.ai) running locally
 - [OpenClaw](https://github.com/openclaw/openclaw) or [nanobot](https://github.com/HKUDS/nanobot)
 
+**Recommended model:** `openai/gpt-oss-20b` (98% accuracy on our security benchmark). Models under 5B parameters (e.g., qwen3-1.7b) produce too many false positives due to hallucination and are not recommended for the LLM judge.
+
 ## Install
 
 ```bash
@@ -57,7 +59,13 @@ guardclaw plugin install
 openclaw gateway restart
 ```
 
-Once enabled, the 🛡️ button in the Dashboard toggles blocking on/off without a restart. Tools with a risk score ≥ 8 are paused and require human approval — respond with `/approve-last` or `/deny-last`. Below 8, tools run freely and risk scores are logged in the dashboard.
+Once enabled, the 🛡️ button in the Dashboard toggles blocking on/off without a restart. Every tool call is classified into one of three tiers:
+
+| Verdict | Action | Examples |
+|---------|--------|----------|
+| **SAFE** | Runs freely | `cat`, `grep`, `git commit`, `npm build`, `curl localhost \| python3` |
+| **WARNING** | Runs freely, logged for review | `kill`, `rm -rf node_modules`, `chmod`, `curl POST` |
+| **BLOCK** | Paused, requires `/approve-last` or `/deny-last` | `sudo`, `rm -rf /`, `curl \| bash`, writing to `~/.ssh/` |
 
 ## Commands
 
@@ -79,6 +87,7 @@ guardclaw help
 | [Risk scoring with local LLM](docs/ROADMAP.md#risk-scoring-with-local-llm) | ✅ Done | 2026-02-15 |
 | [Safe-tool fast path — skip LLM for clearly safe tools](docs/ROADMAP.md#safe-tool-fast-path) | ✅ Done | 2026-02-20 |
 | [Per-model prompt configs (qwen3-1.7b / 0.5b / gpt-oss)](docs/ROADMAP.md#per-model-prompt-configs) | ✅ Done | 2026-02-20 |
+| [3-tier verdict system (SAFE/WARNING/BLOCK) — 98% accuracy](docs/ROADMAP.md#3-tier-verdict-system) | ✅ Done | 2026-02-24 |
 | [`message` tool privacy analysis](docs/ROADMAP.md#message-tool-privacy-analysis) | ✅ Done | 2026-02-20 |
 | [Chained tool analysis](docs/ROADMAP.md#chained-tool-analysis) | ✅ Done | 2026-02-21 |
 | [`write`/`edit` path analysis — persistence & backdoor detection](docs/ROADMAP.md#writeedit-path-analysis) | ✅ Done | 2026-02-21 |
