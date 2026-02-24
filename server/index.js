@@ -56,7 +56,7 @@ const BACKEND = (process.env.BACKEND || 'auto').toLowerCase();
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('client/dist'));
+app.use(express.static('client/dist', { maxAge: 0, etag: false }));
 
 // Services
 const safeguardService = new SafeguardService(
