@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import StatCard from './components/StatCard';
 import EventList from './components/EventList';
 import ConnectionModal from './components/ConnectionModal';
@@ -35,6 +35,10 @@ function App() {
   const [blockingStatus, setBlockingStatus] = useState(null);
   const [failClosed, setFailClosed] = useState(true);
   const [showFailClosedModal, setShowFailClosedModal] = useState(false);
+  const backendFilterRef = useRef(backendFilter);
+  const selectedSessionRef = useRef(selectedSession);
+  useEffect(() => { backendFilterRef.current = backendFilter; }, [backendFilter]);
+  useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -170,8 +174,17 @@ function App() {
           warnings: !isPending && score != null && score > 3 && score <= 7 ? prev.warnings + 1 : prev.warnings,
           blocked: !isPending && score != null && score > 7 ? prev.blocked + 1 : prev.blocked,
         }));
-        // Add to events list (session filtering happens in render)
-        setEvents((prev) => [newEvent, ...prev]);
+        // Add to events list (apply backend + session filter)
+        const eventSessionKey2 = newEvent.sessionKey || newEvent.payload?.sessionKey || '';
+        const bf = backendFilterRef.current;
+        const ss = selectedSessionRef.current;
+        const matchesBackend = bf === 'all'
+          || (bf === 'openclaw' && eventSessionKey2.includes('agent:'))
+          || (bf === 'nanobot' && eventSessionKey2.includes('nanobot'));
+        const matchesSession = !ss || eventSessionKey2 === ss;
+        if (matchesBackend && matchesSession) {
+          setEvents((prev) => [newEvent, ...prev]);
+        }
         // If this event has a new sessionKey, refresh sessions list
         const eventSessionKey = newEvent.sessionKey;
         if (eventSessionKey) {
