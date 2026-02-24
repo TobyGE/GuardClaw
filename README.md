@@ -1,162 +1,216 @@
-# GuardClaw 🛡️🐾
+<p align="center">
+  <h1 align="center">GuardClaw 🛡️🐾</h1>
+  <p align="center">
+    <strong>Real-time security monitor for AI agents — powered by local LLMs</strong>
+  </p>
+  <p align="center">
+    Every tool call risk-scored before execution · 100% local · zero cloud
+  </p>
+</p>
 
-Real-time security monitoring for AI agents — powered by local LLMs. Every tool call gets risk-scored before it runs. 100% private, zero cloud.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#dashboard-guide">Dashboard Guide</a> ·
+  <a href="#active-blocking">Active Blocking</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a>
+</p>
 
-![GuardClaw Dashboard](docs/screenshots/dashboard.jpg?v=1552)
+---
 
-## Requirements
+![GuardClaw Dashboard](docs/screenshots/dashboard.jpg?v=1553)
+
+## Why GuardClaw?
+
+AI coding agents (`exec`, `write`, `curl`, etc.) can do real damage. GuardClaw watches every tool call your agent makes and scores it for risk — **before it runs**. Everything stays on your machine: analysis runs on a local LLM (LM Studio or Ollama), no data ever leaves.
+
+**What you get:**
+- 🔍 **Real-time visibility** — see every tool call as it happens, with AI-generated summaries
+- 🎯 **3-tier risk scoring** — SAFE / WARNING / BLOCK, 100% accuracy on our 30-case benchmark
+- 🚫 **Optional blocking** — high-risk commands pause for your approval before executing
+- ⛓️ **Chain analysis** — detects multi-step attack patterns (read secrets → exfiltrate)
+- 🔒 **Completely private** — local LLMs only, zero cloud APIs, your data never leaves
+
+## Quick Start
+
+### Prerequisites
 
 - [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.ai) running locally
 - [OpenClaw](https://github.com/openclaw/openclaw) or [nanobot](https://github.com/HKUDS/nanobot)
 
-**Recommended models:**
-- `qwen/qwen3-4b-2507` — **default**, 100% accuracy on our 20-case security benchmark, fast (~2s/call)
-- `openai/gpt-oss-20b` — 98% accuracy, richer reasoning, slower
+**Recommended model:** `qwen/qwen3-4b-2507` — fast (~2s/call), 100% accuracy
 
-## Install
+### Install & Run
 
 ```bash
 git clone https://github.com/TobyGE/GuardClaw.git
 cd GuardClaw
 npm install && npm install --prefix client && npm run build
 npm link
-```
 
-## Start
-
-```bash
 guardclaw config detect-token --save   # auto-detect OpenClaw token
-guardclaw start                        # opens browser automatically
+guardclaw start                        # opens dashboard at localhost:3002
 ```
 
-Or skip the CLI: run `guardclaw start`, go to ⚙️ Settings → Gateway → Auto-Detect.
+That's it. GuardClaw connects to your agent platform and starts monitoring immediately.
 
-## Advanced: Full Tool Event Monitoring (OpenClaw)
+### Enable Full Tool Monitoring (OpenClaw)
 
-By default GuardClaw only receives text/chat events from OpenClaw. To see every tool call (read, write, exec, etc.) in real-time, run the included patch script:
+By default only chat events are visible. To see **every** tool call (read, write, exec…):
 
 ```bash
-bash scripts/patch-openclaw.sh
+bash scripts/patch-openclaw.sh    # safe, idempotent — patches, rebuilds, restarts
 ```
 
-That's it. The script will patch OpenClaw, rebuild it, and restart the gateway automatically. It's safe to run multiple times (idempotent).
+> **What this does:** Adds one line to OpenClaw's WebSocket broadcast so tool events reach all connected clients. GuardClaw is a passive observer — this is the only way to receive tool events without interfering with the agent.
 
-**What it does:** Adds one line to OpenClaw's WebSocket broadcast logic so that tool events are sent to all connected clients — not just ones that started an agent run. GuardClaw is a passive observer and this is the only way it can receive tool events without interfering with normal operation.
+## How It Works
 
-## Advanced: Active Blocking
+```
+┌─────────────┐     tool call      ┌──────────────┐     risk score     ┌─────────────┐
+│   AI Agent   │ ─────────────────→ │  GuardClaw   │ ──────────────────→ │  Dashboard  │
+│  (OpenClaw)  │                    │   Server     │                     │   Web UI    │
+└─────────────┘                    │              │                     └─────────────┘
+                                    │  ┌────────┐  │
+                                    │  │Local   │  │
+                                    │  │LLM     │  │  ← LM Studio / Ollama
+                                    │  └────────┘  │
+                                    └──────────────┘
+```
 
-By default GuardClaw is **monitor-only** — it shows risk scores but doesn't interfere with the agent.
+1. **Agent acts** — OpenClaw sends tool events via WebSocket
+2. **GuardClaw scores** — each tool call is analyzed by a local LLM judge
+3. **You see everything** — real-time dashboard with risk scores, summaries, and full details
+4. **Optionally block** — with the plugin installed, dangerous commands pause for approval
 
-Install the OpenClaw plugin to enable **pre-execution interception**:
+### Risk Tiers
 
-| | Monitor only | With plugin |
+| Verdict | Score | Action | Examples |
+|---------|-------|--------|----------|
+| 🟢 **SAFE** | 1–3 | Runs freely | `cat`, `grep`, `git commit`, `npm build` |
+| 🟡 **WARNING** | 4–7 | Runs freely, logged | `kill`, `rm -rf node_modules`, `chmod`, `curl POST` |
+| 🔴 **BLOCK** | 8–10 | Paused for approval | `sudo`, `rm -rf /`, `curl \| bash`, writing to `~/.ssh/` |
+
+## Dashboard Guide
+
+### Header Bar
+
+| Element | Description |
+|---------|-------------|
+| **Stats cards** (Safe / Warning / Block / Total) | Click any card to filter the event list by that risk tier |
+| **Days Protected** | How long GuardClaw has been watching |
+| 🛡️ **Blocking toggle** | Enable/disable active blocking (requires plugin) |
+| 🔒 **Fail-closed toggle** | When ON, tools are blocked if GuardClaw goes offline |
+| 📡 **Blocking config** | Set blocking mode, threshold, whitelist/blacklist patterns |
+| ⚙️ **Settings** | LLM backend, model selection, gateway token config |
+| 🧪 **Benchmark** | Run accuracy tests against any loaded model |
+| 🌙/☀️ **Theme** | Toggle dark/light mode |
+
+### Event List
+
+Events are grouped into **conversation turns** — each turn shows the agent's tool calls bundled together with the final reply.
+
+- **🤖 Agent turn** — a completed agent response with its tool calls
+- **⏳ Agent working…** — tool calls in progress (no reply yet)
+- Click **Details** on any tool call to see full input/output, risk analysis, and chain context
+- **Session tabs** at the top let you switch between the main agent and any sub-agents
+
+### Settings (⚙️)
+
+**Gateway tab:**
+- Enter your OpenClaw/nanobot gateway token manually, or click **Auto-Detect** to find it
+
+**LLM tab:**
+- Switch between **LM Studio** 🖥️ and **Ollama** 🦙 backends
+- Browse and select from all loaded models
+- Recommended models are marked with a ⭐ badge
+
+### Benchmark (🧪)
+
+Test any model's security judgment accuracy:
+- **30 tool-trace test cases** covering safe operations, warnings, and dangerous commands
+- Pick any model from LM Studio or Ollama
+- Real-time progress via streaming
+- Results show accuracy %, false positives, false negatives, and average latency
+
+### Blocking Config (📡)
+
+- **Active Blocking** — dangerous commands (score ≥ threshold) are paused; agent gets a notification and waits for `/approve-last` or `/deny-last`
+- **Monitor Only** — everything runs freely, risk scores are logged for review
+- **Whitelist** — patterns that always pass (e.g., `git *`, `npm test`)
+- **Blacklist** — patterns that always block (e.g., `rm -rf /`, `curl | bash`)
+
+## Active Blocking
+
+By default GuardClaw is **monitor-only**. To enable pre-execution blocking:
+
+```bash
+guardclaw plugin install       # install the OpenClaw plugin
+openclaw gateway restart       # restart to load the plugin
+```
+
+| | Monitor Only | With Plugin |
 |---|---|---|
 | Risk scores + audit trail | ✅ | ✅ |
 | Real-time tool call visibility | ✅ | ✅ |
 | Block dangerous commands | ❌ | ✅ |
-| Approval prompts for high-risk (score ≥ 8) | ❌ | ✅ |
+| Approval prompts for high-risk | ❌ | ✅ |
+
+Once enabled, toggle blocking on/off from the dashboard — no restart needed.
+
+### Approval Workflow
+
+When a tool is blocked:
+1. You receive a notification with the tool name, input, risk score, and reason
+2. Reply `/approve-last` to allow execution (agent auto-retries)
+3. Reply `/deny-last` to reject (agent is informed)
+
+## CLI Reference
 
 ```bash
-guardclaw plugin install
-openclaw gateway restart
+guardclaw start                       # start server + open dashboard
+guardclaw stop                        # stop server
+
+guardclaw config detect-token --save  # auto-detect gateway token
+guardclaw config set-token <token>    # manually set token
+
+guardclaw plugin install              # install blocking plugin
+guardclaw plugin uninstall            # remove blocking plugin
+guardclaw plugin status               # check plugin state
+
+guardclaw help                        # show all commands
 ```
 
-Once enabled, the 🛡️ button in the Dashboard toggles blocking on/off without a restart. Every tool call is classified into one of three tiers:
+## Architecture Highlights
 
-| Verdict | Action | Examples |
-|---------|--------|----------|
-| **SAFE** | Runs freely | `cat`, `grep`, `git commit`, `npm build`, `curl localhost \| python3` |
-| **WARNING** | Runs freely, logged for review | `kill`, `rm -rf node_modules`, `chmod`, `curl POST` |
-| **BLOCK** | Paused, requires `/approve-last` or `/deny-last` | `sudo`, `rm -rf /`, `curl \| bash`, writing to `~/.ssh/` |
+- **Local LLM judge** — per-model prompt configs optimized for small models (qwen3-4b default)
+- **Chain analysis** — tracks tool sequences per session, detects multi-step exfiltration patterns
+- **SQLite persistence** — events survive restarts (WAL mode, indexed queries)
+- **SSE push** — real-time event streaming to the dashboard, no polling
+- **Async analysis** — events appear instantly, LLM scores update in the background
+- **Prompt injection defense** — chain history wrapped in XML tags to prevent manipulation
+- **Sub-agent monitoring** — each sub-agent session gets independent chain analysis
 
-## Commands
+## Roadmap
 
-```bash
-guardclaw start / stop
-guardclaw config detect-token --save
-guardclaw config set-token <token>
-guardclaw plugin install / uninstall / status
-guardclaw help
-```
+See the [full roadmap](docs/ROADMAP.md) for detailed feature descriptions.
 
-## Roadmap / TODO
+**Coming up:**
+- Event search & advanced filtering
+- Approve/deny buttons directly in dashboard
+- Cross-session chain analysis
+- A2A protocol monitoring
 
-**Core Analysis**
-
-| Feature | Status | Date |
-|---------|--------|------|
-| [Real-time tool event monitoring](docs/ROADMAP.md#real-time-tool-event-monitoring) | ✅ Done | 2026-02-15 |
-| [Risk scoring with local LLM](docs/ROADMAP.md#risk-scoring-with-local-llm) | ✅ Done | 2026-02-15 |
-| [Safe-tool fast path — skip LLM for clearly safe tools](docs/ROADMAP.md#safe-tool-fast-path) | ✅ Done | 2026-02-20 |
-| [Per-model prompt configs (qwen3-4b / 1.7b / 0.5b / gpt-oss)](docs/ROADMAP.md#per-model-prompt-configs) | ✅ Done | 2026-02-20 |
-| [3-tier verdict system (SAFE/WARNING/BLOCK) — 98% accuracy](docs/ROADMAP.md#3-tier-verdict-system) | ✅ Done | 2026-02-24 |
-| [`message` tool privacy analysis](docs/ROADMAP.md#message-tool-privacy-analysis) | ✅ Done | 2026-02-20 |
-| [Chained tool analysis](docs/ROADMAP.md#chained-tool-analysis) | ✅ Done | 2026-02-21 |
-| [`write`/`edit` path analysis — persistence & backdoor detection](docs/ROADMAP.md#writeedit-path-analysis) | ✅ Done | 2026-02-21 |
-| [Tool result inspection via `after_tool_call`](docs/ROADMAP.md#tool-result-inspection) | ✅ Done | 2026-02-21 |
-| [`canvas eval` analysis](docs/ROADMAP.md#canvas-eval-analysis) | ✅ Done | 2026-02-21 |
-| [`nodes invoke` analysis](docs/ROADMAP.md#nodes-invoke-analysis) | ✅ Done | 2026-02-21 |
-| [Prompt injection defense on LLM judge](docs/ROADMAP.md#prompt-injection-defense-on-llm-judge) | ✅ Done | 2026-02-22 |
-| [Sub-agent monitoring — independent chain analysis per session](docs/ROADMAP.md#sub-agent-monitoring) | ✅ Done | 2026-02-22 |
-| [Write/Edit content scanning](docs/ROADMAP.md#writeedit-content-scanning--expanded-secret-detection) | ✅ Done | 2026-02-22 |
-
-**Active Blocking**
-
-| Feature | Status | Date |
-|---------|--------|------|
-| [Approval workflow (`/approve-last` / `/deny-last`)](docs/ROADMAP.md#approval-workflow) | ✅ Done | 2026-02-15 |
-| [OpenClaw plugin — pre-execution interception](docs/ROADMAP.md#openclaw-plugin--pre-execution-interception) | ✅ Done | 2026-02-20 |
-| [One-click blocking toggle in dashboard](docs/ROADMAP.md#one-click-blocking-toggle) | ✅ Done | 2026-02-20 |
-| [Auto-retry after approval — no re-typing needed](docs/ROADMAP.md#auto-retry-after-approval) | ✅ Done | 2026-02-20 |
-| [Direct user notification on block](docs/ROADMAP.md#direct-user-notification-on-block) | ✅ Done | 2026-02-20 |
-| [Run-level lock — single notification per run](docs/ROADMAP.md#run-level-lock) | ✅ Done | 2026-02-20 |
-| [Fail-closed on GuardClaw disconnect](docs/ROADMAP.md#fail-closed-on-guardclaw-disconnect) | ✅ Done | 2026-02-22 |
-| [Fail-closed dashboard toggle](docs/ROADMAP.md#fail-closed-dashboard-toggle) | ✅ Done | 2026-02-22 |
-| [Monitor/Blocking mode toggle](docs/ROADMAP.md#monitor-blocking-mode-toggle) | ✅ Done | 2026-02-22 |
-
-
-**Dashboard & UX**
-
-| Feature | Status | Date |
-|---------|--------|------|
-| [Days Protected tracking](docs/ROADMAP.md#days-protected-tracking) | ✅ Done | 2026-02-11 |
-| [Light / dark mode](docs/ROADMAP.md#light--dark-mode) | ✅ Done | 2026-02-11 |
-| [AI-powered event summaries](docs/ROADMAP.md#ai-powered-event-summaries) | ✅ Done | 2026-02-15 |
-| [Click-to-filter stats cards](docs/ROADMAP.md#click-to-filter-stats-cards) | ✅ Done | 2026-02-15 |
-| [Auto-open browser on start](docs/ROADMAP.md#auto-open-browser-on-start) | ✅ Done | 2026-02-15 |
-| [Conversation turn grouping in event list](docs/ROADMAP.md#conversation-turn-grouping) | ✅ Done | 2026-02-20 |
-| [Session tabs — separate views for main agent and sub-agents](docs/ROADMAP.md#session-tabs) | ✅ Done | 2026-02-22 |
-
-**Integration & Setup**
-
-| Feature | Status | Date |
-|---------|--------|------|
-| [nanobot support](docs/ROADMAP.md#nanobot-support) | ✅ Done | 2026-02-13 |
-| [Web UI + CLI configuration management](docs/ROADMAP.md#web-ui--cli-configuration-management) | ✅ Done | 2026-02-15 |
-| [LLM backend config UI — LM Studio + Ollama](docs/ROADMAP.md#llm-backend-config-ui) | ✅ Done | 2026-02-15 |
-| [`patch-openclaw.sh` — one-command OpenClaw patching](docs/ROADMAP.md#patch-openclawsh) | ✅ Done | 2026-02-20 |
-
-**Architecture & Infrastructure**
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Server modularization — extract route modules | 🔧 In Progress | Extracted `helpers.js`, `routes/config.js`, `routes/benchmark.js`; blocking & approval routes next |
-| Event persistence (SQLite) | ✅ Done | WAL mode, indexed columns, auto-migration from JSON — 2026-02-24 |
-| Real-time SSE push | ✅ Done | Replaces 10s polling; instant event appearance + async LLM update — 2026-02-24 |
-| In-dashboard model benchmark | ✅ Done | 30 tool-trace cases, SSE progress, LM Studio + Ollama model picker — 2026-02-24 |
-| Event search & advanced filtering | 📋 TODO | Search by tool name, command content, time range; beyond safe/warning/block |
-
-**Future**
-
-| Feature | Notes |
-|---------|-------|
-| Cross-session chain analysis | Parent→child chain history sharing. Low priority — per-session monitoring already covers most scenarios. |
-| A2A (Agent-to-Agent) protocol monitoring | Monitor inter-agent communication. Waiting for broader A2A adoption in OpenClaw. |
-| Approve/deny buttons in dashboard | Frontend buttons for `/approve-last` and `/deny-last`. Backend already exists. |
-
-→ [Full details for each feature](docs/ROADMAP.md)
+**Recently completed (Feb 2026):**
+SQLite persistence · SSE real-time push · in-dashboard model benchmark · 3-tier verdict system (100% accuracy) · dark mode polish · server modularization · blocking config UI
 
 ## Links
 
 - [OpenClaw](https://github.com/openclaw/openclaw) · [nanobot](https://github.com/HKUDS/nanobot) · [LM Studio](https://lmstudio.ai)
-- [Troubleshooting](docs/LMSTUDIO-TROUBLESHOOTING.md)
+- [Full Roadmap](docs/ROADMAP.md) · [Troubleshooting](docs/LMSTUDIO-TROUBLESHOOTING.md)
+
+---
+
+<p align="center">
+  <sub>Built with paranoia and local LLMs. Your data never leaves your machine. 🐾</sub>
+</p>
