@@ -76,6 +76,22 @@
         }
         .nav-cta:hover { opacity: 0.9; color: white !important; }
 
+        /* Hamburger */
+        .nav-toggle { display: none; background: none; border: none; cursor: pointer; padding: 4px; }
+        .nav-toggle svg { display: block; }
+        @media (max-width: 600px) {
+            .nav-toggle { display: block; }
+            .nav-links {
+                display: none; flex-direction: column; position: absolute;
+                top: 56px; left: 0; right: 0; background: rgba(11,15,26,0.95);
+                backdrop-filter: blur(20px); border-bottom: 1px solid var(--border);
+                padding: 16px 20px; gap: 16px;
+            }
+            .nav-links.open { display: flex; }
+            .nav-links a { font-size: 1rem; }
+            .nav-cta { text-align: center; display: block; }
+        }
+
         /* ─── Hero ─── */
         .hero {
             padding: 160px 0 100px;
@@ -373,6 +389,9 @@
 <nav>
     <div class="container">
         <a href="#" class="nav-brand"><img src="favicon.svg" alt="" width="24" height="24"> GuardClaw</a>
+        <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <ul class="nav-links">
             <li><a href="#features">Features</a></li>
             <li><a href="#how-it-works">How It Works</a></li>
