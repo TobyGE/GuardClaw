@@ -236,7 +236,7 @@ function TurnItem({ turn }) {
             <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{summary}</span>
           </div>
           <span className="text-xs text-gc-text-dim ml-4 whitespace-nowrap">
-            {toolCalls[0] ? formatTime(toolCalls[0].timestamp) : ''}
+            {toolCalls.length > 0 ? formatTime(toolCalls[toolCalls.length - 1].timestamp) : ''}
           </span>
         </div>
         {/* Agent reply text */}
