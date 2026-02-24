@@ -3,589 +3,637 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="GuardClaw - Local LLM-Powered Security for AI Agents">
-    <title>GuardClaw - Local LLM Security for AI Agents</title>
+    <meta name="description" content="GuardClaw — Real-time security monitor for AI agents, powered by local LLMs. 100% private, zero cloud.">
+    <meta name="keywords" content="AI agent security, LLM safety, tool monitoring, GuardClaw, OpenClaw, local AI">
+    <meta property="og:title" content="GuardClaw — AI Agent Security Monitor">
+    <meta property="og:description" content="Every tool call risk-scored before execution. 100% local, zero cloud.">
+    <meta property="og:image" content="https://tobyge.github.io/GuardClaw/screenshots/dashboard.jpg">
+    <title>GuardClaw 🛡️🐾 — AI Agent Security Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #ffffff;
-            --bg-secondary: #f9fafb;
-            --bg-header: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
-            --text-primary: #18181b;
-            --text-secondary: #4b5563;
-            --text-tertiary: #6b7280;
-            --border-color: #e5e7eb;
-            --accent-color: #3b82f6;
-            --card-bg: #ffffff;
-            --code-bg: #1e293b;
-            --code-border: #334155;
-            --code-text: #e2e8f0;
-            --inline-code-bg: #f1f5f9;
-            --inline-code-text: #0f172a;
+            --bg: #0b0f1a;
+            --bg-card: #131825;
+            --bg-card-hover: #1a2035;
+            --bg-code: #0d1117;
+            --border: #1e2a3a;
+            --border-hover: #2d3f54;
+            --text: #e2e8f0;
+            --text-dim: #8492a6;
+            --text-muted: #5a6578;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.15);
+            --green: #10b981;
+            --yellow: #f59e0b;
+            --red: #ef4444;
+            --purple: #8b5cf6;
+            --pink: #ec4899;
         }
 
-        body.dark-mode {
-            --bg-primary: #0f172a;
-            --bg-secondary: #1e293b;
-            --bg-header: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-            --text-primary: #f1f5f9;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #94a3b8;
-            --border-color: #334155;
-            --accent-color: #60a5fa;
-            --card-bg: #1e293b;
-            --code-bg: #0f172a;
-            --code-border: #1e293b;
-            --code-text: #e2e8f0;
-            --inline-code-bg: #334155;
-            --inline-code-text: #e2e8f0;
-        }
-    </style>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             line-height: 1.6;
-            color: var(--text-primary);
-            background: var(--bg-primary);
-            transition: background-color 0.3s ease, color 0.3s ease;
+            overflow-x: hidden;
         }
 
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
+        ::selection { background: var(--accent); color: white; }
 
-        /* Header */
-        header {
-            padding: 60px 0 50px;
-            background: var(--bg-header);
-            border-bottom: 1px solid var(--border-color);
-        }
+        .container { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
 
-        .header-content {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            margin-bottom: 30px;
+        /* ─── Nav ─── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(11, 15, 26, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
         }
-
-        .logo {
-            font-size: 4rem;
+        nav .container {
+            display: flex; align-items: center; justify-content: space-between;
+            height: 64px;
         }
-
-        h1 {
-            font-size: 3rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            letter-spacing: -0.02em;
+        .nav-brand {
+            font-weight: 700; font-size: 1.2rem;
+            display: flex; align-items: center; gap: 8px;
+            text-decoration: none; color: var(--text);
         }
-
-        .subtitle {
-            font-size: 1.35rem;
-            color: var(--text-tertiary);
-            margin-bottom: 40px;
-            max-width: 700px;
+        .nav-links { display: flex; gap: 32px; list-style: none; }
+        .nav-links a {
+            color: var(--text-dim); text-decoration: none; font-size: 0.9rem;
+            font-weight: 500; transition: color 0.2s;
         }
-
-        .header-buttons {
-            display: flex;
-            gap: 15px;
+        .nav-links a:hover { color: var(--text); }
+        .nav-cta {
+            background: var(--accent); color: white !important;
+            padding: 8px 20px; border-radius: 8px; font-weight: 600;
+            transition: opacity 0.2s;
         }
+        .nav-cta:hover { opacity: 0.9; color: white !important; }
 
+        /* ─── Hero ─── */
+        .hero {
+            padding: 160px 0 100px;
+            text-align: center;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+            width: 800px; height: 600px;
+            background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .hero-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            padding: 6px 16px; border-radius: 100px;
+            font-size: 0.85rem; color: var(--text-dim);
+            margin-bottom: 32px;
+        }
+        .hero-badge .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .hero h1 {
+            font-size: clamp(2.8rem, 6vw, 4.5rem);
+            font-weight: 800; letter-spacing: -0.03em;
+            line-height: 1.1; margin-bottom: 24px;
+        }
+        .hero h1 .gradient {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 50%, var(--pink) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero-sub {
+            font-size: 1.2rem; color: var(--text-dim);
+            max-width: 600px; margin: 0 auto 48px;
+            line-height: 1.7;
+        }
+        .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
         .btn {
-            padding: 14px 32px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 1rem;
-            display: inline-block;
-            transition: all 0.2s;
+            padding: 14px 32px; border-radius: 10px; font-weight: 600;
+            font-size: 1rem; text-decoration: none; display: inline-flex;
+            align-items: center; gap: 8px; transition: all 0.2s;
         }
-
         .btn-primary {
-            background: var(--text-primary);
-            color: var(--bg-primary);
+            background: var(--accent); color: white;
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 0 40px rgba(59,130,246,0.25); }
+        .btn-ghost {
+            background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { border-color: var(--border-hover); background: var(--bg-card-hover); }
+
+        /* ─── Screenshot ─── */
+        .screenshot-section { padding: 0 0 100px; }
+        .screenshot-wrap {
+            border-radius: 16px; overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 25px 80px -20px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .screenshot-wrap img { width: 100%; display: block; }
+        .screenshot-glow {
+            position: absolute; inset: -1px; border-radius: 16px;
+            background: linear-gradient(135deg, rgba(59,130,246,0.1), transparent, rgba(139,92,246,0.1));
+            pointer-events: none;
         }
 
-        .btn-primary:hover {
-            opacity: 0.9;
-        }
-
-        .btn-secondary {
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            opacity: 0.8;
-        }
-
-        /* Main */
-        section {
-            padding: 80px 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        h2 {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 30px;
-            text-align: center;
-        }
-
-        p {
-            color: var(--text-secondary);
-            line-height: 1.8;
-            font-size: 1.05rem;
-        }
-
-        section > .container > p {
-            text-align: center;
-            max-width: 800px;
-            margin: 0 auto 40px;
-        }
-
-        /* Screenshot */
-        .screenshot {
-            width: 100%;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            margin: 30px 0;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Features */
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 30px;
-            margin-top: 30px;
-        }
-
-        .feature {
-            padding: 35px;
-            background: var(--card-bg);
-            border: 2px solid var(--border-color);
-            border-radius: 12px;
-            transition: all 0.3s ease;
-        }
-
-        .feature:hover {
-            border-color: var(--accent-color);
-            transform: translateY(-4px);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
-        }
-
-        .feature h3 {
-            font-size: 1.15rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 12px;
-        }
-
-        .feature-icon {
-            font-size: 2.5rem;
-            margin-bottom: 20px;
-        }
-
-        /* Code */
-        .code-block {
-            background: var(--code-bg);
-            border: 2px solid var(--code-border);
-            border-radius: 12px;
-            padding: 30px;
-            margin: 40px auto;
-            max-width: 700px;
-            font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 1rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        .code-block code {
-            color: #10b981;
-        }
-
-        .comment {
-            color: #94a3b8;
-        }
-
-        /* Stats */
+        /* ─── Stats ─── */
         .stats {
-            display: flex;
-            justify-content: space-around;
-            margin: 50px 0 30px;
-            flex-wrap: wrap;
-            gap: 20px;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+            padding: 80px 0;
         }
-
         .stat {
-            text-align: center;
-            padding: 30px 40px;
-            background: var(--card-bg);
-            border-radius: 12px;
-            border: 2px solid var(--border-color);
-            flex: 1;
-            min-width: 150px;
+            text-align: center; padding: 32px 16px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; transition: all 0.3s;
+        }
+        .stat:hover { border-color: var(--accent); transform: translateY(-4px); }
+        .stat-value {
+            font-size: 2.5rem; font-weight: 800;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .stat-label { color: var(--text-dim); font-size: 0.85rem; margin-top: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        /* ─── Features ─── */
+        .features-section { padding: 80px 0; }
+        .section-header { text-align: center; margin-bottom: 60px; }
+        .section-header h2 { font-size: 2.2rem; font-weight: 700; margin-bottom: 16px; }
+        .section-header p { color: var(--text-dim); font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
+        .features-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+        }
+        .feature-card {
+            padding: 36px; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: 14px;
+            transition: all 0.3s;
+        }
+        .feature-card:hover { border-color: var(--border-hover); transform: translateY(-4px); box-shadow: 0 20px 40px -15px rgba(0,0,0,0.3); }
+        .feature-icon { font-size: 2rem; margin-bottom: 20px; }
+        .feature-card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 10px; }
+        .feature-card p { color: var(--text-dim); font-size: 0.95rem; line-height: 1.7; }
+
+        /* ─── How it works ─── */
+        .how-section { padding: 80px 0; }
+        .how-steps {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px;
+            margin-top: 60px; position: relative;
+        }
+        .how-steps::before {
+            content: ''; position: absolute; top: 40px; left: 12.5%; right: 12.5%;
+            height: 2px; background: linear-gradient(90deg, var(--accent), var(--purple), var(--pink), var(--green));
+            opacity: 0.3;
+        }
+        .step {
+            text-align: center; position: relative;
+        }
+        .step-num {
+            width: 48px; height: 48px; border-radius: 50%;
+            background: var(--bg-card); border: 2px solid var(--accent);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 1.1rem; color: var(--accent);
+            margin: 0 auto 20px; position: relative; z-index: 1;
+        }
+        .step h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+        .step p { font-size: 0.9rem; color: var(--text-dim); line-height: 1.6; }
+
+        /* ─── Risk tiers ─── */
+        .tiers-section { padding: 80px 0; }
+        .tiers {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+            margin-top: 48px;
+        }
+        .tier {
+            padding: 36px; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: 14px;
+            text-align: center; transition: all 0.3s;
+        }
+        .tier:hover { transform: translateY(-4px); }
+        .tier-icon { font-size: 2.5rem; margin-bottom: 16px; }
+        .tier h3 { font-size: 1.2rem; font-weight: 700; margin-bottom: 8px; }
+        .tier .score { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px; }
+        .tier p { font-size: 0.9rem; color: var(--text-dim); line-height: 1.6; }
+        .tier-safe { border-color: rgba(16, 185, 129, 0.2); }
+        .tier-safe:hover { border-color: var(--green); box-shadow: 0 0 30px rgba(16, 185, 129, 0.1); }
+        .tier-warn { border-color: rgba(245, 158, 11, 0.2); }
+        .tier-warn:hover { border-color: var(--yellow); box-shadow: 0 0 30px rgba(245, 158, 11, 0.1); }
+        .tier-block { border-color: rgba(239, 68, 68, 0.2); }
+        .tier-block:hover { border-color: var(--red); box-shadow: 0 0 30px rgba(239, 68, 68, 0.1); }
+        .tier-examples {
+            margin-top: 16px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+        }
+        .tier-examples code {
+            background: var(--bg-code); border: 1px solid var(--border);
+            padding: 3px 10px; border-radius: 6px; font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace; color: var(--text-dim);
         }
 
-        .stat-number {
-            font-size: 3rem;
-            font-weight: 700;
-            color: var(--accent-color);
+        /* ─── Install ─── */
+        .install-section { padding: 80px 0; }
+        .code-block {
+            background: var(--bg-code); border: 1px solid var(--border);
+            border-radius: 14px; padding: 32px; margin: 40px auto;
+            max-width: 700px; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem; line-height: 2; position: relative;
+            overflow-x: auto;
         }
-
-        .stat-label {
-            color: var(--text-tertiary);
-            margin-top: 8px;
-            font-weight: 500;
-            text-transform: uppercase;
-            font-size: 0.85rem;
-            letter-spacing: 0.05em;
+        .code-block .line { display: block; }
+        .code-block .cmd { color: var(--green); }
+        .code-block .comment { color: var(--text-muted); }
+        .code-block .flag { color: var(--purple); }
+        .code-header {
+            display: flex; gap: 8px; margin-bottom: 20px; padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
         }
+        .code-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .code-dot-r { background: #ff5f57; }
+        .code-dot-y { background: #febc2e; }
+        .code-dot-g { background: #28c840; }
 
-        /* Models */
-        .models {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 30px;
+        /* ─── Models ─── */
+        .models-section { padding: 80px 0; }
+        .models-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top: 48px; }
+        .model-card {
+            padding: 32px; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: 14px;
+            transition: all 0.3s; display: flex; align-items: flex-start; gap: 20px;
         }
-
-        .model {
-            padding: 25px;
-            background: var(--card-bg);
-            border: 2px solid var(--border-color);
-            border-radius: 12px;
-            transition: all 0.3s ease;
+        .model-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+        .model-icon { font-size: 2rem; flex-shrink: 0; }
+        .model-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+        .model-card h3 code {
+            background: var(--bg-code); padding: 2px 8px; border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
         }
-
-        .model:hover {
-            border-color: var(--accent-color);
-            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.2);
+        .model-card p { color: var(--text-dim); font-size: 0.9rem; }
+        .model-badge {
+            display: inline-block; padding: 2px 10px; border-radius: 100px;
+            font-size: 0.75rem; font-weight: 600; margin-left: 8px;
         }
+        .badge-rec { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+        .badge-alt { background: rgba(139, 92, 246, 0.15); color: var(--purple); }
 
-        .model h3 {
-            font-size: 1.05rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 10px;
+        /* ─── Blocking ─── */
+        .blocking-section { padding: 80px 0; }
+        .blocking-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; margin-top: 48px; }
+        .blocking-text h3 { font-size: 1.3rem; font-weight: 600; margin-bottom: 16px; }
+        .blocking-text p { color: var(--text-dim); margin-bottom: 16px; line-height: 1.7; }
+        .blocking-list { list-style: none; }
+        .blocking-list li {
+            padding: 10px 0; color: var(--text-dim); font-size: 0.95rem;
+            display: flex; align-items: flex-start; gap: 10px;
         }
+        .blocking-list .check { color: var(--green); font-weight: 700; flex-shrink: 0; }
 
-        .model-desc {
-            color: var(--text-tertiary);
-            font-size: 0.95rem;
+        /* ─── CTA ─── */
+        .cta-section {
+            padding: 120px 0; text-align: center;
+            position: relative;
         }
+        .cta-section::before {
+            content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+            width: 600px; height: 400px;
+            background: radial-gradient(ellipse, rgba(139,92,246,0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .cta-section h2 { font-size: 2.5rem; font-weight: 700; margin-bottom: 16px; }
+        .cta-section p { color: var(--text-dim); font-size: 1.1rem; margin-bottom: 40px; }
 
-        /* Footer */
+        /* ─── Footer ─── */
         footer {
-            padding: 40px 0;
-            text-align: center;
-            color: var(--text-tertiary);
+            padding: 40px 0; text-align: center;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted); font-size: 0.85rem;
         }
+        footer a { color: var(--text-dim); text-decoration: none; margin: 0 12px; transition: color 0.2s; }
+        footer a:hover { color: var(--text); }
 
-        footer a {
-            color: var(--text-secondary);
-            text-decoration: none;
-            margin: 0 15px;
+        /* ─── Responsive ─── */
+        @media (max-width: 900px) {
+            .features-grid { grid-template-columns: 1fr 1fr; }
+            .how-steps { grid-template-columns: 1fr 1fr; }
+            .how-steps::before { display: none; }
+            .tiers { grid-template-columns: 1fr; }
+            .blocking-grid { grid-template-columns: 1fr; }
+            .models-grid { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: 1fr 1fr; }
         }
-
-        footer a:hover {
-            color: var(--text-primary);
-        }
-
-        /* List */
-        ul {
-            list-style: none;
-            margin-top: 15px;
-        }
-
-        ul li {
-            padding: 8px 0;
-            color: var(--text-secondary);
-        }
-
-        ul li:before {
-            content: "→ ";
-            color: var(--text-tertiary);
-            margin-right: 8px;
-        }
-
-        /* Inline code */
-        code {
-            background: var(--inline-code-bg);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 0.9em;
-            color: var(--inline-code-text);
-        }
-
-        /* Theme toggle button */
-        .theme-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: var(--card-bg);
-            border: 2px solid var(--border-color);
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-size: 1.5rem;
-            transition: all 0.3s ease;
-            z-index: 1000;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-
-        .theme-toggle:hover {
-            transform: scale(1.1);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
-        }
-
-        @media (max-width: 768px) {
-            h1 {
-                font-size: 2rem;
-            }
-            
-            .header-content {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .features, .models {
-                grid-template-columns: 1fr;
-            }
+        @media (max-width: 600px) {
+            .features-grid { grid-template-columns: 1fr; }
+            .how-steps { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: 1fr 1fr; }
+            .nav-links { gap: 16px; }
+            .nav-links a { font-size: 0.8rem; }
         }
     </style>
 </head>
 <body>
-    <!-- Theme Toggle Button -->
-    <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
-        <span id="themeIcon">☀️</span>
-    </button>
 
-    <!-- Header -->
-    <header>
-        <div class="container">
-            <div class="header-content">
-                <span class="logo">🛡️</span>
-                <h1>GuardClaw</h1>
-            </div>
-            <p class="subtitle">Local LLM-Powered Security Analysis for AI Agents</p>
-            <div class="header-buttons">
-                <a href="https://github.com/TobyGE/GuardClaw" class="btn btn-primary">GitHub</a>
-                <a href="#install" class="btn btn-secondary">Install</a>
-            </div>
+<!-- Nav -->
+<nav>
+    <div class="container">
+        <a href="#" class="nav-brand">🛡️ GuardClaw</a>
+        <ul class="nav-links">
+            <li><a href="#features">Features</a></li>
+            <li><a href="#how-it-works">How It Works</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="https://github.com/TobyGE/GuardClaw" class="nav-cta">GitHub →</a></li>
+        </ul>
+    </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+    <div class="container">
+        <div class="hero-badge">
+            <span class="dot"></span>
+            Monitoring AI agents in real-time
         </div>
-    </header>
+        <h1>Security for<br><span class="gradient">AI Agents</span></h1>
+        <p class="hero-sub">
+            Every tool call risk-scored before execution by a local LLM.<br>
+            100% private. Zero cloud. Complete visibility.
+        </p>
+        <div class="hero-buttons">
+            <a href="#install" class="btn btn-primary">Get Started</a>
+            <a href="https://github.com/TobyGE/GuardClaw" class="btn btn-ghost">View on GitHub</a>
+        </div>
+    </div>
+</section>
 
-    <!-- Intro -->
-    <section>
-        <div class="container">
-            <h2>Why GuardClaw</h2>
-            <p>
-                Monitor and protect your AI agents with intelligent security analysis powered by local LLMs via LM Studio.
-                Every command is analyzed for risk—no cloud, no API costs, complete privacy.
-            </p>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-number">100%</div>
-                    <div class="stat-label">Local</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">0-10</div>
-                    <div class="stat-label">Risk Score</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">$0</div>
-                    <div class="stat-label">Cloud Costs</div>
-                </div>
+<!-- Screenshot -->
+<section class="screenshot-section">
+    <div class="container">
+        <div class="screenshot-wrap">
+            <img src="screenshots/dashboard.jpg?v=1554" alt="GuardClaw Dashboard — real-time AI agent security monitoring">
+            <div class="screenshot-glow"></div>
+        </div>
+    </div>
+</section>
+
+<!-- Stats -->
+<div class="container">
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-value">100%</div>
+            <div class="stat-label">Local & Private</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">100%</div>
+            <div class="stat-label">Benchmark Accuracy</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">~2s</div>
+            <div class="stat-label">Per Analysis</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">$0</div>
+            <div class="stat-label">Cloud Cost</div>
+        </div>
+    </div>
+</div>
+
+<!-- Features -->
+<section class="features-section" id="features">
+    <div class="container">
+        <div class="section-header">
+            <h2>Built for AI Agent Safety</h2>
+            <p>Monitor, analyze, and optionally block dangerous tool calls — all running locally on your machine.</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Real-Time Visibility</h3>
+                <p>See every tool call as it happens — exec, read, write, browser, message — with AI-generated summaries and full details.</p>
             </div>
-        </div>
-    </section>
-
-    <!-- Features -->
-    <section>
-        <div class="container">
-            <h2>Features</h2>
-            <div class="features">
-                <div class="feature">
-                    <div class="feature-icon">🧠</div>
-                    <h3>Context-Aware Analysis</h3>
-                    <p>LLM understands intent. Knows <code>echo "password=test"</code> is safe but 
-                    <code>rm -rf /</code> is dangerous.</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🔒</div>
-                    <h3>100% Private</h3>
-                    <p>All analysis via LM Studio on your machine. Your commands never leave your device.</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">📊</div>
-                    <h3>Real-Time Monitoring</h3>
-                    <p>Live event stream. See every exec, file operation, and chat message with instant risk scoring.</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">⚡</div>
-                    <h3>Fast Analysis</h3>
-                    <p>~1-2s response time with efficient models. No network latency.</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🎯</div>
-                    <h3>Zero Configuration</h3>
-                    <p>Works out of the box. Just install, point to LM Studio, and start monitoring.</p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🔍</div>
-                    <h3>Detailed Insights</h3>
-                    <p>See command intent, risk analysis, and reasoning behind every security decision.</p>
-                </div>
+            <div class="feature-card">
+                <div class="feature-icon">🧠</div>
+                <h3>LLM-Powered Judgment</h3>
+                <p>A local LLM judge analyzes each command for intent and risk. Understands context, not just pattern matching.</p>
             </div>
-        </div>
-    </section>
-
-    <!-- Screenshot -->
-    <section>
-        <div class="container">
-            <h2>Dashboard Preview</h2>
-            <img src="screenshots/dashboard.jpg?v=1552" alt="GuardClaw Dashboard" class="screenshot">
-        </div>
-    </section>
-
-    <!-- Install -->
-    <section id="install">
-        <div class="container">
-            <h2>Quick Start</h2>
-            <div class="code-block">
-                <code>
-<span class="comment"># Clone repository</span><br>
-git clone https://github.com/TobyGE/GuardClaw.git<br>
-cd GuardClaw<br>
-<br>
-<span class="comment"># Install and link</span><br>
-npm install<br>
-npm link<br>
-<br>
-<span class="comment"># Start</span><br>
-guardclaw start<br>
-<br>
-<span class="comment"># Open dashboard</span><br>
-http://localhost:3001
-                </code>
+            <div class="feature-card">
+                <div class="feature-icon">⛓️</div>
+                <h3>Chain Analysis</h3>
+                <p>Detects multi-step attack patterns. Reading SSH keys then curling an external server? Caught and flagged.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🚫</div>
+                <h3>Active Blocking</h3>
+                <p>High-risk commands pause for your approval before executing. One-click approve or deny from your chat.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔒</div>
+                <h3>Completely Private</h3>
+                <p>All analysis runs on local LLMs via LM Studio or Ollama. Your data never leaves your machine. Ever.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🧪</div>
+                <h3>Built-in Benchmark</h3>
+                <p>Test any model's security judgment with 30 tool-trace test cases. See accuracy, false positives, and latency.</p>
             </div>
         </div>
-    </section>
+    </div>
+</section>
 
-    <!-- Models -->
-    <section>
-        <div class="container">
-            <h2>Recommended Models</h2>
-            <p style="margin-bottom: 20px;">For use with LM Studio</p>
-            <div class="models">
-                <div class="model">
-                    <h3>llama-3.1-8b</h3>
-                    <p class="model-desc">Best overall. Fast and accurate. ~4GB.</p>
-                </div>
-                <div class="model">
-                    <h3>mistral-7b</h3>
-                    <p class="model-desc">Excellent reasoning. ~4GB.</p>
-                </div>
-                <div class="model">
-                    <h3>qwen-2.5-7b</h3>
-                    <p class="model-desc">Multilingual support. ~4GB.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Architecture -->
-    <section>
-        <div class="container">
+<!-- How It Works -->
+<section class="how-section" id="how-it-works">
+    <div class="container">
+        <div class="section-header">
             <h2>How It Works</h2>
-            <div class="code-block" style="max-width: 900px;">
-                <code style="color: var(--code-text); line-height: 2.2;">
-<span style="color: #10b981;">┌─────────────────┐</span><br>
-<span style="color: #10b981;">│</span> Clawdbot Agent <span style="color: #10b981;">│</span><br>
-<span style="color: #10b981;">└────────┬────────┘</span><br>
-         <span style="color: #10b981;">│</span> exec, file ops, messages<br>
-         <span style="color: #10b981;">▼</span><br>
-<span style="color: #60a5fa;">┌─────────────────┐</span><br>
-<span style="color: #60a5fa;">│</span> Clawdbot Gateway<span style="color: #60a5fa;">│</span> <span class="comment">← WebSocket connection</span><br>
-<span style="color: #60a5fa;">└────────┬────────┘</span><br>
-         <span style="color: #60a5fa;">│</span><br>
-         <span style="color: #60a5fa;">▼</span><br>
-<span style="color: #f59e0b;">┌─────────────────┐</span><br>
-<span style="color: #f59e0b;">│</span>   GuardClaw    <span style="color: #f59e0b;">│</span> <span class="comment">← Monitors & analyzes</span><br>
-<span style="color: #f59e0b;">└────────┬────────┘</span><br>
-         <span style="color: #f59e0b;">│</span> sends command for risk analysis<br>
-         <span style="color: #f59e0b;">▼</span><br>
-<span style="color: #ec4899;">┌─────────────────┐</span><br>
-<span style="color: #ec4899;">│</span>   LM Studio    <span style="color: #ec4899;">│</span> <span class="comment">← Local LLM (100% private)</span><br>
-<span style="color: #ec4899;">└────────┬────────┘</span><br>
-         <span style="color: #ec4899;">│</span> returns risk score (0-10)<br>
-         <span style="color: #ec4899;">▼</span><br>
-<span style="color: #8b5cf6;">┌─────────────────┐</span><br>
-<span style="color: #8b5cf6;">│</span>  Web Dashboard  <span style="color: #8b5cf6;">│</span> <span class="comment">← Real-time monitoring</span><br>
-<span style="color: #8b5cf6;">│</span> localhost:3001  <span style="color: #8b5cf6;">│</span><br>
-<span style="color: #8b5cf6;">└─────────────────┘</span>
-                </code>
+            <p>GuardClaw sits between your agent and its tools, scoring every action for risk.</p>
+        </div>
+        <div class="how-steps">
+            <div class="step">
+                <div class="step-num">1</div>
+                <h3>Agent Acts</h3>
+                <p>Your AI agent calls a tool — exec, write, browser, message, etc.</p>
             </div>
-            <ul>
-                <li>GuardClaw monitors Clawdbot Gateway events via WebSocket</li>
-                <li>Every command sent to LM Studio for intelligent risk analysis</li>
-                <li>Risk score (0-10) + reasoning displayed in real-time dashboard</li>
-                <li>All processing happens locally on your machine - zero cloud</li>
-            </ul>
+            <div class="step">
+                <div class="step-num">2</div>
+                <h3>GuardClaw Intercepts</h3>
+                <p>The tool call is captured via WebSocket and sent to your local LLM for analysis.</p>
+            </div>
+            <div class="step">
+                <div class="step-num">3</div>
+                <h3>LLM Judges</h3>
+                <p>Risk score (1–10), verdict (SAFE/WARNING/BLOCK), and reasoning — all in ~2 seconds.</p>
+            </div>
+            <div class="step">
+                <div class="step-num">4</div>
+                <h3>You Decide</h3>
+                <p>Safe tools run freely. Dangerous tools pause for your approval. Everything is logged.</p>
+            </div>
         </div>
-    </section>
+    </div>
+</section>
 
-    <!-- Footer -->
-    <footer>
-        <div class="container">
+<!-- Risk Tiers -->
+<section class="tiers-section">
+    <div class="container">
+        <div class="section-header">
+            <h2>Three-Tier Verdict System</h2>
+            <p>Every tool call is classified into one of three risk tiers with 100% accuracy on our benchmark.</p>
+        </div>
+        <div class="tiers">
+            <div class="tier tier-safe">
+                <div class="tier-icon">🟢</div>
+                <h3>SAFE</h3>
+                <div class="score">Score 1–3 · Runs freely</div>
+                <p>Read-only operations, local builds, version control</p>
+                <div class="tier-examples">
+                    <code>cat</code><code>grep</code><code>git commit</code><code>npm build</code>
+                </div>
+            </div>
+            <div class="tier tier-warn">
+                <div class="tier-icon">🟡</div>
+                <h3>WARNING</h3>
+                <div class="score">Score 4–7 · Logged for review</div>
+                <p>Potentially impactful but common operations</p>
+                <div class="tier-examples">
+                    <code>kill</code><code>rm -rf node_modules</code><code>chmod</code><code>curl POST</code>
+                </div>
+            </div>
+            <div class="tier tier-block">
+                <div class="tier-icon">🔴</div>
+                <h3>BLOCK</h3>
+                <div class="score">Score 8–10 · Requires approval</div>
+                <p>Dangerous, destructive, or exfiltration attempts</p>
+                <div class="tier-examples">
+                    <code>sudo rm -rf /</code><code>curl | bash</code><code>write ~/.ssh/</code>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Install -->
+<section class="install-section" id="install">
+    <div class="container">
+        <div class="section-header">
+            <h2>Get Started in 60 Seconds</h2>
+            <p>Requires <a href="https://lmstudio.ai" style="color:var(--accent)">LM Studio</a> or <a href="https://ollama.ai" style="color:var(--accent)">Ollama</a> running locally, plus <a href="https://github.com/openclaw/openclaw" style="color:var(--accent)">OpenClaw</a> or <a href="https://github.com/HKUDS/nanobot" style="color:var(--accent)">nanobot</a>.</p>
+        </div>
+        <div class="code-block">
+            <div class="code-header">
+                <span class="code-dot code-dot-r"></span>
+                <span class="code-dot code-dot-y"></span>
+                <span class="code-dot code-dot-g"></span>
+            </div>
+            <span class="line"><span class="comment"># Install</span></span>
+            <span class="line"><span class="cmd">git clone</span> https://github.com/TobyGE/GuardClaw.git</span>
+            <span class="line"><span class="cmd">cd</span> GuardClaw</span>
+            <span class="line"><span class="cmd">npm install</span> && <span class="cmd">npm install</span> <span class="flag">--prefix</span> client && <span class="cmd">npm run</span> build</span>
+            <span class="line"><span class="cmd">npm link</span></span>
+            <span class="line"></span>
+            <span class="line"><span class="comment"># Configure & start</span></span>
+            <span class="line"><span class="cmd">guardclaw config</span> detect-token <span class="flag">--save</span></span>
+            <span class="line"><span class="cmd">guardclaw start</span>  <span class="comment"># → opens localhost:3002</span></span>
+            <span class="line"></span>
+            <span class="line"><span class="comment"># Optional: enable active blocking</span></span>
+            <span class="line"><span class="cmd">guardclaw plugin</span> install</span>
+            <span class="line"><span class="cmd">openclaw gateway</span> restart</span>
+        </div>
+    </div>
+</section>
+
+<!-- Models -->
+<section class="models-section">
+    <div class="container">
+        <div class="section-header">
+            <h2>Recommended Models</h2>
+            <p>Works with any model loaded in LM Studio or Ollama. These are tested and optimized.</p>
+        </div>
+        <div class="models-grid">
+            <div class="model-card">
+                <div class="model-icon">⭐</div>
+                <div>
+                    <h3><code>qwen/qwen3-4b</code> <span class="model-badge badge-rec">Recommended</span></h3>
+                    <p>Default model. 100% accuracy on 30-case benchmark. Fast (~2s/call), small footprint (~3GB). Best balance of speed and accuracy.</p>
+                </div>
+            </div>
+            <div class="model-card">
+                <div class="model-icon">🧠</div>
+                <div>
+                    <h3><code>openai/gpt-oss-20b</code> <span class="model-badge badge-alt">Alternative</span></h3>
+                    <p>98% accuracy with richer reasoning output. Slower but provides more detailed risk explanations. Good for auditing.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Blocking -->
+<section class="blocking-section">
+    <div class="container">
+        <div class="blocking-grid">
+            <div class="blocking-text">
+                <h3>Monitor Only — or Full Protection</h3>
+                <p>By default, GuardClaw watches and scores without interfering. Install the plugin to upgrade to active blocking.</p>
+                <ul class="blocking-list">
+                    <li><span class="check">✓</span> Pre-execution interception — dangerous tools are paused, not just logged</li>
+                    <li><span class="check">✓</span> Approval workflow — <code>/approve-last</code> or <code>/deny-last</code> from your chat</li>
+                    <li><span class="check">✓</span> Auto-retry — approved commands re-execute automatically</li>
+                    <li><span class="check">✓</span> Fail-closed mode — tools blocked when GuardClaw is offline</li>
+                    <li><span class="check">✓</span> One-click toggle — switch between monitor and blocking from the dashboard</li>
+                </ul>
+            </div>
+            <div class="code-block" style="margin: 0;">
+                <div class="code-header">
+                    <span class="code-dot code-dot-r"></span>
+                    <span class="code-dot code-dot-y"></span>
+                    <span class="code-dot code-dot-g"></span>
+                </div>
+                <span class="line"><span class="comment"># Install the blocking plugin</span></span>
+                <span class="line"><span class="cmd">guardclaw plugin</span> install</span>
+                <span class="line"><span class="cmd">openclaw gateway</span> restart</span>
+                <span class="line"></span>
+                <span class="line"><span class="comment"># That's it! Toggle blocking</span></span>
+                <span class="line"><span class="comment"># from the 🛡️ button in</span></span>
+                <span class="line"><span class="comment"># the dashboard header.</span></span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+    <div class="container">
+        <h2>Start Protecting Your Agents</h2>
+        <p>Open source. Runs locally. Takes 60 seconds to set up.</p>
+        <div class="hero-buttons">
+            <a href="https://github.com/TobyGE/GuardClaw" class="btn btn-primary">Get GuardClaw →</a>
+            <a href="https://github.com/TobyGE/GuardClaw#readme" class="btn btn-ghost">Read the Docs</a>
+        </div>
+    </div>
+</section>
+
+<!-- Footer -->
+<footer>
+    <div class="container">
+        <div style="margin-bottom: 16px;">
             <a href="https://github.com/TobyGE/GuardClaw">GitHub</a>
-            <a href="https://github.com/TobyGE/GuardClaw#readme">Docs</a>
+            <a href="https://github.com/openclaw/openclaw">OpenClaw</a>
+            <a href="https://github.com/HKUDS/nanobot">nanobot</a>
             <a href="https://lmstudio.ai">LM Studio</a>
-            <p style="margin-top: 20px; font-size: 0.9rem;">
-                Inspired by <a href="https://github.com/openclaw/openclaw">OpenClaw</a> • MIT License
-            </p>
+            <a href="https://ollama.ai">Ollama</a>
         </div>
-    </footer>
+        <p>Built with paranoia and local LLMs. Your data never leaves your machine. 🐾</p>
+    </div>
+</footer>
 
-    <script>
-        // Theme toggle functionality
-        const themeToggle = document.getElementById('themeToggle');
-        const themeIcon = document.getElementById('themeIcon');
-        const body = document.body;
-
-        // Check for saved theme preference or default to dark mode
-        const currentTheme = localStorage.getItem('theme') || 'dark';
-        if (currentTheme === 'dark') {
-            body.classList.add('dark-mode');
-            themeIcon.textContent = '☀️';
-        }
-
-        themeToggle.addEventListener('click', () => {
-            body.classList.toggle('dark-mode');
-            
-            if (body.classList.contains('dark-mode')) {
-                themeIcon.textContent = '☀️';
-                localStorage.setItem('theme', 'dark');
-            } else {
-                themeIcon.textContent = '🌙';
-                localStorage.setItem('theme', 'light');
-            }
-        });
-    </script>
 </body>
 </html>
