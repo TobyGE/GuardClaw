@@ -343,50 +343,78 @@ function App() {
 
       {/* Fail-Closed Modal */}
       {showFailClosedModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowFailClosedModal(false)}>
-          <div className="bg-gc-card border border-gc-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-3xl">{failClosed ? '🔒' : '🔑'}</span>
-              <h2 className="text-xl font-bold text-gc-primary">Offline Protection Mode</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowFailClosedModal(false)}>
+          <div className="bg-gc-card rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gc-border">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm ${
+                  failClosed ? 'bg-gradient-to-br from-orange-500 to-red-600' : 'bg-gradient-to-br from-gray-500 to-gray-600'
+                }`}>
+                  {failClosed ? '🔒' : '🔑'}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gc-text">Offline Protection</h2>
+                  <p className="text-xs text-gc-text-dim">What happens when GuardClaw goes offline?</p>
+                </div>
+              </div>
+              <button onClick={() => setShowFailClosedModal(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gc-text-dim hover:text-gc-text hover:bg-gc-border transition-colors">✕</button>
             </div>
 
-            <div className="text-gc-text text-sm space-y-3 mb-6">
-              <p>
-                What should happen to agent tool calls when GuardClaw goes offline (crash, restart, or network issue)?
-              </p>
-              <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
-                <div className="font-semibold text-orange-400 mb-1">🔒 Fail-Closed {failClosed && <span className="text-xs font-normal opacity-70">(current)</span>}</div>
-                <p className="text-xs text-gc-muted">High-risk tools (exec, write, browser, etc.) are blocked while GuardClaw is offline. Only read-only operations are allowed. Prioritizes safety over availability.</p>
-              </div>
-              <div className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-3">
-                <div className="font-semibold text-gray-400 mb-1">🔑 Fail-Open {!failClosed && <span className="text-xs font-normal opacity-70">(current)</span>}</div>
-                <p className="text-xs text-gc-muted">All tools run freely when GuardClaw is offline — no restrictions. Prioritizes availability over safety.</p>
-              </div>
-            </div>
+            {/* Content */}
+            <div className="px-6 py-5 space-y-4">
+              <div className="rounded-xl border border-gc-border bg-gc-bg p-5">
+                <span className="text-sm font-semibold text-gc-text mb-3 block">Offline Behavior</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => applyFailClosed(true)}
+                    className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all text-left ${
+                      failClosed
+                        ? 'border-orange-500 bg-orange-500/10 shadow-sm shadow-orange-500/10'
+                        : 'border-gc-border hover:border-orange-500/30 bg-gc-card'
+                    }`}
+                  >
+                    <span className="text-2xl">🔒</span>
+                    <div>
+                      <div className={`text-sm font-semibold ${failClosed ? 'text-orange-400' : 'text-gc-text-secondary'}`}>Fail-Closed</div>
+                      <div className="text-xs text-gc-text-dim mt-0.5">Block risky tools offline</div>
+                    </div>
+                  </button>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => applyFailClosed(true)}
-                className={`flex-1 py-2 rounded-lg font-medium text-sm transition-all ${
+                  <button
+                    onClick={() => applyFailClosed(false)}
+                    className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all text-left ${
+                      !failClosed
+                        ? 'border-gc-primary bg-gc-primary/10 shadow-sm shadow-gc-primary/10'
+                        : 'border-gc-border hover:border-gc-primary/30 bg-gc-card'
+                    }`}
+                  >
+                    <span className="text-2xl">🔑</span>
+                    <div>
+                      <div className={`text-sm font-semibold ${!failClosed ? 'text-gc-primary' : 'text-gc-text-secondary'}`}>Fail-Open</div>
+                      <div className="text-xs text-gc-text-dim mt-0.5">Allow all tools offline</div>
+                    </div>
+                  </button>
+                </div>
+
+                <div className={`mt-4 rounded-lg px-4 py-3 text-xs leading-relaxed ${
                   failClosed
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
-                }`}
-              >
-                🔒 Enable Fail-Closed
-              </button>
-              <button
-                onClick={() => applyFailClosed(false)}
-                className={`flex-1 py-2 rounded-lg font-medium text-sm transition-all ${
-                  !failClosed
-                    ? 'bg-gray-500 text-white'
-                    : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
-                }`}
-              >
-                🔑 Disable (Fail-Open)
-              </button>
+                    ? 'bg-orange-500/5 border border-orange-500/15 text-orange-300'
+                    : 'bg-gc-primary/5 border border-gc-primary/15 text-gc-text-dim'
+                }`}>
+                  {failClosed
+                    ? '⚠️ When GuardClaw is unreachable, high-risk tools (exec, write, browser, etc.) are blocked. Only read-only operations (read, web_search, session_status) are allowed.'
+                    : 'When GuardClaw is unreachable, all tools run without restriction. Agent workflow is uninterrupted but unmonitored.'
+                  }
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-gc-muted text-center mt-3">Changes take effect immediately and persist across restarts.</p>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
+              <span className="text-xs text-gc-text-dim">Changes take effect immediately</span>
+              <button onClick={() => setShowFailClosedModal(false)} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gc-text-dim hover:text-gc-text hover:bg-gc-border transition-colors">Done</button>
+            </div>
           </div>
         </div>
       )}
