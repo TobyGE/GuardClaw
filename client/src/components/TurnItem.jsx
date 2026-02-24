@@ -60,7 +60,8 @@ function toolIcon(name) {
   return TOOL_ICONS[name] || '🔧';
 }
 
-function getRiskLevel(score) {
+function getRiskLevel(score, pending) {
+  if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse', dot: 'bg-blue-400 animate-pulse' };
   if (score === undefined || score === null) return null;
   if (score <= 3) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20', dot: 'bg-gc-safe' };
   if (score <= 7) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20', dot: 'bg-gc-warning' };
@@ -102,7 +103,7 @@ function ToolOutput({ result }) {
 /* ---------- ToolCallRow: one collapsed/expanded tool call ---------- */
 function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
-  const riskLevel = getRiskLevel(event.safeguard?.riskScore);
+  const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
   const name = event.tool || event.subType || 'tool';
   const desc = event.command || event.description || '';
 
@@ -260,7 +261,7 @@ function TurnItem({ turn }) {
   }
 
   // ── Case 3: chat-update/chat-message with tool calls → full turn ──
-  const riskLevel = getRiskLevel(parent.safeguard?.riskScore);
+  const riskLevel = getRiskLevel(parent.safeguard?.riskScore, parent.safeguard?.pending);
   // Prefer: actual agent reply text > parent description > AI-generated summary
   const replyText = reply?.description || reply?.summary || parent.description || parent.summary || '';
   const isContext = parent.safeguard?.isContext;
@@ -423,7 +424,7 @@ function ChatContextBubble({ event }) {
 /* ---------- StandaloneEvent: a non-tool-call event with no tool children ---------- */
 function StandaloneEvent({ event }) {
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const riskLevel = getRiskLevel(event.safeguard?.riskScore);
+  const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
   const type = event.type || 'unknown';
   const tool = event.tool || event.subType || '';
   const content = event.command || event.description || event.summary || '';

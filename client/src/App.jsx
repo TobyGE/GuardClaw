@@ -142,17 +142,29 @@ function App() {
         delete newEvent._update;
 
         if (isUpdate) {
-          // Replace existing event in-place (e.g. async summary arrived)
+          // Replace existing event in-place (e.g. analysis result arrived)
           setEvents((prev) => prev.map(ev => ev.id === newEvent.id ? newEvent : ev));
+          // Update stats if analysis just completed (was pending → now scored)
+          if (newEvent.safeguard && !newEvent.safeguard.pending && newEvent.safeguard.riskScore != null) {
+            const score = newEvent.safeguard.riskScore;
+            setStats((prev) => ({
+              ...prev,
+              safeCommands: score <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
+              warnings: score > 3 && score <= 7 ? prev.warnings + 1 : prev.warnings,
+              blocked: score > 7 ? prev.blocked + 1 : prev.blocked,
+            }));
+          }
           return;
         }
 
-        // New event — update stats
+        // New event — update total count (risk stats update when analysis completes)
+        const score = newEvent.safeguard?.riskScore;
+        const isPending = newEvent.safeguard?.pending;
         setStats((prev) => ({
           totalEvents: prev.totalEvents + 1,
-          safeCommands: newEvent.safeguard?.riskScore <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
-          warnings: newEvent.safeguard?.riskScore > 3 && newEvent.safeguard?.riskScore <= 7 ? prev.warnings + 1 : prev.warnings,
-          blocked: newEvent.safeguard?.riskScore > 7 ? prev.blocked + 1 : prev.blocked,
+          safeCommands: !isPending && score != null && score <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
+          warnings: !isPending && score != null && score > 3 && score <= 7 ? prev.warnings + 1 : prev.warnings,
+          blocked: !isPending && score != null && score > 7 ? prev.blocked + 1 : prev.blocked,
         }));
         // Add to events list (session filtering happens in render)
         setEvents((prev) => [newEvent, ...prev]);

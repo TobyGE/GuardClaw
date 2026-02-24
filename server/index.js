@@ -1406,49 +1406,50 @@ async function handleAgentEvent(event) {
     if (streamingAnalysis) {
       storedEvent.safeguard = streamingAnalysis;
       console.log(`[GuardClaw] ♻️  Reusing streaming analysis for ${eventDetails.tool} (score=${streamingAnalysis.riskScore})`);
+      eventStore.addEvent(storedEvent);
     } else {
+      // Immediately push event with pending safeguard, then analyze async
+      storedEvent.safeguard = { riskScore: null, category: 'pending', reasoning: 'Analyzing...', pending: true };
+      eventStore.addEvent(storedEvent);
+
+      // Async analysis — updates event in-place when done
       const action = extractAction(event, eventDetails);
       console.log('[GuardClaw] Analyzing:', action.type, action.summary);
 
-      try {
-        let analysis;
+      (async () => {
+        try {
+          let analysis;
+          if (eventDetails.tool === 'message') {
+            const recentChatContext = eventStore.getRecentEvents(200)
+              .filter(e => e.safeguard?.isContext && e.description)
+              .slice(-5)
+              .map(e => e.description?.substring(0, 300))
+              .filter(Boolean);
+            analysis = await safeguardService.analyzeMessagePrivacy(action, recentChatContext);
+            console.log('[GuardClaw] 🔒 Privacy analysis for message tool:', analysis.riskScore);
+          } else {
+            analysis = await safeguardService.analyzeAction(action);
+          }
 
-        // Special path: `message` tool gets privacy analysis with chat context
-        if (eventDetails.tool === 'message') {
-          const recentChatContext = eventStore.getRecentEvents(200)
-            .filter(e => e.safeguard?.isContext && e.description)
-            .slice(-5)
-            .map(e => e.description?.substring(0, 300))
-            .filter(Boolean);
-          analysis = await safeguardService.analyzeMessagePrivacy(action, recentChatContext);
-          console.log('[GuardClaw] 🔒 Privacy analysis for message tool:', analysis.riskScore);
-        } else {
-          analysis = await safeguardService.analyzeAction(action);
+          if (analysis.riskScore >= 8) {
+            console.warn('[GuardClaw] HIGH RISK:', action.summary);
+          } else if (analysis.riskScore >= 4) {
+            console.warn('[GuardClaw] MEDIUM RISK:', action.summary);
+          } else {
+            console.log('[GuardClaw] SAFE:', action.summary);
+          }
+
+          eventStore.updateEvent(storedEvent.id, { safeguard: analysis });
+        } catch (error) {
+          console.error('[GuardClaw] Safeguard analysis failed:', error);
+          eventStore.updateEvent(storedEvent.id, { safeguard: { error: error.message, riskScore: 5, category: 'unknown' } });
         }
-
-        storedEvent.safeguard = analysis;
-
-        if (analysis.riskScore >= 8) {
-          console.warn('[GuardClaw] HIGH RISK:', action.summary);
-        } else if (analysis.riskScore >= 4) {
-          console.warn('[GuardClaw] MEDIUM RISK:', action.summary);
-        } else {
-          console.log('[GuardClaw] SAFE:', action.summary);
-        }
-      } catch (error) {
-        console.error('[GuardClaw] Safeguard analysis failed:', error);
-        storedEvent.safeguard = {
-          error: error.message,
-          riskScore: 5,
-          category: 'unknown'
-        };
-      }
+      })();
     }
   } else {
     storedEvent.safeguard = classifyNonExecEvent(eventDetails);
+    eventStore.addEvent(storedEvent);
   }
-
-  eventStore.addEvent(storedEvent);
 
   // Cleanup: Remove steps for this runId after storing to avoid duplication in next message
   const isCleanupNeeded = eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end';
