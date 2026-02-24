@@ -9,7 +9,9 @@ Real-time security monitoring for AI agents — powered by local LLMs. Every too
 - [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.ai) running locally
 - [OpenClaw](https://github.com/openclaw/openclaw) or [nanobot](https://github.com/HKUDS/nanobot)
 
-**Recommended model:** `openai/gpt-oss-20b` (98% accuracy on our security benchmark). Models under 5B parameters (e.g., qwen3-1.7b) produce too many false positives due to hallucination and are not recommended for the LLM judge.
+**Recommended models:**
+- `qwen/qwen3-4b-2507` — **default**, 100% accuracy on our 20-case security benchmark, fast (~2s/call)
+- `openai/gpt-oss-20b` — 98% accuracy, richer reasoning, slower
 
 ## Install
 
@@ -86,7 +88,7 @@ guardclaw help
 | [Real-time tool event monitoring](docs/ROADMAP.md#real-time-tool-event-monitoring) | ✅ Done | 2026-02-15 |
 | [Risk scoring with local LLM](docs/ROADMAP.md#risk-scoring-with-local-llm) | ✅ Done | 2026-02-15 |
 | [Safe-tool fast path — skip LLM for clearly safe tools](docs/ROADMAP.md#safe-tool-fast-path) | ✅ Done | 2026-02-20 |
-| [Per-model prompt configs (qwen3-1.7b / 0.5b / gpt-oss)](docs/ROADMAP.md#per-model-prompt-configs) | ✅ Done | 2026-02-20 |
+| [Per-model prompt configs (qwen3-4b / 1.7b / 0.5b / gpt-oss)](docs/ROADMAP.md#per-model-prompt-configs) | ✅ Done | 2026-02-20 |
 | [3-tier verdict system (SAFE/WARNING/BLOCK) — 98% accuracy](docs/ROADMAP.md#3-tier-verdict-system) | ✅ Done | 2026-02-24 |
 | [`message` tool privacy analysis](docs/ROADMAP.md#message-tool-privacy-analysis) | ✅ Done | 2026-02-20 |
 | [Chained tool analysis](docs/ROADMAP.md#chained-tool-analysis) | ✅ Done | 2026-02-21 |
