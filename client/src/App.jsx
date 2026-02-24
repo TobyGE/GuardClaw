@@ -138,7 +138,16 @@ function App() {
     eventSource.onmessage = (e) => {
       try {
         const newEvent = JSON.parse(e.data);
-        // Always update stats (global)
+        const isUpdate = newEvent._update;
+        delete newEvent._update;
+
+        if (isUpdate) {
+          // Replace existing event in-place (e.g. async summary arrived)
+          setEvents((prev) => prev.map(ev => ev.id === newEvent.id ? newEvent : ev));
+          return;
+        }
+
+        // New event — update stats
         setStats((prev) => ({
           totalEvents: prev.totalEvents + 1,
           safeCommands: newEvent.safeguard?.riskScore <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
@@ -146,18 +155,16 @@ function App() {
           blocked: newEvent.safeguard?.riskScore > 7 ? prev.blocked + 1 : prev.blocked,
         }));
         // Add to events list (session filtering happens in render)
-        setEvents((prev) => [newEvent, ...prev].slice(0, 500));
+        setEvents((prev) => [newEvent, ...prev]);
         // If this event has a new sessionKey, refresh sessions list
         const eventSessionKey = newEvent.sessionKey;
         if (eventSessionKey) {
           setSessions((prev) => {
             const exists = prev.some(s => s.key === eventSessionKey);
             if (!exists) {
-              // New session detected — trigger a full refresh
               fetch('/api/sessions').then(r => r.json()).then(data => setSessions(data.sessions || [])).catch(() => {});
               return prev;
             }
-            // Update event count for existing session
             return prev.map(s => s.key === eventSessionKey ? { ...s, eventCount: s.eventCount + 1, lastEventTime: Date.now() } : s);
           });
         }
@@ -173,15 +180,12 @@ function App() {
       setTimeout(connectToBackend, 5000);
     };
 
-    // Periodic refresh to catch async summary updates (every 10 seconds)
-    const refreshInterval = setInterval(() => {
-      fetchEvents();
-      fetchSessions();
-    }, 10000);
+    // Session status refresh (sub-agent active/inactive) — lightweight, every 30s
+    const sessionRefresh = setInterval(fetchSessions, 30000);
 
     return () => {
       eventSource.close();
-      clearInterval(refreshInterval);
+      clearInterval(sessionRefresh);
     };
   }, []);
 

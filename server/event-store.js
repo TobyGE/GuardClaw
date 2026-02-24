@@ -49,7 +49,8 @@ export class EventStore {
     const event = this.events.find(e => e.id === id);
     if (event) {
       Object.assign(event, updates);
-      this.notifyListeners(event);
+      // Mark as update so SSE clients can distinguish from new events
+      this.notifyListeners({ ...event, _update: true });
       return true;
     }
     return false;
