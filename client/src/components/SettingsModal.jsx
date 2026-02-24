@@ -2,24 +2,24 @@ import { useState, useEffect } from 'react';
 
 // Reusable styled components
 const Card = ({ children, className = '' }) => (
-  <div className={`rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-5 ${className}`}>
+  <div className={`rounded-xl border border-gc-border bg-gc-bg p-5 ${className}`}>
     {children}
   </div>
 );
 
 const Label = ({ children, hint }) => (
   <div className="mb-2">
-    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{children}</span>
-    {hint && <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">{hint}</span>}
+    <span className="text-sm font-semibold text-gc-text">{children}</span>
+    {hint && <span className="ml-2 text-xs text-gc-text-dim">{hint}</span>}
   </div>
 );
 
 const Input = ({ ...props }) => (
   <input
     {...props}
-    className={`w-full px-3.5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600
-      bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-      placeholder-gray-400 dark:placeholder-gray-500
+    className={`w-full px-3.5 py-2.5 rounded-lg border border-gc-border
+      bg-gc-card text-gc-text text-sm
+      placeholder-gc-text-dim
       focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 dark:focus:ring-blue-400/40 dark:focus:border-blue-400
       transition-all duration-150 ${props.className || ''}`}
   />
@@ -29,9 +29,9 @@ const Btn = ({ variant = 'secondary', children, className = '', ...props }) => {
   const base = 'px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2';
   const variants = {
     primary: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm shadow-blue-600/20',
-    secondary: 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700',
+    secondary: 'bg-gc-card border border-gc-border text-gc-text-secondary hover:bg-gc-border',
     success: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/20',
-    ghost: 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800',
+    ghost: 'text-gc-text-dim hover:text-gc-text hover:bg-gc-border',
   };
   return <button {...props} className={`${base} ${variants[variant]} ${className}`}>{children}</button>;
 };
@@ -58,13 +58,13 @@ const ModelCard = ({ model, selected, onSelect, recommended }) => (
     className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
       selected
         ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-sm shadow-blue-500/10'
-        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+        : 'border-gc-border hover:border-gc-text-dim bg-gc-card'
     }`}
   >
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2.5">
         <div className={`w-2 h-2 rounded-full ${selected ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-        <span className={`text-sm font-medium ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
+        <span className={`text-sm font-medium ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-gc-text-secondary'}`}>
           {model}
         </span>
       </div>
@@ -203,18 +203,18 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-white dark:bg-gray-850 dark:bg-[#1a1d23] rounded-2xl w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-hidden flex flex-col"
+        className="bg-gc-card rounded-2xl w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700/50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gc-border">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm">⚙</div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Settings</h2>
+            <h2 className="text-lg font-bold text-gc-text">Settings</h2>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gc-text hover:bg-gc-border transition-colors"
           >
             ✕
           </button>
@@ -228,8 +228,8 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               onClick={() => { setActiveTab(tab.id); setMessage(null); }}
               className={`px-4 py-2 rounded-t-lg text-sm font-medium transition-all duration-150 ${
                 activeTab === tab.id
-                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  ? 'bg-gc-border text-gc-text'
+                  : 'text-gc-text-dim hover:text-gc-text'
               }`}
             >
               <span className="mr-1.5">{tab.icon}</span>{tab.label}
@@ -238,7 +238,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-gray-50/50 dark:bg-gray-800/20">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-gc-bg">
 
           {/* ─── LLM Tab ─── */}
           {activeTab === 'llm' && (
@@ -258,12 +258,12 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                       className={`flex items-center gap-3 p-3.5 rounded-lg border-2 transition-all duration-150 text-left ${
                         llmBackend === opt.value
                           ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+                          : 'border-gc-border hover:border-gc-text-dim bg-gc-card'
                       }`}
                     >
                       <span className="text-2xl">{opt.icon}</span>
                       <div>
-                        <div className={`text-sm font-semibold ${llmBackend === opt.value ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>{opt.label}</div>
+                        <div className={`text-sm font-semibold ${llmBackend === opt.value ? 'text-blue-700 dark:text-blue-300' : 'text-gc-text-secondary'}`}>{opt.label}</div>
                         <div className="text-xs text-gray-400">{opt.desc}</div>
                       </div>
                     </button>
@@ -316,10 +316,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
                             showCustomInput
                               ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                              : 'border-dashed border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+                              : 'border-dashed border-gc-border hover:border-gc-text-dim bg-gc-card'
                           }`}
                         >
-                          <span className="text-sm text-gray-500 dark:text-gray-400">+ Use a custom model name</span>
+                          <span className="text-sm text-gc-text-dim">+ Use a custom model name</span>
                         </button>
 
                         {showCustomInput && (
@@ -333,7 +333,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           />
                         )}
 
-                        <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
+                        <p className="text-xs text-gc-text-dim pt-1">
                           {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} loaded in LM Studio
                         </p>
                       </div>
@@ -371,7 +371,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                       disabled={saving}
                     />
                     <p className="mt-2 text-xs text-gray-400">
-                      Make sure Ollama is running: <code className="px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-xs">ollama serve</code>
+                      Make sure Ollama is running: <code className="px-1.5 py-0.5 rounded bg-gc-border text-xs">ollama serve</code>
                     </p>
                   </Card>
 
@@ -404,10 +404,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
                             showCustomInput
                               ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                              : 'border-dashed border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+                              : 'border-dashed border-gc-border hover:border-gc-text-dim bg-gc-card'
                           }`}
                         >
-                          <span className="text-sm text-gray-500 dark:text-gray-400">+ Use a custom model name</span>
+                          <span className="text-sm text-gc-text-dim">+ Use a custom model name</span>
                         </button>
 
                         {showCustomInput && (
@@ -421,7 +421,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           />
                         )}
 
-                        <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
+                        <p className="text-xs text-gc-text-dim pt-1">
                           {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} available in Ollama
                         </p>
                       </div>
@@ -441,7 +441,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           disabled={saving}
                         />
                         <p className="text-xs text-gray-400">
-                          Pull a model first: <code className="px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-xs">ollama pull qwen3:4b</code>
+                          Pull a model first: <code className="px-1.5 py-0.5 rounded bg-gc-border text-xs">ollama pull qwen3:4b</code>
                         </p>
                       </div>
                     )}
@@ -476,7 +476,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700/50 bg-white dark:bg-[#1a1d23]">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
           <Btn variant="ghost" onClick={onClose} disabled={saving}>Cancel</Btn>
           <div className="flex gap-2">
             {activeTab === 'llm' && (
