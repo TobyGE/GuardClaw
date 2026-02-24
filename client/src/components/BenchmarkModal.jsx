@@ -33,22 +33,36 @@ export default function BenchmarkModal({ isOpen, onClose }) {
   const [loadingModels, setLoadingModels] = useState(false);
   const esRef = useRef(null);
 
-  // Fetch available models on open
+  // Fetch available models from both LM Studio and Ollama
   useEffect(() => {
     if (!isOpen) return;
     setLoadingModels(true);
-    fetch('/api/config/llm/models', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ backend: 'lmstudio', lmstudioUrl: 'http://127.0.0.1:1234/v1' })
-    })
-      .then(r => r.json())
-      .then(data => {
-        setModels(data.models || []);
-        if (!selectedModel && data.models?.length) setSelectedModel(data.models[0]);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingModels(false));
+
+    const fetchBoth = async () => {
+      const all = [];
+      // LM Studio
+      try {
+        const r = await fetch('/api/config/llm/models', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ backend: 'lmstudio', lmstudioUrl: 'http://127.0.0.1:1234/v1' })
+        });
+        const d = await r.json();
+        (d.models || []).forEach(m => all.push({ id: m, source: 'lmstudio' }));
+      } catch {}
+      // Ollama
+      try {
+        const r = await fetch('/api/config/llm/models', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ backend: 'ollama', ollamaUrl: 'http://127.0.0.1:11434' })
+        });
+        const d = await r.json();
+        (d.models || []).forEach(m => all.push({ id: m, source: 'ollama' }));
+      } catch {}
+      setModels(all);
+      if (!selectedModel && all.length) setSelectedModel(all[0].id);
+      setLoadingModels(false);
+    };
+    fetchBoth();
   }, [isOpen]);
 
   useEffect(() => {
@@ -64,8 +78,10 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     setProgress(null);
     setError(null);
 
+    const selectedMeta = models.find(m => m.id === selectedModel);
+    const backend = selectedMeta?.source || 'lmstudio';
     const url = selectedModel
-      ? `/api/benchmark/run?model=${encodeURIComponent(selectedModel)}`
+      ? `/api/benchmark/run?model=${encodeURIComponent(selectedModel)}&backend=${backend}`
       : '/api/benchmark/run';
     const es = new EventSource(url);
     esRef.current = es;
@@ -128,16 +144,17 @@ export default function BenchmarkModal({ isOpen, onClose }) {
               <div className="flex flex-wrap gap-2">
                 {models.map(m => (
                   <button
-                    key={m}
-                    onClick={() => setSelectedModel(m)}
+                    key={`${m.source}:${m.id}`}
+                    onClick={() => setSelectedModel(m.id)}
                     disabled={running}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border-2 transition-all ${
-                      selectedModel === m
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border-2 transition-all flex items-center gap-1.5 ${
+                      selectedModel === m.id
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
                         : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
                     }`}
                   >
-                    {m.split('/').pop()}
+                    <span className="text-[10px] opacity-50">{m.source === 'ollama' ? '🦙' : '🖥️'}</span>
+                    {m.id.split('/').pop()}
                   </button>
                 ))}
               </div>

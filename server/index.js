@@ -976,13 +976,14 @@ app.get('/api/benchmark/run', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  // Optionally override model for this benchmark run
+  // Optionally override model/backend for this benchmark run
   const requestedModel = req.query.model;
+  const requestedBackend = req.query.backend || safeguardService.backend;
   let testSafeguard = safeguardService;
-  if (requestedModel && requestedModel !== safeguardService.config?.lmstudioModel) {
+  if (requestedModel) {
     testSafeguard = new SafeguardService(
       process.env.ANTHROPIC_API_KEY,
-      safeguardService.backend,
+      requestedBackend,
       { ...safeguardService.config, lmstudioModel: requestedModel, ollamaModel: requestedModel }
     );
   }
