@@ -6,6 +6,7 @@ import SettingsModal from './components/SettingsModal';
 import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
+import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon } from './components/icons';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -352,7 +353,7 @@ function App() {
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm ${
                   failClosed ? 'bg-gradient-to-br from-orange-500 to-red-600' : 'bg-gradient-to-br from-gray-500 to-gray-600'
                 }`}>
-                  {failClosed ? '🔒' : '🔑'}
+                  {failClosed ? <LockIcon size={20} /> : <UnlockIcon size={20} />}
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gc-text">Offline Protection</h2>
@@ -375,7 +376,7 @@ function App() {
                         : 'border-gc-border hover:border-orange-500/30 bg-gc-card'
                     }`}
                   >
-                    <span className="text-2xl">🔒</span>
+                    <LockIcon size={24} />
                     <div>
                       <div className={`text-sm font-semibold ${failClosed ? 'text-orange-400' : 'text-gc-text-secondary'}`}>Fail-Closed</div>
                       <div className="text-xs text-gc-text-dim mt-0.5">Block risky tools offline</div>
@@ -390,7 +391,7 @@ function App() {
                         : 'border-gc-border hover:border-gc-primary/30 bg-gc-card'
                     }`}
                   >
-                    <span className="text-2xl">🔑</span>
+                    <UnlockIcon size={24} />
                     <div>
                       <div className={`text-sm font-semibold ${!failClosed ? 'text-gc-primary' : 'text-gc-text-secondary'}`}>Fail-Open</div>
                       <div className="text-xs text-gc-text-dim mt-0.5">Allow all tools offline</div>
@@ -438,7 +439,7 @@ function App() {
               }`}
               title={failClosed ? 'Fail-Closed: On' : 'Fail-Closed: Off'}
             >
-              {failClosed ? '🔒' : '🔑'}
+              {failClosed ? <LockIcon size={20} /> : <UnlockIcon size={20} />}
             </button>
             {/* Blocking Status Button */}
             {blockingStatus && (
@@ -454,7 +455,7 @@ function App() {
                   : '📡 Monitor Only — tool calls are logged but not blocked\n\nClick to configure'
                 }
               >
-                {blockingStatus.active ? <GuardClawLogo size={22} /> : '📡'}
+                {blockingStatus.active ? <GuardClawLogo size={22} /> : <MonitorIcon size={20} />}
               </button>
             )}
             <button
@@ -462,21 +463,21 @@ function App() {
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
               title="Model Benchmark"
             >
-              🧪
+              <BenchmarkIcon size={20} />
             </button>
             <button
               onClick={() => setShowSettingsModal(true)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
               title="Settings"
             >
-              ⚙️
+              <SettingsIcon size={20} />
             </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
               title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
-              {darkMode ? '☀️' : '🌙'}
+              {darkMode ? <SunIcon size={20} /> : <MoonIcon size={20} />}
             </button>
             {/* Removed status indicators - now shown in backend selector below */}
           </div>

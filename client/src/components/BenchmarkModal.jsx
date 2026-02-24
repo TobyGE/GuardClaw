@@ -1,3 +1,4 @@
+import { BenchmarkIcon } from "./icons";
 import { useState, useEffect, useRef } from 'react';
 
 const VERDICT_STYLE = {
@@ -122,7 +123,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gc-border">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white text-sm">🧪</div>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white"><BenchmarkIcon size={18} /></div>
             <div>
               <h2 className="text-lg font-bold text-gc-text">Model Benchmark</h2>
               <p className="text-xs text-gray-400">BLOCK vs ALLOW · 30 tool-trace scenarios</p>
@@ -282,7 +283,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           {/* Empty state */}
           {!running && results.length === 0 && !error && (
             <div className="text-center py-12">
-              <div className="text-4xl mb-3">🧪</div>
+              <div className="mb-3"><BenchmarkIcon size={40} /></div>
               <h3 className="text-lg font-semibold text-gc-text mb-2">Security Benchmark</h3>
               <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
                 30 tool-trace scenarios testing BLOCK detection accuracy.
