@@ -425,13 +425,20 @@ app.get('/api/sessions', (req, res) => {
     }
   }
 
-  // Mark sub-agents as inactive if no events in last 2 minutes
+  // Mark sub-agents as inactive if no events in last 2 minutes; hide if >24h
   const now = Date.now();
+  const hiddenKeys = [];
   for (const s of sessionMap.values()) {
-    if (s.isSubagent && (now - s.lastEventTime) > 2 * 60 * 1000) {
-      s.active = false;
+    if (s.isSubagent) {
+      const idleMs = now - s.lastEventTime;
+      if (idleMs > 24 * 60 * 60 * 1000) {
+        hiddenKeys.push(s.key);
+      } else if (idleMs > 2 * 60 * 1000) {
+        s.active = false;
+      }
     }
   }
+  for (const k of hiddenKeys) sessionMap.delete(k);
 
   // Sort: main first, then active sub-agents, then inactive by lastEventTime descending
   const sessions = Array.from(sessionMap.values()).sort((a, b) => {
