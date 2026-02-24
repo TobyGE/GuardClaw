@@ -18,7 +18,7 @@
 
 ---
 
-![GuardClaw Dashboard](docs/screenshots/dashboard.png?v=2)
+![GuardClaw Dashboard](docs/screenshots/dashboard.png?v=3)
 
 ## Why GuardClaw?
 
