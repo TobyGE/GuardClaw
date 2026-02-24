@@ -25,11 +25,11 @@
 AI coding agents (`exec`, `write`, `curl`, etc.) can do real damage. GuardClaw watches every tool call your agent makes and scores it for risk — **before it runs**. Everything stays on your machine: analysis runs on a local LLM (LM Studio or Ollama), no data ever leaves.
 
 **What you get:**
-- 🔍 **Real-time visibility** — see every tool call as it happens, with AI-generated summaries
-- 🎯 **3-tier risk scoring** — SAFE / WARNING / BLOCK, 100% accuracy on our 30-case benchmark
-- 🚫 **Optional blocking** — high-risk commands pause for your approval before executing
-- ⛓️ **Chain analysis** — detects multi-step attack patterns (read secrets → exfiltrate)
-- 🔒 **Completely private** — local LLMs only, zero cloud APIs, your data never leaves
+- **Real-time visibility** — see every tool call as it happens, with AI-generated summaries
+- **3-tier risk scoring** — SAFE / WARNING / BLOCK, 100% accuracy on our 30-case benchmark
+- **Optional blocking** — high-risk commands pause for your approval before executing
+- **Chain analysis** — detects multi-step attack patterns (read secrets → exfiltrate)
+- **Completely private** — local LLMs only, zero cloud APIs, your data never leaves
 
 ## Quick Start
 
@@ -105,9 +105,9 @@ Once installed, toggle blocking on/off from the dashboard 🛡️ button — no 
 
 | Verdict | Score | Action | Examples |
 |---------|-------|--------|----------|
-| 🟢 **SAFE** | 1–3 | Runs freely | `cat`, `grep`, `git commit`, `npm build` |
-| 🟡 **WARNING** | 4–7 | Runs freely, logged | `kill`, `rm -rf node_modules`, `chmod`, `curl POST` |
-| 🔴 **BLOCK** | 8–10 | Paused for approval | `sudo`, `rm -rf /`, `curl \| bash`, writing to `~/.ssh/` |
+| ✅ **SAFE** | 1–3 | Runs freely | `cat`, `grep`, `git commit`, `npm build` |
+| ⚠️ **WARNING** | 4–7 | Runs freely, logged | `kill`, `rm -rf node_modules`, `chmod`, `curl POST` |
+| 🛑 **BLOCK** | 8–10 | Paused for approval | `sudo`, `rm -rf /`, `curl \| bash`, writing to `~/.ssh/` |
 
 ## Dashboard Guide
 
@@ -117,33 +117,33 @@ Once installed, toggle blocking on/off from the dashboard 🛡️ button — no 
 |---------|-------------|
 | **Stats cards** (Safe / Warning / Block / Total) | Click any card to filter the event list by that risk tier |
 | **Days Protected** | How long GuardClaw has been watching |
-| 🛡️ **Blocking toggle** | Enable/disable active blocking (requires plugin) |
-| 🔒 **Fail-closed toggle** | When ON, tools are blocked if GuardClaw goes offline |
+| **Blocking toggle** | Enable/disable active blocking (requires plugin) |
+| **Fail-closed toggle** | When ON, tools are blocked if GuardClaw goes offline |
 | 📡 **Blocking config** | Set blocking mode, threshold, whitelist/blacklist patterns |
-| ⚙️ **Settings** | LLM backend, model selection, gateway token config |
-| 🧪 **Benchmark** | Run accuracy tests against any loaded model |
-| 🌙/☀️ **Theme** | Toggle dark/light mode |
+| **Settings** | LLM backend, model selection, gateway token config |
+| **Benchmark** | Run accuracy tests against any loaded model |
+| **Theme** | Toggle dark/light mode |
 
 ### Event List
 
 Events are grouped into **conversation turns** — each turn shows the agent's tool calls bundled together with the final reply.
 
-- **🤖 Agent turn** — a completed agent response with its tool calls
-- **⏳ Agent working…** — tool calls in progress (no reply yet)
+- **Agent turn** — a completed agent response with its tool calls
+- **Agent working…** — tool calls in progress (no reply yet)
 - Click **Details** on any tool call to see full input/output, risk analysis, and chain context
 - **Session tabs** at the top let you switch between the main agent and any sub-agents
 
-### Settings (⚙️)
+### Settings
 
 **Gateway tab:**
 - Enter your OpenClaw/nanobot gateway token manually, or click **Auto-Detect** to find it
 
 **LLM tab:**
-- Switch between **LM Studio** 🖥️ and **Ollama** 🦙 backends
+- Switch between **LM Studio** and **Ollama** backends
 - Browse and select from all loaded models
-- Recommended models are marked with a ⭐ badge
+- Recommended models are marked with a recommended badge
 
-### Benchmark (🧪)
+### Benchmark
 
 Test any model's security judgment accuracy:
 - **30 tool-trace test cases** covering safe operations, warnings, and dangerous commands
@@ -216,5 +216,5 @@ SQLite persistence · SSE real-time push · in-dashboard model benchmark · 3-ti
 ---
 
 <p align="center">
-  <sub>Built with paranoia and local LLMs. Your data never leaves your machine. 🐾</sub>
+  <sub>Built with paranoia and local LLMs. Your data never leaves your machine. </sub>
 </p>
