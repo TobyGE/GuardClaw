@@ -1,7 +1,84 @@
 import { useState, useEffect } from 'react';
 
+// Reusable styled components
+const Card = ({ children, className = '' }) => (
+  <div className={`rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-5 ${className}`}>
+    {children}
+  </div>
+);
+
+const Label = ({ children, hint }) => (
+  <div className="mb-2">
+    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{children}</span>
+    {hint && <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">{hint}</span>}
+  </div>
+);
+
+const Input = ({ ...props }) => (
+  <input
+    {...props}
+    className={`w-full px-3.5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600
+      bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm
+      placeholder-gray-400 dark:placeholder-gray-500
+      focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 dark:focus:ring-blue-400/40 dark:focus:border-blue-400
+      transition-all duration-150 ${props.className || ''}`}
+  />
+);
+
+const Btn = ({ variant = 'secondary', children, className = '', ...props }) => {
+  const base = 'px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2';
+  const variants = {
+    primary: 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm shadow-blue-600/20',
+    secondary: 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700',
+    success: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/20',
+    ghost: 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800',
+  };
+  return <button {...props} className={`${base} ${variants[variant]} ${className}`}>{children}</button>;
+};
+
+const Toast = ({ message }) => {
+  if (!message) return null;
+  const isSuccess = message.type === 'success';
+  return (
+    <div className={`flex items-center gap-2.5 px-4 py-3 rounded-lg text-sm font-medium animate-in fade-in slide-in-from-top-1 ${
+      isSuccess
+        ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+        : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+    }`}>
+      <span>{isSuccess ? '✓' : '✕'}</span>
+      <span>{message.text}</span>
+    </div>
+  );
+};
+
+// Model card for the model picker
+const ModelCard = ({ model, selected, onSelect, recommended }) => (
+  <button
+    onClick={() => onSelect(model)}
+    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
+      selected
+        ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-sm shadow-blue-500/10'
+        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+    }`}
+  >
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <div className={`w-2 h-2 rounded-full ${selected ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+        <span className={`text-sm font-medium ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
+          {model}
+        </span>
+      </div>
+      {recommended && (
+        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+          recommended
+        </span>
+      )}
+    </div>
+  </button>
+);
+
 export default function SettingsModal({ isOpen, onClose, currentToken, currentLlmConfig, onSave }) {
-  const [activeTab, setActiveTab] = useState('gateway');
+  const [activeTab, setActiveTab] = useState('llm');
   const [token, setToken] = useState(currentToken || '');
   const [llmBackend, setLlmBackend] = useState(currentLlmConfig?.backend || 'lmstudio');
   const [lmstudioUrl, setLmstudioUrl] = useState(currentLlmConfig?.lmstudioUrl || 'http://localhost:1234/v1');
@@ -13,8 +90,8 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   const [message, setMessage] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [showCustomInput, setShowCustomInput] = useState(false);
 
-  // Fetch available models from LM Studio / Ollama
   const fetchModels = async () => {
     setLoadingModels(true);
     try {
@@ -32,7 +109,6 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
     }
   };
 
-  // Fetch models when modal opens or backend/URL changes
   useEffect(() => {
     if (isOpen && (llmBackend === 'lmstudio' || llmBackend === 'ollama')) {
       fetchModels();
@@ -42,440 +118,338 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   if (!isOpen) return null;
 
   const handleSaveGateway = async () => {
-    setSaving(true);
-    setMessage(null);
-
+    setSaving(true); setMessage(null);
     try {
       const response = await fetch('/api/config/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
       });
-
       const data = await response.json();
-
       if (response.ok) {
         setMessage({ type: 'success', text: 'Token saved! Reconnecting...' });
-        setTimeout(() => {
-          onSave({ token });
-          onClose();
-        }, 1500);
+        setTimeout(() => { onSave({ token }); onClose(); }, 1500);
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to save token' });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const handleSaveLlm = async () => {
-    setSaving(true);
-    setMessage(null);
-
-    // Use custom model if "custom" is selected
-    const finalLmstudioModel = lmstudioModel === 'custom' ? customLmstudioModel : lmstudioModel;
-
+    setSaving(true); setMessage(null);
+    const finalModel = showCustomInput ? customLmstudioModel : lmstudioModel;
     try {
       const response = await fetch('/api/config/llm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          backend: llmBackend,
-          lmstudioUrl,
-          lmstudioModel: finalLmstudioModel,
-          ollamaUrl,
-          ollamaModel
+          backend: llmBackend, lmstudioUrl, lmstudioModel: finalModel, ollamaUrl, ollamaModel
         })
       });
-
       const data = await response.json();
-
       if (response.ok) {
-        setMessage({ type: 'success', text: 'LLM config saved! Restarting safeguard...' });
-        setTimeout(() => {
-          onSave({ llm: { backend: llmBackend } });
-          onClose();
-        }, 1500);
+        setMessage({ type: 'success', text: 'Config saved — safeguard restarting with new model' });
+        setTimeout(() => { onSave({ llm: { backend: llmBackend } }); onClose(); }, 1500);
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to save LLM config' });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const handleTestConnection = async () => {
-    setSaving(true);
-    setMessage(null);
-
-    // Use custom model if "custom" is selected
-    const finalLmstudioModel = lmstudioModel === 'custom' ? customLmstudioModel : lmstudioModel;
-
+    setSaving(true); setMessage(null);
+    const finalModel = showCustomInput ? customLmstudioModel : lmstudioModel;
     try {
       const response = await fetch('/api/config/llm/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          backend: llmBackend,
-          lmstudioUrl,
-          lmstudioModel: finalLmstudioModel,
-          ollamaUrl,
-          ollamaModel
+          backend: llmBackend, lmstudioUrl, lmstudioModel: finalModel, ollamaUrl, ollamaModel
         })
       });
-
       const data = await response.json();
-
       if (response.ok && data.connected) {
-        setMessage({ 
-          type: 'success', 
-          text: `✅ ${data.backend.toUpperCase()}: ${data.message}${data.models ? ` (${data.models} models)` : ''}` 
-        });
+        setMessage({ type: 'success', text: `Connected to ${data.backend}${data.models ? ` — ${data.models} models loaded` : ''}` });
       } else {
-        setMessage({ 
-          type: 'error', 
-          text: `❌ ${data.backend?.toUpperCase() || 'Connection'}: ${data.message || data.error}` 
-        });
+        setMessage({ type: 'error', text: data.message || data.error || 'Connection failed' });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const handleAutoDetect = async () => {
-    setSaving(true);
-    setMessage(null);
-
+    setSaving(true); setMessage(null);
     try {
       const response = await fetch('/api/config/detect-token');
       const data = await response.json();
-
       if (response.ok && data.token) {
         setToken(data.token);
-        setMessage({ type: 'success', text: 'Token auto-detected from OpenClaw config!' });
+        setMessage({ type: 'success', text: 'Token auto-detected from OpenClaw config' });
       } else {
         setMessage({ type: 'error', text: 'Could not find OpenClaw token' });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
+  const tabs = [
+    { id: 'llm', icon: '🧠', label: 'LLM Judge' },
+    { id: 'gateway', icon: '🔗', label: 'Gateway' },
+  ];
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
-      <div 
-        className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-3xl w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-850 dark:bg-[#1a1d23] rounded-2xl w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Settings</h2>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700/50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm">⚙</div>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Settings</h2>
+          </div>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             ✕
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex space-x-2 mb-6 border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setActiveTab('gateway')}
-            className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-              activeTab === 'gateway'
-                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            🔗 Gateway
-          </button>
-          <button
-            onClick={() => setActiveTab('llm')}
-            className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-              activeTab === 'llm'
-                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            🧠 LLM Backend
-          </button>
+        <div className="flex px-6 pt-3 gap-1">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => { setActiveTab(tab.id); setMessage(null); }}
+              className={`px-4 py-2 rounded-t-lg text-sm font-medium transition-all duration-150 ${
+                activeTab === tab.id
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <span className="mr-1.5">{tab.icon}</span>{tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Gateway Tab */}
-        {activeTab === 'gateway' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                OpenClaw Gateway Token
-              </label>
-              <input
-                type="text"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="36ca588ed550e209d765cccecd2c59fa25016c6c6c41890a"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                         bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                         focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                disabled={saving}
-              />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Find your token in <code>~/.openclaw/openclaw.json</code> under <code>gateway.auth.token</code>
-              </p>
-            </div>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-gray-50/50 dark:bg-gray-800/20">
 
-            {message && (
-              <div className={`p-3 rounded-md ${
-                message.type === 'success' 
-                  ? 'bg-green-50 dark:bg-green-900 text-green-800 dark:text-green-200'
-                  : 'bg-red-50 dark:bg-red-900 text-red-800 dark:text-red-200'
-              }`}>
-                {message.text}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-4">
-              <button
-                onClick={handleAutoDetect}
-                disabled={saving}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md
-                         hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                🔍 Auto-Detect
-              </button>
-              <button
-                onClick={handleSaveGateway}
-                disabled={saving || !token}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md
-                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Saving...' : 'Save & Reconnect'}
-              </button>
-              <button
-                onClick={onClose}
-                disabled={saving}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md
-                         hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* LLM Tab */}
-        {activeTab === 'llm' && (
-          <div className="space-y-4">
-            {/* Backend Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Safeguard Backend
-              </label>
-              <div className="flex gap-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    value="lmstudio"
-                    checked={llmBackend === 'lmstudio'}
-                    onChange={(e) => setLlmBackend(e.target.value)}
-                    className="text-blue-600 focus:ring-blue-500"
-                    disabled={saving}
-                  />
-                  <span className="text-gray-900 dark:text-white">🖥️ LM Studio (Local)</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    value="ollama"
-                    checked={llmBackend === 'ollama'}
-                    onChange={(e) => setLlmBackend(e.target.value)}
-                    className="text-blue-600 focus:ring-blue-500"
-                    disabled={saving}
-                  />
-                  <span className="text-gray-900 dark:text-white">🦙 Ollama (Local)</span>
-                </label>
-              </div>
-            </div>
-
-            {/* LM Studio Config */}
-            {llmBackend === 'lmstudio' && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    LM Studio Server URL
-                  </label>
-                  <input
-                    type="text"
-                    value={lmstudioUrl}
-                    onChange={(e) => setLmstudioUrl(e.target.value)}
-                    placeholder="http://localhost:1234/v1"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                             bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                             focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                    disabled={saving}
-                  />
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Start LM Studio and load a model, then start the local server
-                  </p>
+          {/* ─── LLM Tab ─── */}
+          {activeTab === 'llm' && (
+            <>
+              {/* Backend Picker */}
+              <Card>
+                <Label>Backend</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { value: 'lmstudio', icon: '🖥️', label: 'LM Studio', desc: 'Local inference' },
+                    { value: 'ollama', icon: '🦙', label: 'Ollama', desc: 'Local inference' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setLlmBackend(opt.value)}
+                      disabled={saving}
+                      className={`flex items-center gap-3 p-3.5 rounded-lg border-2 transition-all duration-150 text-left ${
+                        llmBackend === opt.value
+                          ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+                      }`}
+                    >
+                      <span className="text-2xl">{opt.icon}</span>
+                      <div>
+                        <div className={`text-sm font-semibold ${llmBackend === opt.value ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>{opt.label}</div>
+                        <div className="text-xs text-gray-400">{opt.desc}</div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
+              </Card>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Model
-                    {loadingModels && <span className="ml-2 text-xs text-gray-400">loading...</span>}
-                  </label>
-                  {availableModels.length > 0 ? (
-                    <>
-                      <select
-                        value={availableModels.includes(lmstudioModel) ? lmstudioModel : 'custom'}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === 'custom') {
-                            setCustomLmstudioModel(lmstudioModel);
-                          } else {
-                            setLmstudioModel(value);
-                          }
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                                 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                        disabled={saving}
-                      >
+              {/* LM Studio Config */}
+              {llmBackend === 'lmstudio' && (
+                <>
+                  <Card>
+                    <Label hint="OpenAI-compatible endpoint">Server URL</Label>
+                    <Input
+                      type="text"
+                      value={lmstudioUrl}
+                      onChange={(e) => setLmstudioUrl(e.target.value)}
+                      placeholder="http://localhost:1234/v1"
+                      disabled={saving}
+                    />
+                  </Card>
+
+                  <Card>
+                    <div className="flex items-center justify-between mb-3">
+                      <Label>Judge Model</Label>
+                      <div className="flex items-center gap-2">
+                        {loadingModels && (
+                          <span className="text-xs text-gray-400 animate-pulse">fetching…</span>
+                        )}
+                        <Btn variant="ghost" onClick={fetchModels} disabled={loadingModels} className="!px-2 !py-1 text-xs">
+                          ↻ Refresh
+                        </Btn>
+                      </div>
+                    </div>
+
+                    {availableModels.length > 0 ? (
+                      <div className="space-y-2">
                         {availableModels.map(model => (
-                          <option key={model} value={model}>
-                            {model}{model === 'qwen/qwen3-4b-2507' ? ' ⭐ recommended' : ''}
-                          </option>
+                          <ModelCard
+                            key={model}
+                            model={model}
+                            selected={lmstudioModel === model && !showCustomInput}
+                            onSelect={(m) => { setLmstudioModel(m); setShowCustomInput(false); }}
+                            recommended={model === 'qwen/qwen3-4b-2507'}
+                          />
                         ))}
-                        <option value="custom">Custom (enter below)</option>
-                      </select>
-                      {(!availableModels.includes(lmstudioModel)) && lmstudioModel !== 'custom' && (
-                        <input
-                          type="text"
-                          value={customLmstudioModel || lmstudioModel}
-                          onChange={(e) => { setLmstudioModel(e.target.value); setCustomLmstudioModel(e.target.value); }}
-                          placeholder="e.g., deepseek-coder-33b"
-                          className="w-full mt-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                                   bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                                   focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                          disabled={saving}
-                        />
-                      )}
-                      <div className="mt-1 flex items-center gap-2">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+
+                        {/* Custom option */}
+                        <button
+                          onClick={() => setShowCustomInput(!showCustomInput)}
+                          className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
+                            showCustomInput
+                              ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                              : 'border-dashed border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+                          }`}
+                        >
+                          <span className="text-sm text-gray-500 dark:text-gray-400">+ Use a custom model name</span>
+                        </button>
+
+                        {showCustomInput && (
+                          <Input
+                            type="text"
+                            value={customLmstudioModel}
+                            onChange={(e) => setCustomLmstudioModel(e.target.value)}
+                            placeholder="e.g., deepseek-coder-33b"
+                            disabled={saving}
+                            autoFocus
+                          />
+                        )}
+
+                        <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
                           {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} loaded in LM Studio
                         </p>
-                        <button onClick={fetchModels} className="text-xs text-blue-500 hover:text-blue-700">↻ refresh</button>
                       </div>
-                    </>
-                  ) : (
-                    <>
-                      <input
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                          <span>⚠️</span>
+                          <span className="text-sm text-amber-700 dark:text-amber-300">
+                            {loadingModels ? 'Connecting to LM Studio…' : 'No models found — is LM Studio running?'}
+                          </span>
+                        </div>
+                        <Input
+                          type="text"
+                          value={lmstudioModel}
+                          onChange={(e) => setLmstudioModel(e.target.value)}
+                          placeholder="qwen/qwen3-4b-2507"
+                          disabled={saving}
+                        />
+                      </div>
+                    )}
+                  </Card>
+                </>
+              )}
+
+              {/* Ollama Config */}
+              {llmBackend === 'ollama' && (
+                <>
+                  <Card>
+                    <Label>Ollama Server URL</Label>
+                    <Input
+                      type="text"
+                      value={ollamaUrl}
+                      onChange={(e) => setOllamaUrl(e.target.value)}
+                      placeholder="http://localhost:11434"
+                      disabled={saving}
+                    />
+                    <p className="mt-2 text-xs text-gray-400">
+                      Make sure Ollama is running: <code className="px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-xs">ollama serve</code>
+                    </p>
+                  </Card>
+
+                  <Card>
+                    <div className="flex items-center justify-between mb-3">
+                      <Label>Judge Model</Label>
+                      <Btn variant="ghost" onClick={fetchModels} disabled={loadingModels} className="!px-2 !py-1 text-xs">
+                        ↻ Refresh
+                      </Btn>
+                    </div>
+                    {availableModels.length > 0 ? (
+                      <div className="space-y-2">
+                        {availableModels.map(model => (
+                          <ModelCard
+                            key={model}
+                            model={model}
+                            selected={ollamaModel === model}
+                            onSelect={(m) => setOllamaModel(m)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <Input
                         type="text"
-                        value={lmstudioModel}
-                        onChange={(e) => setLmstudioModel(e.target.value)}
-                        placeholder="qwen/qwen3-4b-2507"
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                                 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                        value={ollamaModel}
+                        onChange={(e) => setOllamaModel(e.target.value)}
+                        placeholder="llama3"
                         disabled={saving}
                       />
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {loadingModels ? 'Connecting to LM Studio...' : 'Could not fetch models — enter model name manually'}
-                      </p>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
+                    )}
+                  </Card>
+                </>
+              )}
+            </>
+          )}
 
-            {/* Ollama Config */}
-            {llmBackend === 'ollama' && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Ollama Server URL
-                  </label>
-                  <input
-                    type="text"
-                    value={ollamaUrl}
-                    onChange={(e) => setOllamaUrl(e.target.value)}
-                    placeholder="http://localhost:11434"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                             bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                             focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                    disabled={saving}
-                  />
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Make sure Ollama is running: <code>ollama serve</code>
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Model Name
-                  </label>
-                  <input
-                    type="text"
-                    value={ollamaModel}
-                    onChange={(e) => setOllamaModel(e.target.value)}
-                    placeholder="llama3"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                             bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                             focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                    disabled={saving}
-                  />
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Use <code>ollama list</code> to see available models
-                  </p>
-                </div>
-              </>
-            )}
-
-            {message && (
-              <div className={`p-3 rounded-md ${
-                message.type === 'success' 
-                  ? 'bg-green-50 dark:bg-green-900 text-green-800 dark:text-green-200'
-                  : 'bg-red-50 dark:bg-red-900 text-red-800 dark:text-red-200'
-              }`}>
-                {message.text}
+          {/* ─── Gateway Tab ─── */}
+          {activeTab === 'gateway' && (
+            <Card>
+              <Label hint="from ~/.openclaw/openclaw.json">OpenClaw Gateway Token</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="36ca588ed550e209d765cccecd..."
+                  disabled={saving}
+                  style={{ fontFamily: 'monospace', fontSize: '13px' }}
+                />
+                <Btn variant="secondary" onClick={handleAutoDetect} disabled={saving} className="shrink-0">
+                  🔍
+                </Btn>
               </div>
-            )}
+            </Card>
+          )}
 
-            <div className="flex gap-3 pt-4">
-              <button
-                onClick={handleTestConnection}
-                disabled={saving}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md
-                         hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                🔍 Test Connection
-              </button>
-              <button
-                onClick={handleSaveLlm}
-                disabled={saving}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md
-                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Saving...' : 'Save & Restart'}
-              </button>
-              <button
-                onClick={onClose}
-                disabled={saving}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md
-                         hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-            </div>
+          {/* Toast */}
+          <Toast message={message} />
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700/50 bg-white dark:bg-[#1a1d23]">
+          <Btn variant="ghost" onClick={onClose} disabled={saving}>Cancel</Btn>
+          <div className="flex gap-2">
+            {activeTab === 'llm' && (
+              <Btn variant="secondary" onClick={handleTestConnection} disabled={saving}>
+                {saving ? '...' : '🔍 Test'}
+              </Btn>
+            )}
+            <Btn
+              variant="primary"
+              onClick={activeTab === 'gateway' ? handleSaveGateway : handleSaveLlm}
+              disabled={saving || (activeTab === 'gateway' && !token)}
+            >
+              {saving ? 'Saving…' : activeTab === 'gateway' ? 'Save & Reconnect' : 'Save & Apply'}
+            </Btn>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
