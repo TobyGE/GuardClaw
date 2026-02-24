@@ -1,4 +1,4 @@
-import { BenchmarkIcon } from "./icons";
+import { BenchmarkIcon, CpuIcon, LlamaIcon, CheckIcon, XIcon } from "./icons";
 import { useState, useEffect, useRef } from 'react';
 
 const VERDICT_STYLE = {
@@ -154,7 +154,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                         : 'border-gc-border text-gc-text-dim hover:border-gray-300'
                     }`}
                   >
-                    <span className="text-[10px] opacity-50">{m.source === 'ollama' ? '🦙' : '🖥️'}</span>
+                    <span className="text-[10px] opacity-50">{m.source === 'ollama' ? <LlamaIcon size={12} /> : <CpuIcon size={12} />}</span>
                     {m.id.split('/').pop()}
                   </button>
                 ))}
@@ -231,7 +231,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
 
           {error && (
             <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-              ❌ {error}
+              <><XIcon size={14} className="inline text-gc-danger" /> {error}</>
             </div>
           )}
 
@@ -252,7 +252,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                 <tbody className="divide-y divide-gc-border">
                   {results.map((r) => (
                     <tr key={r.id} className={r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}>
-                      <td className="px-4 py-2.5 text-center">{r.correct ? '✅' : '❌'}</td>
+                      <td className="px-4 py-2.5 text-center">{r.correct ? <CheckIcon size={16} className='text-gc-safe mx-auto' /> : <XIcon size={16} className='text-gc-danger mx-auto' />}</td>
                       <td className="px-4 py-2.5">
                         <div className="font-medium text-gc-text">{r.label}</div>
                         <div className="text-xs text-gray-400 mt-0.5">

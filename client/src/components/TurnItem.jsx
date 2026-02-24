@@ -1,26 +1,27 @@
 import GuardClawLogo from './GuardClawLogo';
+import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, SearchIcon, MessageIcon, BrainIcon, ImageIcon, ServerIcon, BotIcon, GitBranchIcon, ChartIcon, WrenchIcon, HourglassIcon, LinkIcon, MonitorIcon } from './icons';
 import { useState } from 'react';
 
-const TOOL_ICONS = {
-  exec: '⚡',
-  read: '📖',
-  write: '📝',
-  edit: '✏️',
-  web_fetch: '🌐',
-  web_search: '🔍',
-  browser: '🌐',
-  message: '📨',
-  memory_search: '🧠',
-  memory_get: '🧠',
-  image: '🖼️',
-  tts: '🔊',
-  canvas: '🎨',
-  nodes: '📡',
-  sessions_spawn: '🤖',
-  sessions_send: '📤',
-  sessions_list: '📋',
-  sessions_history: '📜',
-  session_status: '📊',
+const TOOL_ICON_MAP = {
+  exec: TerminalIcon,
+  read: FileTextIcon,
+  write: PencilIcon,
+  edit: PencilIcon,
+  web_fetch: GlobeIcon,
+  web_search: SearchIcon,
+  browser: GlobeIcon,
+  message: MessageIcon,
+  memory_search: BrainIcon,
+  memory_get: BrainIcon,
+  image: ImageIcon,
+  tts: MessageIcon,
+  canvas: ImageIcon,
+  nodes: ServerIcon,
+  sessions_spawn: GitBranchIcon,
+  sessions_send: MessageIcon,
+  sessions_list: ChartIcon,
+  sessions_history: ChartIcon,
+  session_status: ChartIcon,
 };
 
 // Generate a human-readable summary from a list of tool-call events
@@ -56,9 +57,9 @@ function summarizeToolCalls(toolCalls) {
   return parts.join(', ');
 }
 
-function toolIcon(name) {
-  if (!name) return '🔧';
-  return TOOL_ICONS[name] || '🔧';
+function ToolIcon({ name, size = 14, className = '' }) {
+  const Icon = TOOL_ICON_MAP[name] || WrenchIcon;
+  return <Icon size={size} className={className} />;
 }
 
 function getRiskLevel(score, pending) {
@@ -115,7 +116,7 @@ function ToolCallRow({ event }) {
         onClick={() => setOpen(!open)}
       >
         <div className="flex items-center space-x-2 flex-1 min-w-0">
-          <span className="text-base">{toolIcon(name)}</span>
+          <ToolIcon name={name} size={16} className="text-gc-text-dim" />
           <span className="text-sm font-medium text-gc-text">{name}</span>
           {riskLevel && (
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskLevel.color}`}>
@@ -124,7 +125,7 @@ function ToolCallRow({ event }) {
           )}
           {event.safeguard?.chainRisk && (
             <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-purple-900/40 text-purple-300 border border-purple-700/50">
-              ⛓️ chain
+              <><LinkIcon size={12} className="inline" /> chain</>
             </span>
           )}
           {desc && (
@@ -228,8 +229,8 @@ function TurnItem({ turn }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             {replyText
-              ? <span className="text-base">🤖</span>
-              : <span className="text-gc-text-dim text-sm animate-pulse">⏳</span>
+              ? <BotIcon size={18} className="text-gc-primary" />
+              : <HourglassIcon size={18} className="text-gc-warning animate-pulse" />
             }
             <span className="text-sm font-medium text-gc-text-dim">
               {replyText ? 'Agent turn' : 'Agent working…'}
@@ -277,7 +278,7 @@ function TurnItem({ turn }) {
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center space-x-3 mb-2">
-            <span className="text-gc-text font-medium">🤖 Agent turn</span>
+            <span className="text-gc-text font-medium"><><BotIcon size={14} className="inline mr-1" /> Agent turn</></span>
             {riskLevel && !isContext && (
               <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
                 {riskLevel.label} ({parent.safeguard?.riskScore}/10)
@@ -393,7 +394,7 @@ function ChatContextBubble({ event }) {
         <div className="flex-1">
           <div className="flex items-center space-x-2 mb-1">
             <span className="text-xs font-medium text-blue-500 dark:text-blue-400">
-              {isFinal ? '🤖 Agent' : '💬 Chat'}
+              {isFinal ? <><BotIcon size={12} className="inline mr-1" /> Agent</> : <><MessageIcon size={12} className="inline mr-1" /> Chat</>}
             </span>
             <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
               context
@@ -443,7 +444,7 @@ function StandaloneEvent({ event }) {
         <div className="flex-1">
           <div className="flex items-center space-x-3 mb-2">
             <span className="text-gc-text font-medium">
-              {toolIcon(tool || type)} {displayName}
+              <><ToolIcon name={tool || type} size={13} className="inline mr-1" /> {displayName}</>
             </span>
             {event.status === 'aborted' && (
               <span className="text-xs px-2 py-1 rounded bg-gc-text-dim/20 text-gc-text-dim">(aborted)</span>

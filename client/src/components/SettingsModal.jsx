@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { BrainIcon, LinkIcon, CpuIcon, LlamaIcon, SearchIcon } from './icons';
 
 // Reusable styled components
 const Card = ({ children, className = '' }) => (
@@ -196,8 +197,8 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   };
 
   const tabs = [
-    { id: 'llm', icon: '🧠', label: 'LLM Judge' },
-    { id: 'gateway', icon: '🔗', label: 'Gateway' },
+    { id: 'llm', icon: <BrainIcon size={18} />, label: 'LLM Judge' },
+    { id: 'gateway', icon: <LinkIcon size={18} />, label: 'Gateway' },
   ];
 
   return (
@@ -248,8 +249,8 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                 <Label>Backend</Label>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { value: 'lmstudio', icon: '🖥️', label: 'LM Studio', desc: 'Local inference' },
-                    { value: 'ollama', icon: '🦙', label: 'Ollama', desc: 'Local inference' },
+                    { value: 'lmstudio', icon: <CpuIcon size={18} />, label: 'LM Studio', desc: 'Local inference' },
+                    { value: 'ollama', icon: <LlamaIcon size={18} />, label: 'Ollama', desc: 'Local inference' },
                   ].map(opt => (
                     <button
                       key={opt.value}
@@ -465,7 +466,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                   style={{ fontFamily: 'monospace', fontSize: '13px' }}
                 />
                 <Btn variant="secondary" onClick={handleAutoDetect} disabled={saving} className="shrink-0">
-                  🔍
+                  <SearchIcon size={14} />
                 </Btn>
               </div>
             </Card>
@@ -481,7 +482,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
           <div className="flex gap-2">
             {activeTab === 'llm' && (
               <Btn variant="secondary" onClick={handleTestConnection} disabled={saving}>
-                {saving ? '...' : '🔍 Test'}
+                {saving ? '...' : '<SearchIcon size={14} /> Test'}
               </Btn>
             )}
             <Btn

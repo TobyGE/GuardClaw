@@ -6,7 +6,7 @@ import SettingsModal from './components/SettingsModal';
 import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
-import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon } from './components/icons';
+import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon } from './components/icons';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -627,7 +627,7 @@ function App() {
                       : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
                   } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
                 >
-                  <span>{s.isSubagent ? (s.active ? '🔀' : '✓') : '🤖'}</span>
+                  <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
                   <span>{s.label}</span>
                   <span className="text-[10px] opacity-60">({s.eventCount})</span>
                 </button>

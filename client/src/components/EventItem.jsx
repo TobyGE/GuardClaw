@@ -1,4 +1,5 @@
 import GuardClawLogo from './GuardClawLogo';
+import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, MessageIcon, WrenchIcon } from './icons';
 import { useState } from 'react';
 
 function EventItem({ event }) {
@@ -92,16 +93,16 @@ function EventItem({ event }) {
         <div className="flex-1">
           {/* Header with type and risk badge */}
           <div className="flex items-center space-x-3 mb-2">
-            <span className="text-gc-text font-medium">
-              {displayName === 'exec' ? '⚡ exec' : 
-               displayName === 'chat-message' ? '💬 chat-message' :
-               displayName === 'write' ? '📝 write' :
-               displayName === 'edit' ? '✏️ edit' :
-               displayName === 'read' ? '📖 read' :
-               displayName === 'web_fetch' ? '🌐 web_fetch' :
-               displayName === 'browser' ? '🌐 browser' :
-               displayName === 'message' ? '📨 message' :
-               `🔧 ${displayName}`}
+            <span className="text-gc-text font-medium inline-flex items-center gap-1.5">
+              {displayName === 'exec' ? <><TerminalIcon size={14} /> exec</> :
+               displayName === 'chat-message' ? <><MessageIcon size={14} /> chat-message</> :
+               displayName === 'write' ? <><PencilIcon size={14} /> write</> :
+               displayName === 'edit' ? <><PencilIcon size={14} /> edit</> :
+               displayName === 'read' ? <><FileTextIcon size={14} /> read</> :
+               displayName === 'web_fetch' ? <><GlobeIcon size={14} /> web_fetch</> :
+               displayName === 'browser' ? <><GlobeIcon size={14} /> browser</> :
+               displayName === 'message' ? <><MessageIcon size={14} /> message</> :
+               <><WrenchIcon size={14} /> {displayName}</>}
             </span>
             {status === 'aborted' && (
               <span className="text-xs px-2 py-1 rounded bg-gc-text-dim/20 text-gc-text-dim">
@@ -160,9 +161,9 @@ function EventItem({ event }) {
                 {event.streamingSteps.map((step, idx) => {
                   const stepRisk = step.safeguard ? getRiskLevel(step.safeguard.riskScore) : null;
                   const stepIcon = step.type === 'thinking' ? '💭' :
-                                   step.type === 'tool_use' ? '🔧' :
-                                   step.type === 'exec' ? '⚡' :
-                                   step.type === 'text' ? '💬' : '📝';
+                                   step.type === 'tool_use' ? <WrenchIcon size={12} className='inline' /> :
+                                   step.type === 'exec' ? <TerminalIcon size={12} className='inline' /> :
+                                   step.type === 'text' ? <MessageIcon size={12} className='inline' /> : <PencilIcon size={12} className='inline' />;
                   
                   return (
                     <div key={step.id || idx} className="bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-700">
