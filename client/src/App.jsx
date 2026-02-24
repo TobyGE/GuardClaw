@@ -4,6 +4,7 @@ import EventList from './components/EventList';
 import ConnectionModal from './components/ConnectionModal';
 import SettingsModal from './components/SettingsModal';
 import BlockingModal from './components/BlockingModal';
+import BenchmarkModal from './components/BenchmarkModal';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -26,6 +27,7 @@ function App() {
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showBlockingModal, setShowBlockingModal] = useState(false);
+  const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [currentToken, setCurrentToken] = useState('');
   const [llmConfig, setLlmConfig] = useState(null);
   const [blockingStatus, setBlockingStatus] = useState(null);
@@ -334,6 +336,11 @@ function App() {
         currentStatus={blockingStatus}
       />
 
+      <BenchmarkModal
+        isOpen={showBenchmarkModal}
+        onClose={() => setShowBenchmarkModal(false)}
+      />
+
       {/* Fail-Closed Modal */}
       {showFailClosedModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowFailClosedModal(false)}>
@@ -421,6 +428,13 @@ function App() {
                 {blockingStatus.active ? '🛡️' : '📡'}
               </button>
             )}
+            <button
+              onClick={() => setShowBenchmarkModal(true)}
+              className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
+              title="Model Benchmark"
+            >
+              🧪
+            </button>
             <button
               onClick={() => setShowSettingsModal(true)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"

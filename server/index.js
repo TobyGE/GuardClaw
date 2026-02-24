@@ -10,6 +10,7 @@ import { NanobotClient } from './nanobot-client.js';
 import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
 import { SessionPoller } from './session-poller.js';
+import { runBenchmark, BENCHMARK_TRACES } from './benchmark.js';
 import { ApprovalHandler } from './approval-handler.js';
 import { logger } from './logger.js';
 import { installTracker } from './install-tracker.js';
@@ -952,6 +953,40 @@ app.post('/api/config/llm/models', async (req, res) => {
     res.json({ models: [] });
   } catch (error) {
     res.json({ models: [], error: error.message });
+  }
+});
+
+// ─── Benchmark API ───────────────────────────────────────────────────────────
+
+let benchmarkRunning = false;
+
+app.get('/api/benchmark/cases', (_req, res) => {
+  res.json({ cases: BENCHMARK_TRACES.length, traces: BENCHMARK_TRACES.map(t => ({ id: t.id, label: t.label, expected: t.expected, traceLength: t.trace.length, tools: t.trace.map(s => s.tool) })) });
+});
+
+// SSE endpoint for streaming benchmark progress
+app.get('/api/benchmark/run', async (req, res) => {
+  if (benchmarkRunning) {
+    return res.status(409).json({ error: 'Benchmark already running' });
+  }
+  benchmarkRunning = true;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    const result = await runBenchmark(safeguardService, {
+      onProgress: (progress) => {
+        res.write(`data: ${JSON.stringify({ type: 'progress', ...progress })}\n\n`);
+      }
+    });
+    res.write(`data: ${JSON.stringify({ type: 'complete', ...result })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+  } finally {
+    benchmarkRunning = false;
+    res.end();
   }
 });
 
