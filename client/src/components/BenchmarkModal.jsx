@@ -5,15 +5,21 @@ const VERDICT_STYLE = {
   WARNING: 'text-yellow-500 bg-yellow-500/20',
   BLOCK: 'text-gc-danger bg-gc-danger/20',
   ANALYZING: 'text-blue-400 bg-blue-400/20 animate-pulse',
+  ALLOW: 'text-gc-safe bg-gc-safe/20',
 };
 
-function VerdictBadge({ verdict, size = 'sm' }) {
+function VerdictBadge({ verdict }) {
   const cls = VERDICT_STYLE[verdict] || 'text-gray-400 bg-gray-400/20';
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-${size === 'sm' ? 'xs' : 'sm'} font-bold ${cls}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${cls}`}>
       {verdict}
     </span>
   );
+}
+
+// Binary verdict: BLOCK or ALLOW
+function binaryVerdict(v) {
+  return v === 'BLOCK' ? 'BLOCK' : 'ALLOW';
 }
 
 export default function BenchmarkModal({ isOpen, onClose }) {
@@ -22,7 +28,28 @@ export default function BenchmarkModal({ isOpen, onClose }) {
   const [summary, setSummary] = useState(null);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [loadingModels, setLoadingModels] = useState(false);
   const esRef = useRef(null);
+
+  // Fetch available models on open
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoadingModels(true);
+    fetch('/api/config/llm/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend: 'lmstudio', lmstudioUrl: 'http://127.0.0.1:1234/v1' })
+    })
+      .then(r => r.json())
+      .then(data => {
+        setModels(data.models || []);
+        if (!selectedModel && data.models?.length) setSelectedModel(data.models[0]);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingModels(false));
+  }, [isOpen]);
 
   useEffect(() => {
     return () => { if (esRef.current) esRef.current.close(); };
@@ -37,7 +64,10 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     setProgress(null);
     setError(null);
 
-    const es = new EventSource('/api/benchmark/run');
+    const url = selectedModel
+      ? `/api/benchmark/run?model=${encodeURIComponent(selectedModel)}`
+      : '/api/benchmark/run';
+    const es = new EventSource(url);
     esRef.current = es;
 
     es.onmessage = (e) => {
@@ -65,11 +95,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     };
   };
 
-  const accuracyColor = (acc) => {
-    if (acc >= 0.95) return 'text-gc-safe';
-    if (acc >= 0.80) return 'text-yellow-500';
-    return 'text-gc-danger';
-  };
+  const accColor = (acc) => acc >= 0.95 ? 'text-gc-safe' : acc >= 0.80 ? 'text-yellow-500' : 'text-gc-danger';
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -80,31 +106,62 @@ export default function BenchmarkModal({ isOpen, onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700/50">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white text-sm">📊</div>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white text-sm">🧪</div>
             <div>
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Model Benchmark</h2>
-              <p className="text-xs text-gray-400">Tool-trace-level security evaluation</p>
+              <p className="text-xs text-gray-400">BLOCK vs ALLOW · 30 tool-trace scenarios</p>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">✕</button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
-          {/* Summary cards (shown after completion) */}
+          {/* Model picker */}
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Test Model</span>
+              {loadingModels && <span className="text-xs text-gray-400 animate-pulse">loading...</span>}
+            </div>
+            {models.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {models.map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setSelectedModel(m)}
+                    disabled={running}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border-2 transition-all ${
+                      selectedModel === m
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'
+                    }`}
+                  >
+                    {m.split('/').pop()}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={selectedModel}
+                onChange={e => setSelectedModel(e.target.value)}
+                placeholder="qwen/qwen3-4b-2507"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white"
+                disabled={running}
+              />
+            )}
+          </div>
+
+          {/* Summary cards */}
           {summary && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4 text-center">
-                <div className={`text-3xl font-bold ${accuracyColor(summary.accuracy)}`}>
-                  {(summary.accuracy * 100).toFixed(1)}%
-                </div>
+                <div className={`text-3xl font-bold ${accColor(summary.accuracy)}`}>{(summary.accuracy * 100).toFixed(1)}%</div>
                 <div className="text-xs text-gray-400 mt-1">Accuracy</div>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4 text-center">
-                <div className="text-3xl font-bold text-gray-700 dark:text-gray-200">
-                  {summary.correct}/{summary.total}
-                </div>
+                <div className="text-3xl font-bold text-gray-700 dark:text-gray-200">{summary.correct}/{summary.total}</div>
                 <div className="text-xs text-gray-400 mt-1">Correct</div>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4 text-center">
@@ -112,44 +169,31 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                 <div className="text-xs text-gray-400 mt-1">Avg Latency</div>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4 text-center">
-                <div className="text-3xl font-bold text-gray-700 dark:text-gray-200">
-                  {summary.model?.split('/').pop() || '?'}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">Model</div>
+                <div className={`text-3xl font-bold ${summary.falsePositives === 0 ? 'text-gc-safe' : 'text-yellow-500'}`}>{summary.falsePositives}</div>
+                <div className="text-xs text-gray-400 mt-1">False Positives</div>
+              </div>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4 text-center">
+                <div className={`text-3xl font-bold ${summary.falseNegatives === 0 ? 'text-gc-safe' : 'text-gc-danger'}`}>{summary.falseNegatives}</div>
+                <div className="text-xs text-gray-400 mt-1">False Negatives</div>
               </div>
             </div>
           )}
 
-          {/* Category breakdown */}
+          {/* ALLOW / BLOCK breakdown */}
           {summary && (
-            <div className="grid grid-cols-3 gap-3">
-              {['safe', 'warning', 'block'].map(cat => {
-                const s = summary.summary[cat];
-                return (
-                  <div key={cat} className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 flex items-center justify-between">
-                    <VerdictBadge verdict={cat.toUpperCase()} />
-                    <span className={`text-sm font-bold ${s.correct === s.total ? 'text-gc-safe' : 'text-gc-danger'}`}>
-                      {s.correct}/{s.total}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* False positive / negative alerts */}
-          {summary && (summary.falsePositives > 0 || summary.falseNegatives > 0) && (
-            <div className="flex gap-3">
-              {summary.falsePositives > 0 && (
-                <div className="flex-1 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-                  ⚠️ {summary.falsePositives} false positive{summary.falsePositives > 1 ? 's' : ''} (safe → flagged)
-                </div>
-              )}
-              {summary.falseNegatives > 0 && (
-                <div className="flex-1 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-2.5 text-sm text-red-700 dark:text-red-300">
-                  🚨 {summary.falseNegatives} false negative{summary.falseNegatives > 1 ? 's' : ''} (dangerous → missed)
-                </div>
-              )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 flex items-center justify-between">
+                <VerdictBadge verdict="ALLOW" />
+                <span className={`text-sm font-bold ${summary.summary.allow.correct === summary.summary.allow.total ? 'text-gc-safe' : 'text-yellow-500'}`}>
+                  {summary.summary.allow.correct}/{summary.summary.allow.total}
+                </span>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 flex items-center justify-between">
+                <VerdictBadge verdict="BLOCK" />
+                <span className={`text-sm font-bold ${summary.summary.block.correct === summary.summary.block.total ? 'text-gc-safe' : 'text-gc-danger'}`}>
+                  {summary.summary.block.correct}/{summary.summary.block.total}
+                </span>
+              </div>
             </div>
           )}
 
@@ -157,14 +201,12 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           {running && progress && (
             <div>
               <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400 mb-2">
-                <span>Running trace {progress.current}/{progress.total}...</span>
-                <span className={accuracyColor(progress.accuracy)}>{(progress.accuracy * 100).toFixed(0)}% so far</span>
+                <span>Trace {progress.current}/{progress.total}</span>
+                <span className={accColor(progress.accuracy)}>{(progress.accuracy * 100).toFixed(0)}%</span>
               </div>
               <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all duration-300"
-                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                />
+                <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all duration-300"
+                  style={{ width: `${(progress.current / progress.total) * 100}%` }} />
               </div>
             </div>
           )}
@@ -191,7 +233,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                   {results.map((r) => (
-                    <tr key={r.id} className={`${r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}`}>
+                    <tr key={r.id} className={r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}>
                       <td className="px-4 py-2.5 text-center">{r.correct ? '✅' : '❌'}</td>
                       <td className="px-4 py-2.5">
                         <div className="font-medium text-gray-700 dark:text-gray-200">{r.label}</div>
@@ -205,12 +247,12 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                         </div>
                         {!r.correct && r.reasoning && (
                           <div className="text-xs text-red-500 dark:text-red-400 mt-1 italic">
-                            {r.reasoning.substring(0, 120)}
+                            {r.reasoning.substring(0, 150)}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-2.5"><VerdictBadge verdict={r.expected} /></td>
-                      <td className="px-4 py-2.5"><VerdictBadge verdict={r.actual} /></td>
+                      <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.expected)} /></td>
+                      <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.actual)} /></td>
                       <td className="px-4 py-2.5 text-right font-mono text-gray-500">{r.score}</td>
                       <td className="px-4 py-2.5 text-right font-mono text-gray-400">{r.elapsed}</td>
                     </tr>
@@ -224,15 +266,13 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           {!running && results.length === 0 && !error && (
             <div className="text-center py-12">
               <div className="text-4xl mb-3">🧪</div>
-              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                Security Benchmark
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-2">Security Benchmark</h3>
               <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
-                Run 30 tool-trace scenarios against the current LLM judge model.
+                30 tool-trace scenarios testing BLOCK detection accuracy.
               </p>
               <p className="text-xs text-gray-400 max-w-md mx-auto">
-                Each trace simulates a real agent workflow (read → edit → exec) and tests whether the judge
-                correctly identifies safe, suspicious, and dangerous tool chains.
+                Each trace simulates a real agent workflow (read → edit → exec) and tests whether
+                the judge correctly blocks dangerous tool chains while allowing safe ones.
               </p>
             </div>
           )}
@@ -240,12 +280,10 @@ export default function BenchmarkModal({ isOpen, onClose }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700/50 bg-white dark:bg-[#1a1d23]">
-          <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-            Close
-          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">Close</button>
           <button
             onClick={handleRun}
-            disabled={running}
+            disabled={running || !selectedModel}
             className="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {running ? `Running (${progress?.current || 0}/${progress?.total || '?'})...` : summary ? '↻ Run Again' : '▶ Run Benchmark'}
@@ -255,4 +293,3 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     </div>
   );
 }
-

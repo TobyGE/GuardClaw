@@ -965,6 +965,7 @@ app.get('/api/benchmark/cases', (_req, res) => {
 });
 
 // SSE endpoint for streaming benchmark progress
+// ?model=qwen/qwen3-4b-2507 to override model
 app.get('/api/benchmark/run', async (req, res) => {
   if (benchmarkRunning) {
     return res.status(409).json({ error: 'Benchmark already running' });
@@ -975,8 +976,19 @@ app.get('/api/benchmark/run', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  // Optionally override model for this benchmark run
+  const requestedModel = req.query.model;
+  let testSafeguard = safeguardService;
+  if (requestedModel && requestedModel !== safeguardService.config?.lmstudioModel) {
+    testSafeguard = new SafeguardService(
+      process.env.ANTHROPIC_API_KEY,
+      safeguardService.backend,
+      { ...safeguardService.config, lmstudioModel: requestedModel, ollamaModel: requestedModel }
+    );
+  }
+
   try {
-    const result = await runBenchmark(safeguardService, {
+    const result = await runBenchmark(testSafeguard, {
       onProgress: (progress) => {
         res.write(`data: ${JSON.stringify({ type: 'progress', ...progress })}\n\n`);
       }

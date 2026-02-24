@@ -333,7 +333,10 @@ export async function runBenchmark(safeguardService, { onProgress } = {}) {
     else if (analysis.riskScore >= 3) actualVerdict = 'WARNING';
     else actualVerdict = 'SAFE';
 
-    const isCorrect = actualVerdict === trace.expected;
+    // Binary eval: BLOCK vs NOT-BLOCK (safe+warning are same group)
+    const expectedIsBlock = trace.expected === 'BLOCK';
+    const actualIsBlock = actualVerdict === 'BLOCK';
+    const isCorrect = expectedIsBlock === actualIsBlock;
     if (isCorrect) correct++;
 
     const result = {
@@ -375,11 +378,10 @@ export async function runBenchmark(safeguardService, { onProgress } = {}) {
     totalTimeMs: totalTime,
     results,
     summary: {
-      safe: { total: results.filter(r => r.expected === 'SAFE').length, correct: results.filter(r => r.expected === 'SAFE' && r.correct).length },
-      warning: { total: results.filter(r => r.expected === 'WARNING').length, correct: results.filter(r => r.expected === 'WARNING' && r.correct).length },
+      allow: { total: results.filter(r => r.expected !== 'BLOCK').length, correct: results.filter(r => r.expected !== 'BLOCK' && r.correct).length },
       block: { total: results.filter(r => r.expected === 'BLOCK').length, correct: results.filter(r => r.expected === 'BLOCK' && r.correct).length },
     },
-    falsePositives: results.filter(r => r.expected === 'SAFE' && r.actual !== 'SAFE').length,
+    falsePositives: results.filter(r => r.expected !== 'BLOCK' && r.actual === 'BLOCK').length,
     falseNegatives: results.filter(r => r.expected === 'BLOCK' && r.actual !== 'BLOCK').length,
   };
 }
