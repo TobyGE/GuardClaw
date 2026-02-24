@@ -12,7 +12,7 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
   <a href="#dashboard-guide">Dashboard Guide</a> ·
-  <a href="#active-blocking">Active Blocking</a> ·
+  <a href="#active-blocking-details">Active Blocking</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
@@ -63,6 +63,24 @@ bash scripts/patch-openclaw.sh    # safe, idempotent — patches, rebuilds, rest
 ```
 
 > **What this does:** Adds one line to OpenClaw's WebSocket broadcast so tool events reach all connected clients. GuardClaw is a passive observer — this is the only way to receive tool events without interfering with the agent.
+
+### Enable Active Blocking (Optional)
+
+By default GuardClaw is **monitor-only**. To block dangerous commands before they run:
+
+```bash
+guardclaw plugin install       # install the OpenClaw plugin
+openclaw gateway restart       # restart to load the plugin
+```
+
+| | Monitor Only | With Plugin |
+|---|---|---|
+| Risk scores + audit trail | ✅ | ✅ |
+| Real-time tool call visibility | ✅ | ✅ |
+| Block dangerous commands | ❌ | ✅ |
+| Approval prompts for high-risk | ❌ | ✅ |
+
+Once installed, toggle blocking on/off from the dashboard 🛡️ button — no restart needed.
 
 ## How It Works
 
@@ -140,23 +158,9 @@ Test any model's security judgment accuracy:
 - **Whitelist** — patterns that always pass (e.g., `git *`, `npm test`)
 - **Blacklist** — patterns that always block (e.g., `rm -rf /`, `curl | bash`)
 
-## Active Blocking
+## Active Blocking Details
 
-By default GuardClaw is **monitor-only**. To enable pre-execution blocking:
-
-```bash
-guardclaw plugin install       # install the OpenClaw plugin
-openclaw gateway restart       # restart to load the plugin
-```
-
-| | Monitor Only | With Plugin |
-|---|---|---|
-| Risk scores + audit trail | ✅ | ✅ |
-| Real-time tool call visibility | ✅ | ✅ |
-| Block dangerous commands | ❌ | ✅ |
-| Approval prompts for high-risk | ❌ | ✅ |
-
-Once enabled, toggle blocking on/off from the dashboard — no restart needed.
+> See [Quick Start → Enable Active Blocking](#enable-active-blocking-optional) for installation.
 
 ### Approval Workflow
 
