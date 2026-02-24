@@ -1,3 +1,4 @@
+import GuardClawLogo from './GuardClawLogo';
 import { useState, useEffect } from 'react';
 
 const Card = ({ children, className = '' }) => (
@@ -89,7 +90,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm ${
               isActive ? 'bg-gradient-to-br from-red-500 to-orange-600' : 'bg-gradient-to-br from-gray-500 to-gray-600'
             }`}>
-              {isActive ? '🛡️' : '📡'}
+              {isActive ? <GuardClawLogo size={18} /> : '📡'}
             </div>
             <div>
               <h2 className="text-lg font-bold text-gc-text">Protection Mode</h2>
@@ -123,7 +124,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
                     : 'border-gc-border hover:border-red-500/30 bg-gc-card'
                 }`}
               >
-                <span className="text-2xl">🛡️</span>
+                <GuardClawLogo size={28} />
                 <div>
                   <div className={`text-sm font-semibold ${isActive ? 'text-red-400' : 'text-gc-text-secondary'}`}>Active Blocking</div>
                   <div className="text-xs text-gc-text-dim mt-0.5">Intercept & require approval</div>

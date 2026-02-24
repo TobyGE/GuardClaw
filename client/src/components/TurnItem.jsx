@@ -1,3 +1,4 @@
+import GuardClawLogo from './GuardClawLogo';
 import { useState } from 'react';
 
 const TOOL_ICONS = {
@@ -170,7 +171,7 @@ function ToolCallRow({ event }) {
           {/* Security Analysis */}
           {event.safeguard && (
             <div className="text-xs bg-gc-primary/5 border border-gc-primary/20 rounded p-2 space-y-1">
-              <span className="font-medium text-gc-primary">🛡️ Security Analysis</span>
+              <span className="font-medium text-gc-primary inline-flex items-center gap-1"><GuardClawLogo size={16} /> Security Analysis</span>
               {event.safeguard.category && <div><span className="text-gc-text-dim">Category: </span>{event.safeguard.category}</div>}
               {event.safeguard.reasoning && <div className="text-gc-text-dim italic">{event.safeguard.reasoning}</div>}
               {event.safeguard.concerns?.length > 0 && (
@@ -309,7 +310,7 @@ function TurnItem({ turn }) {
                 className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
               >
                 <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span>🛡️ Security Analysis ({parent.safeguard?.category || 'general'} — {parent.safeguard?.riskScore}/10)</span>
+                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({parent.safeguard?.category || 'general'} — {parent.safeguard?.riskScore}/10)</span>
               </button>
             )}
           </div>
@@ -339,7 +340,7 @@ function TurnItem({ turn }) {
           {showAnalysis && parent.safeguard && (
             <div className="mt-3 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2">
-                <span className="text-lg">🛡️</span>
+                <GuardClawLogo size={20} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
               <div><span className="text-gc-text-dim">Risk Score:</span><span className="ml-2 font-medium">{parent.safeguard.riskScore}/10</span></div>
@@ -468,14 +469,14 @@ function StandaloneEvent({ event }) {
               className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
             >
               <span>{showAnalysis ? '▼' : '▶'}</span>
-              <span>🛡️ Security Analysis ({event.safeguard?.category || 'general'} — {event.safeguard?.riskScore}/10)</span>
+              <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard?.category || 'general'} — {event.safeguard?.riskScore}/10)</span>
             </button>
           )}
 
           {showAnalysis && event.safeguard && (
             <div className="mt-3 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2">
-                <span>🛡️</span>
+                <GuardClawLogo size={16} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
               <div><span className="text-gc-text-dim">Risk Score:</span><span className="ml-2 font-medium">{event.safeguard.riskScore}/10</span></div>

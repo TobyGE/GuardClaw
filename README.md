@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">GuardClaw 🛡️🐾</h1>
+  <h1 align="center"><img src="docs/favicon.svg" width="36" height="36" alt="GuardClaw logo" style="vertical-align: middle;"> GuardClaw</h1>
   <p align="center">
     <strong>Real-time security monitor for AI agents — powered by local LLMs</strong>
   </p>

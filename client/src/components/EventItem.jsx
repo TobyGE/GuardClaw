@@ -1,3 +1,4 @@
+import GuardClawLogo from './GuardClawLogo';
 import { useState } from 'react';
 
 function EventItem({ event }) {
@@ -143,7 +144,7 @@ function EventItem({ event }) {
                 className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
               >
                 <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span>🛡️ Security Analysis ({event.safeguard.category || 'general'} - {event.safeguard.riskScore}/10)</span>
+                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard.category || 'general'} - {event.safeguard.riskScore}/10)</span>
               </button>
             )}
           </div>
@@ -271,7 +272,7 @@ function EventItem({ event }) {
           {showAnalysis && event.safeguard && (
             <div className="mt-3 ml-6 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2 mb-2">
-                <span className="text-lg">🛡️</span>
+                <GuardClawLogo size={20} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
               <div>

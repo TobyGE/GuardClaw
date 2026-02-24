@@ -5,6 +5,7 @@ import ConnectionModal from './components/ConnectionModal';
 import SettingsModal from './components/SettingsModal';
 import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
+import GuardClawLogo from './components/GuardClawLogo';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -423,7 +424,7 @@ function App() {
       <header className="border-b border-gc-border bg-gc-card">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <a href="https://tobyge.github.io/GuardClaw/" target="_blank" rel="noopener noreferrer" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-            <span className="text-3xl">🛡️</span>
+            <GuardClawLogo size={36} />
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </a>
           <div className="flex items-center space-x-2">
@@ -453,7 +454,7 @@ function App() {
                   : '📡 Monitor Only — tool calls are logged but not blocked\n\nClick to configure'
                 }
               >
-                {blockingStatus.active ? '🛡️' : '📡'}
+                {blockingStatus.active ? <GuardClawLogo size={22} /> : '📡'}
               </button>
             )}
             <button
