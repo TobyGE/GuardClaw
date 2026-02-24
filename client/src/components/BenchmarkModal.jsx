@@ -228,7 +228,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                 Security Benchmark
               </h3>
               <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
-                Run {BENCHMARK_TRACES?.length || '30'} tool-trace scenarios against the current LLM judge model.
+                Run 30 tool-trace scenarios against the current LLM judge model.
               </p>
               <p className="text-xs text-gray-400 max-w-md mx-auto">
                 Each trace simulates a real agent workflow (read → edit → exec) and tests whether the judge
@@ -256,5 +256,3 @@ export default function BenchmarkModal({ isOpen, onClose }) {
   );
 }
 
-// Export trace count for empty state
-BenchmarkModal.traceCount = 30;
