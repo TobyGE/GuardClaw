@@ -422,7 +422,7 @@ function App() {
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="https://github.com/TobyGE/GuardClaw" target="_blank" rel="noopener noreferrer" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
+          <a href="https://tobyge.github.io/GuardClaw/" target="_blank" rel="noopener noreferrer" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
             <span className="text-3xl">🛡️</span>
             <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
           </a>
