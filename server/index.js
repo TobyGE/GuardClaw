@@ -936,6 +936,33 @@ app.post('/api/config/llm/test', async (req, res) => {
   }
 });
 
+// ─── LM Studio Models API ────────────────────────────────────────────────────
+
+app.post('/api/config/llm/models', async (req, res) => {
+  const { backend, lmstudioUrl, ollamaUrl } = req.body;
+  try {
+    if (backend === 'lmstudio') {
+      const url = (lmstudioUrl || 'http://127.0.0.1:1234/v1').replace(/\/$/, '');
+      const resp = await fetch(`${url}/models`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      const models = (data.data || [])
+        .map(m => m.id)
+        .filter(id => !id.includes('embedding'));
+      return res.json({ models });
+    }
+    if (backend === 'ollama') {
+      const url = (ollamaUrl || 'http://127.0.0.1:11434').replace(/\/$/, '');
+      const resp = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      const models = (data.models || []).map(m => m.name);
+      return res.json({ models });
+    }
+    res.json({ models: [] });
+  } catch (error) {
+    res.json({ models: [], error: error.message });
+  }
+});
+
 // ─── Approval APIs ───────────────────────────────────────────────────────────
 
 app.get('/api/approvals/pending', (req, res) => {

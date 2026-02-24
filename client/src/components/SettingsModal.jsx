@@ -1,27 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function SettingsModal({ isOpen, onClose, currentToken, currentLlmConfig, onSave }) {
   const [activeTab, setActiveTab] = useState('gateway');
   const [token, setToken] = useState(currentToken || '');
   const [llmBackend, setLlmBackend] = useState(currentLlmConfig?.backend || 'lmstudio');
   const [lmstudioUrl, setLmstudioUrl] = useState(currentLlmConfig?.lmstudioUrl || 'http://localhost:1234/v1');
-  const [lmstudioModel, setLmstudioModel] = useState(currentLlmConfig?.lmstudioModel || 'auto');
+  const [lmstudioModel, setLmstudioModel] = useState(currentLlmConfig?.lmstudioModel || 'qwen/qwen3-4b-2507');
   const [customLmstudioModel, setCustomLmstudioModel] = useState('');
   const [ollamaUrl, setOllamaUrl] = useState(currentLlmConfig?.ollamaUrl || 'http://localhost:11434');
   const [ollamaModel, setOllamaModel] = useState(currentLlmConfig?.ollamaModel || 'llama3');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
-  // Common model presets
-  const lmstudioModels = [
-    { value: 'auto', label: 'Auto (first available)' },
-    { value: 'qwen/qwen3-1.7b', label: 'Qwen 3 (1.7B) - Fast & Light' },
-    { value: 'qwen-2.5-7b', label: 'Qwen 2.5 (7B) - Balanced' },
-    { value: 'openai/gpt-oss-20b', label: 'GPT-OSS (20B) - Powerful' },
-    { value: 'llama-3.1-8b', label: 'Llama 3.1 (8B) - Popular' },
-    { value: 'mistral-7b', label: 'Mistral (7B) - Efficient' },
-    { value: 'custom', label: 'Custom (enter below)' }
-  ];
+  // Fetch available models from LM Studio / Ollama
+  const fetchModels = async () => {
+    setLoadingModels(true);
+    try {
+      const resp = await fetch('/api/config/llm/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backend: llmBackend, lmstudioUrl, ollamaUrl })
+      });
+      const data = await resp.json();
+      setAvailableModels(data.models || []);
+    } catch {
+      setAvailableModels([]);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  // Fetch models when modal opens or backend/URL changes
+  useEffect(() => {
+    if (isOpen && (llmBackend === 'lmstudio' || llmBackend === 'ollama')) {
+      fetchModels();
+    }
+  }, [isOpen, llmBackend, lmstudioUrl, ollamaUrl]);
 
   if (!isOpen) return null;
 
@@ -313,50 +329,68 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Model
+                    {loadingModels && <span className="ml-2 text-xs text-gray-400">loading...</span>}
                   </label>
-                  <select
-                    value={lmstudioModels.find(m => m.value === lmstudioModel) ? lmstudioModel : 'custom'}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === 'custom') {
-                        setCustomLmstudioModel(lmstudioModel);
-                      } else {
-                        setLmstudioModel(value);
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                             bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                             focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                    disabled={saving}
-                  >
-                    {lmstudioModels.map(model => (
-                      <option key={model.value} value={model.value}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
-                  
-                  {/* Custom model input */}
-                  {(lmstudioModel === 'custom' || !lmstudioModels.find(m => m.value === lmstudioModel)) && (
-                    <input
-                      type="text"
-                      value={lmstudioModel === 'custom' ? customLmstudioModel : lmstudioModel}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setLmstudioModel(value);
-                        setCustomLmstudioModel(value);
-                      }}
-                      placeholder="e.g., deepseek-coder-33b"
-                      className="w-full mt-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
-                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                               focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
-                      disabled={saving}
-                    />
+                  {availableModels.length > 0 ? (
+                    <>
+                      <select
+                        value={availableModels.includes(lmstudioModel) ? lmstudioModel : 'custom'}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === 'custom') {
+                            setCustomLmstudioModel(lmstudioModel);
+                          } else {
+                            setLmstudioModel(value);
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
+                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                                 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                        disabled={saving}
+                      >
+                        {availableModels.map(model => (
+                          <option key={model} value={model}>
+                            {model}{model === 'qwen/qwen3-4b-2507' ? ' ⭐ recommended' : ''}
+                          </option>
+                        ))}
+                        <option value="custom">Custom (enter below)</option>
+                      </select>
+                      {(!availableModels.includes(lmstudioModel)) && lmstudioModel !== 'custom' && (
+                        <input
+                          type="text"
+                          value={customLmstudioModel || lmstudioModel}
+                          onChange={(e) => { setLmstudioModel(e.target.value); setCustomLmstudioModel(e.target.value); }}
+                          placeholder="e.g., deepseek-coder-33b"
+                          className="w-full mt-2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
+                                   bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                                   focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                          disabled={saving}
+                        />
+                      )}
+                      <div className="mt-1 flex items-center gap-2">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} loaded in LM Studio
+                        </p>
+                        <button onClick={fetchModels} className="text-xs text-blue-500 hover:text-blue-700">↻ refresh</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={lmstudioModel}
+                        onChange={(e) => setLmstudioModel(e.target.value)}
+                        placeholder="qwen/qwen3-4b-2507"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md
+                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                                 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent"
+                        disabled={saving}
+                      />
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {loadingModels ? 'Connecting to LM Studio...' : 'Could not fetch models — enter model name manually'}
+                      </p>
+                    </>
                   )}
-                  
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Choose a preset model or enter a custom model name
-                  </p>
                 </div>
               </>
             )}
