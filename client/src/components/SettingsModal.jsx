@@ -362,7 +362,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               {llmBackend === 'ollama' && (
                 <>
                   <Card>
-                    <Label>Ollama Server URL</Label>
+                    <Label hint="Ollama API endpoint">Server URL</Label>
                     <Input
                       type="text"
                       value={ollamaUrl}
@@ -378,9 +378,14 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                   <Card>
                     <div className="flex items-center justify-between mb-3">
                       <Label>Judge Model</Label>
-                      <Btn variant="ghost" onClick={fetchModels} disabled={loadingModels} className="!px-2 !py-1 text-xs">
-                        ↻ Refresh
-                      </Btn>
+                      <div className="flex items-center gap-2">
+                        {loadingModels && (
+                          <span className="text-xs text-gray-400 animate-pulse">fetching…</span>
+                        )}
+                        <Btn variant="ghost" onClick={fetchModels} disabled={loadingModels} className="!px-2 !py-1 text-xs">
+                          ↻ Refresh
+                        </Btn>
+                      </div>
                     </div>
                     {availableModels.length > 0 ? (
                       <div className="space-y-2">
@@ -388,19 +393,57 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           <ModelCard
                             key={model}
                             model={model}
-                            selected={ollamaModel === model}
-                            onSelect={(m) => setOllamaModel(m)}
+                            selected={ollamaModel === model && !showCustomInput}
+                            onSelect={(m) => { setOllamaModel(m); setShowCustomInput(false); }}
+                            recommended={model.includes('qwen3') || model.includes('qwen2.5')}
                           />
                         ))}
+
+                        <button
+                          onClick={() => setShowCustomInput(!showCustomInput)}
+                          className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
+                            showCustomInput
+                              ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                              : 'border-dashed border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 bg-white dark:bg-gray-800'
+                          }`}
+                        >
+                          <span className="text-sm text-gray-500 dark:text-gray-400">+ Use a custom model name</span>
+                        </button>
+
+                        {showCustomInput && (
+                          <Input
+                            type="text"
+                            value={ollamaModel}
+                            onChange={(e) => setOllamaModel(e.target.value)}
+                            placeholder="e.g., llama3:8b"
+                            disabled={saving}
+                            autoFocus
+                          />
+                        )}
+
+                        <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
+                          {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} available in Ollama
+                        </p>
                       </div>
                     ) : (
-                      <Input
-                        type="text"
-                        value={ollamaModel}
-                        onChange={(e) => setOllamaModel(e.target.value)}
-                        placeholder="llama3"
-                        disabled={saving}
-                      />
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                          <span>⚠️</span>
+                          <span className="text-sm text-amber-700 dark:text-amber-300">
+                            {loadingModels ? 'Connecting to Ollama…' : 'No models found — is Ollama running?'}
+                          </span>
+                        </div>
+                        <Input
+                          type="text"
+                          value={ollamaModel}
+                          onChange={(e) => setOllamaModel(e.target.value)}
+                          placeholder="llama3"
+                          disabled={saving}
+                        />
+                        <p className="text-xs text-gray-400">
+                          Pull a model first: <code className="px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-xs">ollama pull qwen3:4b</code>
+                        </p>
+                      </div>
                     )}
                   </Card>
                 </>
