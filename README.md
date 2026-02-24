@@ -140,10 +140,10 @@ guardclaw help
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Server modularization — split index.js into route modules | 📋 TODO | 2148-line monolith → `routes/config`, `routes/events`, `routes/approval`, `routes/blocking` |
-| Event persistence (SQLite) | 📋 TODO | Survive restarts — currently in-memory only, history lost on reboot |
-| Frontend WebSocket push | 📋 TODO | Replace polling with real-time incremental event push |
-| In-dashboard model benchmark | 📋 TODO | One-click accuracy test against 20 security cases, shows % + avg latency per model |
+| Server modularization — extract route modules | 🔧 In Progress | Extracted `helpers.js`, `routes/config.js`, `routes/benchmark.js`; blocking & approval routes next |
+| Event persistence (SQLite) | ✅ Done | WAL mode, indexed columns, auto-migration from JSON — 2026-02-24 |
+| Real-time SSE push | ✅ Done | Replaces 10s polling; instant event appearance + async LLM update — 2026-02-24 |
+| In-dashboard model benchmark | ✅ Done | 30 tool-trace cases, SSE progress, LM Studio + Ollama model picker — 2026-02-24 |
 | Event search & advanced filtering | 📋 TODO | Search by tool name, command content, time range; beyond safe/warning/block |
 
 **Future**
