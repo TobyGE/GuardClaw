@@ -565,9 +565,9 @@ function App() {
                     selectedSession === s.key
                       ? 'bg-gc-primary text-white'
                       : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
-                  }`}
+                  } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
                 >
-                  <span>{s.isSubagent ? '🔀' : '🤖'}</span>
+                  <span>{s.isSubagent ? (s.active ? '🔀' : '✓') : '🤖'}</span>
                   <span>{s.label}</span>
                   <span className="text-[10px] opacity-60">({s.eventCount})</span>
                 </button>

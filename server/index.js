@@ -420,11 +420,20 @@ app.get('/api/sessions', (req, res) => {
         eventCount: 1,
         firstEventTime: event.timestamp || 0,
         lastEventTime: event.timestamp || 0,
+        active: true,
       });
     }
   }
 
-  // Sort: main first, then sub-agents by firstEventTime descending
+  // Mark sub-agents as inactive if no events in last 2 minutes
+  const now = Date.now();
+  for (const s of sessionMap.values()) {
+    if (s.isSubagent && (now - s.lastEventTime) > 2 * 60 * 1000) {
+      s.active = false;
+    }
+  }
+
+  // Sort: main first, then active sub-agents, then inactive by lastEventTime descending
   const sessions = Array.from(sessionMap.values()).sort((a, b) => {
     if (!a.isSubagent && b.isSubagent) return -1;
     if (a.isSubagent && !b.isSubagent) return 1;
