@@ -136,6 +136,16 @@ guardclaw help
 | [LLM backend config UI — LM Studio + Ollama](docs/ROADMAP.md#llm-backend-config-ui) | ✅ Done | 2026-02-15 |
 | [`patch-openclaw.sh` — one-command OpenClaw patching](docs/ROADMAP.md#patch-openclawsh) | ✅ Done | 2026-02-20 |
 
+**Architecture & Infrastructure**
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Server modularization — split index.js into route modules | 📋 TODO | 2148-line monolith → `routes/config`, `routes/events`, `routes/approval`, `routes/blocking` |
+| Event persistence (SQLite) | 📋 TODO | Survive restarts — currently in-memory only, history lost on reboot |
+| Frontend WebSocket push | 📋 TODO | Replace polling with real-time incremental event push |
+| In-dashboard model benchmark | 📋 TODO | One-click accuracy test against 20 security cases, shows % + avg latency per model |
+| Event search & advanced filtering | 📋 TODO | Search by tool name, command content, time range; beyond safe/warning/block |
+
 **Future**
 
 | Feature | Notes |
