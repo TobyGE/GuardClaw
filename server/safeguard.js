@@ -125,7 +125,7 @@ export class SafeguardService {
     this.backend = backend || process.env.SAFEGUARD_BACKEND || 'fallback';
     this.config = {
       lmstudioUrl: this.normalizeLMStudioUrl(config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://127.0.0.1:1234/v1'),
-      lmstudioModel: config.lmstudioModel || process.env.LMSTUDIO_MODEL || 'auto',
+      lmstudioModel: config.lmstudioModel || process.env.LMSTUDIO_MODEL || 'qwen/qwen3-4b-2507',
       ollamaUrl: config.ollamaUrl || process.env.OLLAMA_URL || 'http://localhost:11434',
       ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3'
     };
