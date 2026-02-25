@@ -2,9 +2,9 @@ import GuardClawLogo from './GuardClawLogo';
 import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, SearchIcon, MessageIcon, BrainIcon, ImageIcon, ServerIcon, BotIcon, GitBranchIcon, ChartIcon, WrenchIcon, HourglassIcon, LinkIcon, MonitorIcon } from './icons';
 import { useState } from 'react';
 
-function MemoryHint({ memory }) {
+function MemoryHint({ memory, adjustment, originalScore, currentScore }) {
   if (!memory) return null;
-  const { approveCount, denyCount, confidence, pattern } = memory;
+  const { approveCount, denyCount, pattern } = memory;
   const total = approveCount + denyCount;
   if (total === 0) return null;
 
@@ -15,10 +15,18 @@ function MemoryHint({ memory }) {
       </div>
       <div className="text-gc-text-dim space-y-0.5">
         {approveCount > 0 && (
-          <div>You've approved similar commands <span className="font-medium text-gc-safe">{approveCount}×</span></div>
+          <div>Approved similar commands <span className="font-medium text-gc-safe">{approveCount}×</span></div>
         )}
         {denyCount > 0 && (
-          <div>You've denied similar commands <span className="font-medium text-gc-danger">{denyCount}×</span></div>
+          <div>Denied similar commands <span className="font-medium text-gc-danger">{denyCount}×</span></div>
+        )}
+        {adjustment != null && adjustment !== 0 && (
+          <div className="font-medium">
+            Score adjusted: <span className="text-gc-text">{originalScore}</span>
+            <span className="mx-1">→</span>
+            <span className={adjustment < 0 ? 'text-gc-safe' : 'text-gc-danger'}>{currentScore}</span>
+            <span className="opacity-60 ml-1">({adjustment > 0 ? '+' : ''}{adjustment})</span>
+          </div>
         )}
         <div className="opacity-60 font-mono text-[10px] truncate" title={pattern}>Pattern: {pattern}</div>
       </div>
@@ -204,7 +212,7 @@ function ToolCallRow({ event }) {
                   {event.safeguard.concerns.map((c, i) => <li key={i}>{c}</li>)}
                 </ul>
               )}
-              {event.safeguard.memory && <MemoryHint memory={event.safeguard.memory} />}
+              {event.safeguard.memory && <MemoryHint memory={event.safeguard.memory} adjustment={event.safeguard.memoryAdjustment} originalScore={event.safeguard.originalRiskScore} currentScore={event.safeguard.riskScore} />}
             </div>
           )}
 
@@ -392,7 +400,7 @@ function TurnItem({ turn }) {
                   </span>
                 </div>
               )}
-              {parent.safeguard.memory && <MemoryHint memory={parent.safeguard.memory} />}
+              {parent.safeguard.memory && <MemoryHint memory={parent.safeguard.memory} adjustment={parent.safeguard.memoryAdjustment} originalScore={parent.safeguard.originalRiskScore} currentScore={parent.safeguard.riskScore} />}
             </div>
           )}
         </div>

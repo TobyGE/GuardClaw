@@ -148,6 +148,18 @@ export class ApprovalHandler {
         analysis.memory = memoryHint;
       }
 
+      // Phase 3: Adjust score based on memory
+      const originalScore = analysis.riskScore;
+      if (this.memory) {
+        const adjustment = this.memory.getScoreAdjustment('exec', command, originalScore);
+        if (adjustment !== 0) {
+          analysis.riskScore = Math.max(1, Math.min(10, originalScore + adjustment));
+          analysis.memoryAdjustment = adjustment;
+          analysis.originalRiskScore = originalScore;
+          console.log(`[ApprovalHandler] 🧠 Memory adjusted score: ${originalScore} -> ${analysis.riskScore} (${adjustment > 0 ? '+' : ''}${adjustment})`);
+        }
+      }
+
       // Decision logic
       let decision = null;
       let reason = '';
