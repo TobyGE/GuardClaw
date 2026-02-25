@@ -134,6 +134,52 @@ function ToolOutput({ result }) {
   );
 }
 
+/* ---------- Memory Feedback Buttons ---------- */
+function MemoryFeedback({ event }) {
+  const [status, setStatus] = useState(null); // null | 'allow' | 'deny' | 'error'
+  
+  const record = async (decision) => {
+    const toolName = event.tool || event.subType || 'exec';
+    const command = event.command || event.description || '';
+    try {
+      const res = await fetch('/api/memory/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName,
+          command,
+          riskScore: event.safeguard?.riskScore || 0,
+          decision,
+          sessionKey: event.sessionKey || null,
+        }),
+      });
+      if (res.ok) setStatus(decision);
+      else setStatus('error');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  if (status === 'allow') return <span className="text-xs text-green-400 ml-2">Allowed</span>;
+  if (status === 'deny') return <span className="text-xs text-red-400 ml-2">Denied</span>;
+  if (status === 'error') return <span className="text-xs text-yellow-400 ml-2">Error</span>;
+
+  return (
+    <span className="inline-flex items-center ml-2 gap-1">
+      <button
+        onClick={(e) => { e.stopPropagation(); record('approve'); }}
+        className="text-xs px-1.5 py-0.5 rounded border border-green-700/50 text-green-400 hover:bg-green-900/30 transition-colors"
+        title="Mark as safe — trains memory to allow similar commands"
+      >Allow</button>
+      <button
+        onClick={(e) => { e.stopPropagation(); record('deny'); }}
+        className="text-xs px-1.5 py-0.5 rounded border border-red-700/50 text-red-400 hover:bg-red-900/30 transition-colors"
+        title="Mark as risky — trains memory to block similar commands"
+      >Deny</button>
+    </span>
+  );
+}
+
 /* ---------- ToolCallRow: one collapsed/expanded tool call ---------- */
 function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
@@ -165,6 +211,7 @@ function ToolCallRow({ event }) {
               {desc.substring(0, 80)}{desc.length > 80 ? '…' : ''}
             </code>
           )}
+          {event.safeguard?.riskScore != null && <MemoryFeedback event={event} />}
         </div>
         <span className="text-gc-text-dim text-xs ml-2 flex-shrink-0">{open ? '▼' : '▶'}</span>
       </button>
