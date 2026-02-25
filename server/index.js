@@ -724,6 +724,33 @@ app.post('/api/evaluate', async (req, res) => {
       }, chainHistory);
     }
     
+    // Memory: lookup past decisions and adjust score
+    let memoryHint = null;
+    let originalScore = analysis.riskScore;
+    const mem = memoryStore.lookup(toolName, toolName === 'exec' ? (params.command || '') : JSON.stringify(params));
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = {
+        pattern: mem.pattern,
+        approveCount: mem.approveCount,
+        denyCount: mem.denyCount,
+        confidence: mem.confidence,
+        suggestedAction: mem.suggestedAction
+      };
+      analysis.memory = memoryHint;
+
+      const adjustment = memoryStore.getScoreAdjustment(
+        toolName,
+        toolName === 'exec' ? (params.command || '') : JSON.stringify(params),
+        originalScore
+      );
+      if (adjustment !== 0) {
+        analysis.riskScore = Math.max(1, Math.min(10, originalScore + adjustment));
+        analysis.memoryAdjustment = adjustment;
+        analysis.originalRiskScore = originalScore;
+        console.log(`[GuardClaw] 🧠 Memory adjusted score: ${originalScore} -> ${analysis.riskScore} (${adjustment > 0 ? '+' : ''}${adjustment})`);
+      }
+    }
+
     // Cache result so streaming processor reuses it instead of calling LLM again
     setCachedEvaluation(sessionKey, toolName, params, analysis);
 
@@ -734,6 +761,9 @@ app.post('/api/evaluate', async (req, res) => {
     res.json({
       action: shouldBlock ? 'ask' : 'allow',
       risk: analysis.riskScore,
+      originalRisk: analysis.originalRiskScore || analysis.riskScore,
+      memoryAdjustment: analysis.memoryAdjustment || 0,
+      memory: memoryHint,
       chainRisk: analysis.chainRisk || false,
       reason: analysis.reasoning || analysis.category,
       details: analysis.warnings?.join('; ') || analysis.reasoning || '',
@@ -856,6 +886,15 @@ app.get('/api/memory/lookup', (req, res) => {
     return res.status(400).json({ error: 'Missing tool or command query param' });
   }
   res.json(memoryStore.lookup(tool, command));
+});
+
+app.post('/api/memory/record', (req, res) => {
+  const { toolName, command, riskScore, decision, sessionKey } = req.body;
+  if (!toolName || !decision) {
+    return res.status(400).json({ error: 'Missing toolName or decision' });
+  }
+  const result = memoryStore.recordDecision(toolName, command, riskScore, decision, sessionKey);
+  res.json({ ok: true, ...result });
 });
 
 app.post('/api/memory/reset', (req, res) => {

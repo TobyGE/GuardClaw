@@ -196,6 +196,9 @@ export default function (api) {
         // Inject a direct user-facing message — don't rely on agent to relay info
         const riskEmoji = result.risk >= 9 ? '🔴' : '🟠';
         const chainLine = result.chainRisk ? `**⛓️ Chain Risk:** Dangerous sequence detected in session history\n` : '';
+        const memoryLine = result.memory
+          ? `**🧠 Memory:** ${result.memory.approveCount > 0 ? `Approved similar ${result.memory.approveCount}×` : ''}${result.memory.approveCount > 0 && result.memory.denyCount > 0 ? ', ' : ''}${result.memory.denyCount > 0 ? `Denied similar ${result.memory.denyCount}×` : ''}${result.memoryAdjustment ? ` (score ${result.originalRisk}→${result.risk})` : ''}\n`
+          : '';
         const userMsg = [
           `🛡️ **GuardClaw blocked a tool call**`,
           ``,
@@ -203,6 +206,7 @@ export default function (api) {
           `**Input:** \`${displayInput}\``,
           `**Risk Score:** ${riskEmoji} ${result.risk}/10`,
           chainLine,
+          memoryLine,
           `**Reason:** ${result.reason}`,
           ``,
           `What would you like to do?`,
@@ -336,6 +340,14 @@ export default function (api) {
         };
       }
 
+      // Record to GuardClaw memory
+      fetch(`${GUARDCLAW_URL}/api/memory/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolName: call.toolName, command: displayInput, riskScore: call.riskScore, decision: 'approve', sessionKey: call.sessionKey }),
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+
       return {
         text: `✅ Approved — retrying ${call.toolName} now.\n\nInput: ${displayInput}`,
       };
@@ -371,6 +383,15 @@ export default function (api) {
       }
 
       const displayInput = formatParams(call.toolName, call.params);
+
+      // Record to GuardClaw memory
+      fetch(`${GUARDCLAW_URL}/api/memory/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolName: call.toolName, command: displayInput, riskScore: call.riskScore, decision: 'deny', sessionKey: call.sessionKey }),
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => {});
+
       return { text: `❌ Denied: ${call.toolName} (${displayInput})` };
     },
   });
