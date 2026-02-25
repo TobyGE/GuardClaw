@@ -2,6 +2,30 @@ import GuardClawLogo from './GuardClawLogo';
 import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, SearchIcon, MessageIcon, BrainIcon, ImageIcon, ServerIcon, BotIcon, GitBranchIcon, ChartIcon, WrenchIcon, HourglassIcon, LinkIcon, MonitorIcon } from './icons';
 import { useState } from 'react';
 
+function MemoryHint({ memory }) {
+  if (!memory) return null;
+  const { approveCount, denyCount, confidence, pattern } = memory;
+  const total = approveCount + denyCount;
+  if (total === 0) return null;
+
+  return (
+    <div className="mt-2 p-2.5 rounded-lg bg-gc-primary/5 border border-gc-primary/10 text-xs">
+      <div className="flex items-center gap-1.5 font-medium text-gc-primary mb-1">
+        <BrainIcon size={12} /> Memory
+      </div>
+      <div className="text-gc-text-dim space-y-0.5">
+        {approveCount > 0 && (
+          <div>You've approved similar commands <span className="font-medium text-gc-safe">{approveCount}×</span></div>
+        )}
+        {denyCount > 0 && (
+          <div>You've denied similar commands <span className="font-medium text-gc-danger">{denyCount}×</span></div>
+        )}
+        <div className="opacity-60 font-mono text-[10px] truncate" title={pattern}>Pattern: {pattern}</div>
+      </div>
+    </div>
+  );
+}
+
 const TOOL_ICON_MAP = {
   exec: TerminalIcon,
   read: FileTextIcon,
@@ -180,6 +204,7 @@ function ToolCallRow({ event }) {
                   {event.safeguard.concerns.map((c, i) => <li key={i}>{c}</li>)}
                 </ul>
               )}
+              {event.safeguard.memory && <MemoryHint memory={event.safeguard.memory} />}
             </div>
           )}
 
@@ -367,6 +392,7 @@ function TurnItem({ turn }) {
                   </span>
                 </div>
               )}
+              {parent.safeguard.memory && <MemoryHint memory={parent.safeguard.memory} />}
             </div>
           )}
         </div>

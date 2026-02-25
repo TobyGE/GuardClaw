@@ -127,6 +127,27 @@ export class ApprovalHandler {
       };
       this.eventStore.addEvent(approvalEvent);
       
+      // Lookup memory for similar past decisions
+      let memoryHint = null;
+      if (this.memory) {
+        const mem = this.memory.lookup('exec', command);
+        if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+          memoryHint = {
+            pattern: mem.pattern,
+            approveCount: mem.approveCount,
+            denyCount: mem.denyCount,
+            confidence: mem.confidence,
+            suggestedAction: mem.suggestedAction
+          };
+          console.log(`[ApprovalHandler] 🧠 Memory: "${mem.pattern}" — ${mem.approveCount} approves, ${mem.denyCount} denies (confidence: ${mem.confidence.toFixed(2)})`);
+        }
+      }
+
+      // Attach memory hint to analysis for frontend display
+      if (memoryHint) {
+        analysis.memory = memoryHint;
+      }
+
       // Decision logic
       let decision = null;
       let reason = '';
@@ -160,7 +181,8 @@ export class ApprovalHandler {
           this.pendingApprovals.set(approvalId, {
             ...approvalEvent,
             receivedAt: Date.now(),
-            sessionKey
+            sessionKey,
+            toolName: 'exec'
           });
           this.stats.pending++;
           
@@ -268,16 +290,31 @@ export class ApprovalHandler {
   }
 
   formatNotificationMessage(action, command, analysis, reason, approvalId) {
+    let msg = '';
     if (action === 'blocked') {
-      return `🛡️ Blocked command \`${command}\` (Risk: ${analysis.riskScore}/10) - ${analysis.reasoning}`;
+      msg = `🛡️ Blocked command \`${command}\` (Risk: ${analysis.riskScore}/10) - ${analysis.reasoning}`;
     } else if (action === 'pending') {
-      return `⏸️ Approval required for \`${command}\` (Risk: ${analysis.riskScore}/10) - ID: ${approvalId}`;
+      msg = `⏸️ Approval required for \`${command}\` (Risk: ${analysis.riskScore}/10) - ID: ${approvalId}`;
     } else if (action === 'user-denied') {
-      return `❌ You denied \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+      msg = `❌ You denied \`${command}\` (Risk: ${analysis.riskScore}/10)`;
     } else if (action === 'user-approved') {
-      return `✅ You approved \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+      msg = `✅ You approved \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+    } else {
+      msg = `Command: ${command}`;
     }
-    return `Command: ${command}`;
+
+    // Append memory hint if available
+    if (analysis?.memory) {
+      const m = analysis.memory;
+      if (m.approveCount > 0) {
+        msg += `\n💡 You've approved similar commands ${m.approveCount} time${m.approveCount > 1 ? 's' : ''} before.`;
+      }
+      if (m.denyCount > 0) {
+        msg += `\n⚠️ You've denied similar commands ${m.denyCount} time${m.denyCount > 1 ? 's' : ''} before.`;
+      }
+    }
+
+    return msg;
   }
 
   async userResolve(approvalId, action) {
