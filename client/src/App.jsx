@@ -23,7 +23,7 @@ function App() {
   });
   const [events, setEvents] = useState([]);
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
-  const [backendFilter, setBackendFilter] = useState('all'); // 'all', 'openclaw', 'nanobot'
+  const [backendFilter, setBackendFilter] = useState('openclaw'); // 'openclaw', 'nanobot'
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
   const [showGatewayModal, setShowGatewayModal] = useState(false);
@@ -572,16 +572,6 @@ function App() {
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setBackendFilter('all')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      backendFilter === 'all'
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                    }`}
-                  >
-                    All
-                  </button>
                   {backends && backends.openclaw && (
                     <button
                       onClick={() => setBackendFilter('openclaw')}
