@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import StatCard from './components/StatCard';
 import EventList from './components/EventList';
+import MemoryPage from './components/MemoryPage';
 import ConnectionModal from './components/ConnectionModal';
 import SettingsModal from './components/SettingsModal';
 import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
-import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon } from './components/icons';
+import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon, BrainIcon } from './components/icons';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -39,6 +40,7 @@ function App() {
   const selectedSessionRef = useRef(selectedSession);
   useEffect(() => { backendFilterRef.current = backendFilter; }, [backendFilter]);
   useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
+  const [activePage, setActivePage] = useState('events'); // 'events' | 'memory'
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? saved === 'true' : true; // Default to dark
@@ -437,10 +439,35 @@ function App() {
       {/* Header */}
       <header className="border-b border-gc-border bg-gc-card">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="https://tobyge.github.io/GuardClaw/" target="_blank" rel="noopener noreferrer" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-            <GuardClawLogo size={36} />
-            <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
-          </a>
+          <div className="flex items-center space-x-6">
+            <a href="https://tobyge.github.io/GuardClaw/" target="_blank" rel="noopener noreferrer" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
+              <GuardClawLogo size={36} />
+              <h1 className="text-2xl font-bold text-gc-primary">GuardClaw</h1>
+            </a>
+            <nav className="flex items-center space-x-1">
+              <button
+                onClick={() => setActivePage('events')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activePage === 'events'
+                    ? 'bg-gc-primary/20 text-gc-primary'
+                    : 'text-gc-text-secondary hover:text-gc-text hover:bg-gc-border/50'
+                }`}
+              >
+                Events
+              </button>
+              <button
+                onClick={() => setActivePage('memory')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activePage === 'memory'
+                    ? 'bg-gc-primary/20 text-gc-primary'
+                    : 'text-gc-text-secondary hover:text-gc-text hover:bg-gc-border/50'
+                }`}
+              >
+                <BrainIcon size={14} />
+                Memory
+              </button>
+            </nav>
+          </div>
           <div className="flex items-center space-x-2">
             {/* Fail-Closed Toggle */}
             <button
@@ -499,163 +526,169 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <StatCard
-            title="DAYS PROTECTED"
-            value={daysSinceInstall}
-            color="text-blue-400"
-          />
-          <StatCard
-            title="TOTAL EVENTS"
-            value={stats.totalEvents}
-            color="text-gc-text"
-            onClick={() => setEventFilter(null)}
-            active={eventFilter === null}
-          />
-          <StatCard
-            title="SAFE COMMANDS"
-            value={stats.safeCommands}
-            color="text-gc-safe"
-            onClick={() => setEventFilter(eventFilter === 'safe' ? null : 'safe')}
-            active={eventFilter === 'safe'}
-          />
-          <StatCard
-            title="WARNINGS"
-            value={stats.warnings}
-            color="text-gc-warning"
-            onClick={() => setEventFilter(eventFilter === 'warning' ? null : 'warning')}
-            active={eventFilter === 'warning'}
-          />
-          <StatCard
-            title="BLOCKED"
-            value={stats.blocked}
-            color="text-gc-danger"
-            onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
-            active={eventFilter === 'blocked'}
-          />
-        </div>
-
-        {/* Backend Selector */}
-        <div className="mb-6 bg-gc-card rounded-lg border border-gc-border p-4">
-          <div className="flex items-center space-x-3">
-            <span className="text-sm font-medium text-gc-text">Backend:</span>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setBackendFilter('all')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  backendFilter === 'all'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                }`}
-              >
-                All
-              </button>
-              {backends && backends.openclaw && (
-                <button
-                  onClick={() => setBackendFilter('openclaw')}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    backendFilter === 'openclaw'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${
-                    backends.openclaw.connected ? 'bg-green-500' : 'bg-red-500'
-                  }`}></span>
-                  <span>OpenClaw</span>
-                </button>
-              )}
-              {backends && backends.nanobot && (
-                <button
-                  onClick={() => setBackendFilter('nanobot')}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    backendFilter === 'nanobot'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${
-                    backends.nanobot.connected ? 'bg-green-500' : 'bg-red-500'
-                  }`}></span>
-                  <span>Nanobot</span>
-                </button>
-              )}
+        {activePage === 'memory' ? (
+          <MemoryPage />
+        ) : (
+          <>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+              <StatCard
+                title="DAYS PROTECTED"
+                value={daysSinceInstall}
+                color="text-blue-400"
+              />
+              <StatCard
+                title="TOTAL EVENTS"
+                value={stats.totalEvents}
+                color="text-gc-text"
+                onClick={() => setEventFilter(null)}
+                active={eventFilter === null}
+              />
+              <StatCard
+                title="SAFE COMMANDS"
+                value={stats.safeCommands}
+                color="text-gc-safe"
+                onClick={() => setEventFilter(eventFilter === 'safe' ? null : 'safe')}
+                active={eventFilter === 'safe'}
+              />
+              <StatCard
+                title="WARNINGS"
+                value={stats.warnings}
+                color="text-gc-warning"
+                onClick={() => setEventFilter(eventFilter === 'warning' ? null : 'warning')}
+                active={eventFilter === 'warning'}
+              />
+              <StatCard
+                title="BLOCKED"
+                value={stats.blocked}
+                color="text-gc-danger"
+                onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
+                active={eventFilter === 'blocked'}
+              />
             </div>
-            <div className="flex-1"></div>
-            <span className="text-xs text-gc-text-dim">
-              Showing {events.length} event{events.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-        </div>
 
-        {/* Events Section */}
-        <div className="bg-gc-card rounded-lg border border-gc-border overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 400px)', minHeight: '500px' }}>
-          <div className="px-6 py-4 border-b border-gc-border flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">
-                Real-time Events
-                {backendFilter !== 'all' && (
-                  <span className="ml-2 text-sm text-gc-text-dim">
-                    ({backendFilter === 'openclaw' ? 'OpenClaw' : 'Nanobot'})
-                  </span>
-                )}
-              </h2>
-              {eventFilter && (
+            {/* Backend Selector */}
+            <div className="mb-6 bg-gc-card rounded-lg border border-gc-border p-4">
+              <div className="flex items-center space-x-3">
+                <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gc-text-dim">
-                    Filtered: <span className="font-semibold capitalize">{eventFilter}</span>
-                  </span>
                   <button
-                    onClick={() => setEventFilter(null)}
-                    className="text-xs px-2 py-1 rounded bg-gc-border hover:bg-gc-primary/20 transition-colors"
+                    onClick={() => setBackendFilter('all')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      backendFilter === 'all'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                    }`}
                   >
-                    Clear Filter
+                    All
                   </button>
+                  {backends && backends.openclaw && (
+                    <button
+                      onClick={() => setBackendFilter('openclaw')}
+                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        backendFilter === 'openclaw'
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${
+                        backends.openclaw.connected ? 'bg-green-500' : 'bg-red-500'
+                      }`}></span>
+                      <span>OpenClaw</span>
+                    </button>
+                  )}
+                  {backends && backends.nanobot && (
+                    <button
+                      onClick={() => setBackendFilter('nanobot')}
+                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        backendFilter === 'nanobot'
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${
+                        backends.nanobot.connected ? 'bg-green-500' : 'bg-red-500'
+                      }`}></span>
+                      <span>Nanobot</span>
+                    </button>
+                  )}
+                </div>
+                <div className="flex-1"></div>
+                <span className="text-xs text-gc-text-dim">
+                  Showing {events.length} event{events.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+
+            {/* Events Section */}
+            <div className="bg-gc-card rounded-lg border border-gc-border overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 400px)', minHeight: '500px' }}>
+              <div className="px-6 py-4 border-b border-gc-border flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">
+                    Real-time Events
+                    {backendFilter !== 'all' && (
+                      <span className="ml-2 text-sm text-gc-text-dim">
+                        ({backendFilter === 'openclaw' ? 'OpenClaw' : 'Nanobot'})
+                      </span>
+                    )}
+                  </h2>
+                  {eventFilter && (
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gc-text-dim">
+                        Filtered: <span className="font-semibold capitalize">{eventFilter}</span>
+                      </span>
+                      <button
+                        onClick={() => setEventFilter(null)}
+                        className="text-xs px-2 py-1 rounded bg-gc-border hover:bg-gc-primary/20 transition-colors"
+                      >
+                        Clear Filter
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Session Tabs — only show for OpenClaw events */}
+              {sessions.length > 1 && backendFilter !== 'nanobot' && (
+                <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
+                  <button
+                    onClick={() => setSelectedSession(null)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                      selectedSession === null
+                        ? 'bg-gc-primary text-white'
+                        : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
+                    }`}
+                  >
+                    All Sessions
+                  </button>
+                  {sessions.map((s) => (
+                    <button
+                      key={s.key}
+                      onClick={() => setSelectedSession(s.key)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                        selectedSession === s.key
+                          ? 'bg-gc-primary text-white'
+                          : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
+                      } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
+                    >
+                      <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
+                      <span>{s.label}</span>
+                      <span className="text-[10px] opacity-60">({s.eventCount})</span>
+                    </button>
+                  ))}
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Session Tabs — only show for OpenClaw events */}
-          {sessions.length > 1 && backendFilter !== 'nanobot' && (
-            <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
-              <button
-                onClick={() => setSelectedSession(null)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                  selectedSession === null
-                    ? 'bg-gc-primary text-white'
-                    : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
-                }`}
-              >
-                📋 All Sessions
-              </button>
-              {sessions.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setSelectedSession(s.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                    selectedSession === s.key
-                      ? 'bg-gc-primary text-white'
-                      : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
-                  } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
-                >
-                  <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
-                  <span>{s.label}</span>
-                  <span className="text-[10px] opacity-60">({s.eventCount})</span>
-                </button>
-              ))}
+              <div className="flex-1 overflow-y-auto">
+                <EventList events={
+                  selectedSession
+                    ? events.filter(e => e.sessionKey === selectedSession)
+                    : events
+                } />
+              </div>
             </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto">
-            <EventList events={
-              selectedSession
-                ? events.filter(e => e.sessionKey === selectedSession)
-                : events
-            } />
-          </div>
-        </div>
+          </>
+        )}
       </main>
     </div>
   );

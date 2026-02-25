@@ -103,6 +103,8 @@ export class MemoryStore {
     `);
 
     this._stmtPatternCount = this.db.prepare(`SELECT COUNT(*) as count FROM patterns`);
+
+    this._stmtAutoApproveCount = this.db.prepare(`SELECT COUNT(*) as count FROM patterns WHERE suggestedAction = 'auto-approve'`);
   }
 
   // ─── Command Pattern Extraction ───
@@ -287,12 +289,14 @@ export class MemoryStore {
   getStats() {
     const dStats = this._stmtDecisionStats.get();
     const pCount = this._stmtPatternCount.get();
+    const autoApproveCount = this._stmtAutoApproveCount.get();
     return {
       totalDecisions: dStats.total,
       approves: dStats.approves,
       denies: dStats.denies,
       approveRate: dStats.total > 0 ? (dStats.approves / dStats.total * 100).toFixed(1) : '0',
-      totalPatterns: pCount.count
+      totalPatterns: pCount.count,
+      autoApproveCount: autoApproveCount.count
     };
   }
 
