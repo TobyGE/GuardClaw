@@ -709,8 +709,59 @@ app.post('/api/evaluate', async (req, res) => {
       console.log(`[GuardClaw] ⛓️  Chain analysis triggered for ${toolName} (${chainHistory.length} history steps, ${chainHistory.filter(h => h.hasSensitiveAccess).length} sensitive)`);
     }
 
+    // Memory: lookup past decisions BEFORE LLM call (enables auto-approve shortcut)
+    const commandStr = toolName === 'exec' ? (params.command || '') : JSON.stringify(params);
+    const mem = memoryStore.lookup(toolName, commandStr);
+    let memoryHint = null;
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = {
+        pattern: mem.pattern,
+        approveCount: mem.approveCount,
+        denyCount: mem.denyCount,
+        confidence: mem.confidence,
+        suggestedAction: mem.suggestedAction
+      };
+    }
+
+    // Auto-approve: if memory says auto-approve and blocking is on, skip LLM entirely
+    if (blockingEnabled && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+      // Compute what the adjusted score would be (use a moderate base since we skip LLM)
+      const baseScore = 5; // neutral base for memory-only evaluation
+      const adjustment = memoryStore.getScoreAdjustment(toolName, commandStr, baseScore);
+      const adjustedScore = Math.max(1, Math.min(10, baseScore + adjustment));
+
+      // Safety check: never auto-approve if adjusted score >= 9
+      if (adjustedScore < 9) {
+        console.log(`[GuardClaw] 🧠 Auto-approved by memory: ${memoryHint.pattern} (confidence: ${memoryHint.confidence.toFixed(2)})`);
+        const autoResult = {
+          action: 'allow',
+          risk: adjustedScore,
+          originalRisk: baseScore,
+          memoryAdjustment: adjustment,
+          memory: memoryHint,
+          chainRisk: false,
+          reason: `Auto-approved by memory: pattern "${memoryHint.pattern}" approved ${memoryHint.approveCount} times (confidence: ${memoryHint.confidence.toFixed(2)})`,
+          details: `Memory auto-approve — ${memoryHint.approveCount} approvals, ${memoryHint.denyCount} denials`,
+          backend: 'memory',
+          autoApproved: true,
+          blockingEnabled,
+        };
+        // Cache the auto-approve result so streaming processor reuses it
+        setCachedEvaluation(sessionKey, toolName, params, {
+          riskScore: adjustedScore,
+          reasoning: autoResult.reason,
+          warnings: [],
+          backend: 'memory',
+          memory: memoryHint,
+          memoryAdjustment: adjustment,
+          originalRiskScore: baseScore,
+        });
+        return res.json(autoResult);
+      }
+    }
+
     let analysis;
-    
+
     if (toolName === 'exec') {
       // For exec, analyze the command with full LLM analysis
       const cmd = params.command || '';
@@ -723,26 +774,13 @@ app.post('/api/evaluate', async (req, res) => {
         ...params
       }, chainHistory);
     }
-    
-    // Memory: lookup past decisions and adjust score
-    let memoryHint = null;
+
+    // Memory: apply score adjustment from earlier lookup
     let originalScore = analysis.riskScore;
-    const mem = memoryStore.lookup(toolName, toolName === 'exec' ? (params.command || '') : JSON.stringify(params));
-    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
-      memoryHint = {
-        pattern: mem.pattern,
-        approveCount: mem.approveCount,
-        denyCount: mem.denyCount,
-        confidence: mem.confidence,
-        suggestedAction: mem.suggestedAction
-      };
+    if (memoryHint) {
       analysis.memory = memoryHint;
 
-      const adjustment = memoryStore.getScoreAdjustment(
-        toolName,
-        toolName === 'exec' ? (params.command || '') : JSON.stringify(params),
-        originalScore
-      );
+      const adjustment = memoryStore.getScoreAdjustment(toolName, commandStr, originalScore);
       if (adjustment !== 0) {
         analysis.riskScore = Math.max(1, Math.min(10, originalScore + adjustment));
         analysis.memoryAdjustment = adjustment;
