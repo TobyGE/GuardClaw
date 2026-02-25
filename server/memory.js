@@ -111,8 +111,9 @@ export class MemoryStore {
 
   // Generalize a command into a pattern.
   // e.g. "git push origin main" -> "git push *"
-  //      "rm -rf .../node_modules" -> "rm -rf [star]/node_modules"
-  //      "curl https://api.example.com/data" -> "curl https://[star].com/[star]"
+  //      "rm -rf ~/projects/app/node_modules" -> "rm -rf ~/projects/*/node_modules"
+  //      "curl https://api.notion.com/v1/pages" -> "curl https://api.notion.com/*"
+  //      "cat ~/.ssh/id_rsa" -> "cat ~/.ssh/*"
   extractPattern(toolName, command) {
     if (!command) return `${toolName}:*`;
 
@@ -130,22 +131,68 @@ export class MemoryStore {
     pattern = pattern.replace(/\d{10,13}/g, '<timestamp>');
     pattern = pattern.replace(/\d{4}-\d{2}-\d{2}/g, '<date>');
 
-    // Generalize specific file paths but keep structure
-    // ~/guardclaw/client/src/App.jsx -> ~/guardclaw/[wild]/App.jsx
-    // Keep first two path components, wildcard the middle
-    pattern = pattern.replace(/(~\/[^/\s]+\/)[^\s]+(\/[^/\s]+)$/g, '$1*$2');
-
-    // For exec: extract just the base command + first args
     if (toolName === 'exec') {
-      // "cd ~/guardclaw && npm run build" -> "cd * && npm run build"
+      // ─── Exec: nuanced pattern extraction ───
+      // Preserves dangerous commands, domains, sensitive paths, and pipe targets
+
+      // 1. curl/wget: keep protocol + domain, generalize URL path
+      //    "curl https://api.notion.com/v1/pages/abc" -> "curl https://api.notion.com/*"
+      pattern = pattern.replace(
+        /((?:curl|wget)\b.*?)(https?:\/\/)([^\s/]+)(\/\S*)?/g,
+        '$1$2$3/*'
+      );
+
+      // 2. Generalize file paths, but preserve sensitive segments
+      //    Sensitive dirs (.ssh, .env, .config) are kept; contents wildcarded
+      //    Sensitive files (authorized_keys, id_rsa, .bashrc, .zshrc) are kept as leaf
+      const SENSITIVE_DIRS = new Set(['.ssh', '.env', '.config', '.gnupg', '.aws']);
+      const SENSITIVE_FILES = new Set(['authorized_keys', 'id_rsa', '.bashrc', '.zshrc']);
+
+      pattern = pattern.replace(/(~\/[^\s"']+)/g, (match) => {
+        const parts = match.split('/');
+
+        // Check for sensitive directory in path
+        const sensitiveDirIdx = parts.findIndex((p, i) => i > 0 && SENSITIVE_DIRS.has(p));
+        if (sensitiveDirIdx !== -1) {
+          // Keep ~, wildcard non-sensitive middle, keep sensitive dir, wildcard after
+          const result = [parts[0]]; // ~
+          for (let i = 1; i < sensitiveDirIdx; i++) result.push('*');
+          result.push(parts[sensitiveDirIdx]);
+          if (sensitiveDirIdx < parts.length - 1) result.push('*');
+          // Deduplicate consecutive wildcards
+          return result.filter((p, i) => !(p === '*' && result[i - 1] === '*')).join('/');
+        }
+
+        // Check for sensitive filename at end of path
+        const lastPart = parts[parts.length - 1];
+        if (SENSITIVE_FILES.has(lastPart)) {
+          if (parts.length > 3) {
+            return `${parts[0]}/${parts[1]}/*/${lastPart}`;
+          }
+          return match; // short path, keep as-is
+        }
+
+        // Non-sensitive: standard generalization (keep first dir + last component)
+        if (parts.length > 3) {
+          return `${parts[0]}/${parts[1]}/*/${parts[parts.length - 1]}`;
+        }
+        return match;
+      });
+
+      // 3. cd path generalization
       pattern = pattern.replace(/cd\s+\S+/g, 'cd *');
-      
-      // Generalize git branch/tag names
+
+      // 4. git branch/tag generalization
       pattern = pattern.replace(/(git\s+(?:push|pull|checkout|merge|rebase)\s+\S+\s+)\S+/g, '$1*');
-      
-      // Generalize commit messages
+
+      // 5. git commit message generalization
       pattern = pattern.replace(/(git\s+commit\s+-m\s+)"[^"]*"/g, '$1"*"');
       pattern = pattern.replace(/(git\s+commit\s+-m\s+)'[^']*'/g, "$1'*'");
+
+    } else {
+      // ─── Non-exec: general path wildcard ───
+      // ~/guardclaw/client/src/App.jsx -> ~/guardclaw/*/App.jsx
+      pattern = pattern.replace(/(~\/[^/\s]+\/)[^\s]+(\/[^/\s]+)$/g, '$1*$2');
     }
 
     // For read/write/edit: generalize to directory + extension
