@@ -112,9 +112,6 @@ Implemented (2026-02-22):
 - Fast recovery: successful evaluate response immediately restores `guardclawAvailable = true` without waiting for heartbeat.
 - PID self-protection: plugin fetches GuardClaw PID from `/api/health` at startup; dynamically blocks `kill`/`pkill <pid>` commands targeting that PID. Complemented by name-based rules in `safeguard.js` HIGH_RISK_PATTERNS (`pkill.*guardclaw` → score 9).
 
-### Approve/deny buttons in dashboard
-Click instead of typing `/approve-last` or `/deny-last` in chat.
-
 ---
 
 ## Dashboard & UX

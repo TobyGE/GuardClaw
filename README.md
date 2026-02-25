@@ -201,7 +201,6 @@ See the [full roadmap](docs/ROADMAP.md) for detailed feature descriptions.
 
 **Coming up:**
 - Event search & advanced filtering
-- Approve/deny buttons directly in dashboard
 - Cross-session chain analysis
 - A2A protocol monitoring
 
