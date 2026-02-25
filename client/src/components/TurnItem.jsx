@@ -160,8 +160,8 @@ function MemoryFeedback({ event }) {
     }
   };
 
-  if (status === 'allow') return <span className="text-xs text-green-400 ml-2">Allowed</span>;
-  if (status === 'deny') return <span className="text-xs text-red-400 ml-2">Denied</span>;
+  if (status === 'allow') return <span className="text-xs text-green-400 ml-2">Marked Safe</span>;
+  if (status === 'deny') return <span className="text-xs text-red-400 ml-2">Marked Risky</span>;
   if (status === 'error') return <span className="text-xs text-yellow-400 ml-2">Error</span>;
 
   return (
@@ -169,13 +169,13 @@ function MemoryFeedback({ event }) {
       <button
         onClick={(e) => { e.stopPropagation(); record('approve'); }}
         className="text-xs px-1.5 py-0.5 rounded border border-green-700/50 text-green-400 hover:bg-green-900/30 transition-colors"
-        title="Mark as safe — trains memory to allow similar commands"
-      >Allow</button>
+        title="Train memory: similar commands are safe"
+      >Mark Safe</button>
       <button
         onClick={(e) => { e.stopPropagation(); record('deny'); }}
         className="text-xs px-1.5 py-0.5 rounded border border-red-700/50 text-red-400 hover:bg-red-900/30 transition-colors"
-        title="Mark as risky — trains memory to block similar commands"
-      >Deny</button>
+        title="Train memory: similar commands are risky"
+      >Mark Risky</button>
     </span>
   );
 }
