@@ -409,11 +409,30 @@ app.get('/api/sessions', (req, res) => {
       existing.lastEventTime = Math.max(existing.lastEventTime, event.timestamp || 0);
     } else {
       // Derive parent and label from session key
-      // Format: agent:main:main (main) or agent:main:subagent:<uuid> (sub-agent)
+      // Formats: agent:main:main, agent:main:telegram:direct:123, agent:main:subagent:<uuid>
       const isSubagent = key.includes(':subagent:');
       const parentKey = isSubagent ? key.replace(/:subagent:[^:]+$/, ':main') : null;
       const shortId = isSubagent ? key.split(':subagent:')[1]?.substring(0, 8) : null;
-      const label = isSubagent ? `Sub-agent ${shortId}` : 'Main Agent';
+
+      let label;
+      if (isSubagent) {
+        label = `Sub-agent ${shortId}`;
+      } else {
+        // Extract channel from key: agent:main:<channel>:... or agent:main:main
+        const parts = key.split(':');
+        const channel = parts.length > 2 ? parts[2] : 'main';
+        const channelLabels = {
+          main: 'Main Agent',
+          telegram: 'Telegram',
+          whatsapp: 'WhatsApp',
+          discord: 'Discord',
+          signal: 'Signal',
+          slack: 'Slack',
+          webchat: 'Webchat',
+          irc: 'IRC',
+        };
+        label = channelLabels[channel] || `Agent (${channel})`;
+      }
 
       sessionMap.set(key, {
         key,
@@ -428,15 +447,29 @@ app.get('/api/sessions', (req, res) => {
     }
   }
 
-  // Mark sub-agents as inactive if no events in last 2 minutes; hide if >24h
+  // Mark sessions as inactive/hidden based on idle time
+  // Sub-agents: inactive after 2min, hidden after 24h
+  // Non-primary main sessions: inactive after 10min, hidden after 7 days
   const now = Date.now();
   const hiddenKeys = [];
+  const mainSessions = Array.from(sessionMap.values()).filter(s => !s.isSubagent);
+  const primaryMainKey = mainSessions.length > 0
+    ? mainSessions.sort((a, b) => b.eventCount - a.eventCount)[0].key
+    : null;
+
   for (const s of sessionMap.values()) {
+    const idleMs = now - s.lastEventTime;
     if (s.isSubagent) {
-      const idleMs = now - s.lastEventTime;
       if (idleMs > 24 * 60 * 60 * 1000) {
         hiddenKeys.push(s.key);
       } else if (idleMs > 2 * 60 * 1000) {
+        s.active = false;
+      }
+    } else if (s.key !== primaryMainKey) {
+      // Secondary main sessions (different channels)
+      if (idleMs > 7 * 24 * 60 * 60 * 1000) {
+        hiddenKeys.push(s.key);
+      } else if (idleMs > 10 * 60 * 1000) {
         s.active = false;
       }
     }
