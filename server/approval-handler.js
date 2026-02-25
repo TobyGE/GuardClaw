@@ -16,6 +16,9 @@ export class ApprovalHandler {
     // Whitelist/Blacklist
     this.blockingConfig = config.blockingConfig || { whitelist: [], blacklist: [] };
     
+    // Memory
+    this.memory = config.memoryStore || null;
+    
     // Pending approvals (waiting for user decision)
     this.pendingApprovals = new Map();
     
@@ -291,6 +294,17 @@ export class ApprovalHandler {
       this.stats.userDenied++;
     } else {
       this.stats.userApproved++;
+    }
+    
+    // Record to memory
+    if (this.memory) {
+      const toolName = pending.toolName || 'exec';
+      const decision = action === 'deny' ? 'deny' : 'approve';
+      this.memory.recordDecision(
+        toolName, pending.command,
+        pending.safeguard?.riskScore,
+        decision, pending.sessionKey
+      );
     }
     
     // Notify user about their decision

@@ -17,6 +17,7 @@ import { configRoutes } from './routes/config.js';
 import { benchmarkRoutes } from './routes/benchmark.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
+import { MemoryStore } from './memory.js';
 
 dotenv.config();
 
@@ -71,6 +72,7 @@ const safeguardService = new SafeguardService(
 );
 
 const eventStore = new EventStore();
+const memoryStore = new MemoryStore();
 
 // ─── Tool History Store (for chain analysis) ─────────────────────────────────
 // Tracks recent tool calls per session including outputs, for LLM chain analysis
@@ -200,7 +202,7 @@ let blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
 // Can be toggled at runtime via POST /api/config/fail-closed
 let failClosedEnabled = process.env.GUARDCLAW_FAIL_CLOSED === 'true'; // default OFF — opt-in via env or dashboard
 const approvalHandler = (openclawClient && blockingEnabled)
-  ? new ApprovalHandler(openclawClient, safeguardService, eventStore, { blockingConfig })
+  ? new ApprovalHandler(openclawClient, safeguardService, eventStore, { blockingConfig, memoryStore })
   : null;
 
 if (openclawClient && !blockingEnabled) {
@@ -826,6 +828,39 @@ app.post('/api/approvals/resolve', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// ─── Memory APIs ─────────────────────────────────────────────────────────────
+
+app.get('/api/memory/stats', (req, res) => {
+  res.json(memoryStore.getStats());
+});
+
+app.get('/api/memory/decisions', (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  res.json({ decisions: memoryStore.getDecisions(limit) });
+});
+
+app.get('/api/memory/patterns', (req, res) => {
+  const limit = parseInt(req.query.limit) || 100;
+  const toolName = req.query.tool || null;
+  const patterns = toolName
+    ? memoryStore.getPatternsByTool(toolName)
+    : memoryStore.getPatterns(limit);
+  res.json({ patterns });
+});
+
+app.get('/api/memory/lookup', (req, res) => {
+  const { tool, command } = req.query;
+  if (!tool || !command) {
+    return res.status(400).json({ error: 'Missing tool or command query param' });
+  }
+  res.json(memoryStore.lookup(tool, command));
+});
+
+app.post('/api/memory/reset', (req, res) => {
+  memoryStore.reset();
+  res.json({ ok: true, message: 'Memory cleared' });
 });
 
 // Fail-closed toggle API
@@ -1685,6 +1720,7 @@ process.on('SIGINT', () => {
   console.log('');
 
   if (sessionPoller) sessionPoller.stop();
+  memoryStore.shutdown();
   for (const { client } of activeClients) {
     client.disconnect();
   }
