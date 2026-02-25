@@ -463,7 +463,6 @@ function App() {
                     : 'text-gc-text-secondary hover:text-gc-text hover:bg-gc-border/50'
                 }`}
               >
-                <BrainIcon size={14} />
                 Memory
               </button>
             </nav>
