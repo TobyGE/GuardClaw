@@ -203,15 +203,15 @@ export default function (api) {
           `🛡️ **GuardClaw blocked a tool call**`,
           ``,
           `**Tool:** \`${event.toolName}\``,
-          `**Input:** \`${displayInput}\``,
-          `**Risk Score:** ${riskEmoji} ${result.risk}/10`,
+          `**Command:** \`${displayInput}\``,
+          `**Risk:** ${riskEmoji} **${result.risk}/10**`,
           chainLine,
           memoryLine,
-          `**Reason:** ${result.reason}`,
+          `**Why:** ${result.reason}`,
           ``,
-          `What would you like to do?`,
-          `• \`/approve-last\` — Allow this once`,
-          `• \`/deny-last\` — Cancel`,
+          `**Reply one of these to respond:**`,
+          `/approve — allow this command once`,
+          `/deny — block and cancel`,
         ].join('\n');
 
         // Fire-and-forget: inject directly to user, don't block the hook response
@@ -287,114 +287,104 @@ export default function (api) {
     }
   });
 
-  api.registerCommand({
-    name: 'approve-last',
-    description: 'Approve the last blocked tool call (auto-retries)',
-    handler: async (_ctx) => {
-      const globalList = pendingCalls.get('__global__') || [];
-      const call = globalList.pop();
+  // ── Approve handler (shared by /approve-last and /approve) ──
+  const handleApprove = async (_ctx) => {
+    const globalList = pendingCalls.get('__global__') || [];
+    const call = globalList.pop();
 
-      if (!call) {
-        return { text: '❌ No pending blocked actions.' };
+    if (!call) {
+      return { text: '❌ No pending blocked actions.' };
+    }
+
+    pendingCalls.set('__global__', globalList);
+
+    if (call.sessionKey) {
+      const sessionList = pendingCalls.get(call.sessionKey) || [];
+      const idx = sessionList.findIndex(
+        (c) => c.toolName === call.toolName && c.timestamp === call.timestamp
+      );
+      if (idx !== -1) {
+        sessionList.splice(idx, 1);
+        pendingCalls.set(call.sessionKey, sessionList);
       }
+      blockedSessions.delete(call.sessionKey);
+      api.logger.info(`[GuardClaw] 🔓 Session unlocked: ${call.sessionKey}`);
+    }
 
-      pendingCalls.set('__global__', globalList);
+    const commandKey = `${call.toolName}:${JSON.stringify(call.params)}`;
+    approvedCommands.set(commandKey, Date.now() + 5 * 60 * 1000);
 
-      // Remove from session list
-      if (call.sessionKey) {
-        const sessionList = pendingCalls.get(call.sessionKey) || [];
-        const idx = sessionList.findIndex(
-          (c) => c.toolName === call.toolName && c.timestamp === call.timestamp
-        );
-        if (idx !== -1) {
-          sessionList.splice(idx, 1);
-          pendingCalls.set(call.sessionKey, sessionList);
-        }
-
-        // Clear the session lock so new tool calls are allowed through again
-        blockedSessions.delete(call.sessionKey);
-        api.logger.info(`[GuardClaw] 🔓 Session unlocked: ${call.sessionKey}`);
-      }
-
-      // Add to whitelist (5 min)
-      const commandKey = `${call.toolName}:${JSON.stringify(call.params)}`;
-      approvedCommands.set(commandKey, Date.now() + 5 * 60 * 1000);
-
-      // Inject retry signal into the agent session via GuardClaw
-      const displayInput = formatParams(call.toolName, call.params);
-      try {
-        await fetch(`${GUARDCLAW_URL}/api/chat-inject`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionKey: call.sessionKey,
-            message: `[GUARDCLAW RETRY APPROVED] The user approved the blocked action. Retry it now immediately.\nTool: ${call.toolName}\nInput: ${displayInput}`,
-          }),
-          signal: AbortSignal.timeout(3000),
-        });
-      } catch (err) {
-        api.logger.warn(`[GuardClaw] Failed to inject retry signal: ${err.message}`);
-        // Still approved — user may need to ask agent to retry manually
-        return {
-          text: `✅ Approved: ${call.toolName} (${displayInput})\n\n⚠️ Auto-retry signal failed — please ask the agent to retry manually.`,
-        };
-      }
-
-      // Record to GuardClaw memory
-      fetch(`${GUARDCLAW_URL}/api/memory/record`, {
+    const displayInput = formatParams(call.toolName, call.params);
+    try {
+      await fetch(`${GUARDCLAW_URL}/api/chat-inject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toolName: call.toolName, command: displayInput, riskScore: call.riskScore, decision: 'approve', sessionKey: call.sessionKey }),
+        body: JSON.stringify({
+          sessionKey: call.sessionKey,
+          message: `[GUARDCLAW RETRY APPROVED] The user approved the blocked action. Retry it now immediately.\nTool: ${call.toolName}\nInput: ${displayInput}`,
+        }),
         signal: AbortSignal.timeout(3000),
-      }).catch(() => {});
-
+      });
+    } catch (err) {
+      api.logger.warn(`[GuardClaw] Failed to inject retry signal: ${err.message}`);
       return {
-        text: `✅ Approved — retrying ${call.toolName} now.\n\nInput: ${displayInput}`,
+        text: `✅ Approved: ${call.toolName} (${displayInput})\n\n⚠️ Auto-retry signal failed — please ask the agent to retry manually.`,
       };
-    },
-  });
+    }
 
-  api.registerCommand({
-    name: 'deny-last',
-    description: 'Deny the last blocked tool call',
-    handler: (_ctx) => {
-      const globalList = pendingCalls.get('__global__') || [];
-      const call = globalList.pop();
+    fetch(`${GUARDCLAW_URL}/api/memory/record`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolName: call.toolName, command: displayInput, riskScore: call.riskScore, decision: 'approve', sessionKey: call.sessionKey }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
 
-      if (!call) {
-        return { text: 'No pending blocked actions.' };
+    return {
+      text: `✅ Approved — retrying ${call.toolName} now.\n\nInput: ${displayInput}`,
+    };
+  };
+
+  // ── Deny handler (shared by /deny-last and /deny) ──
+  const handleDeny = (_ctx) => {
+    const globalList = pendingCalls.get('__global__') || [];
+    const call = globalList.pop();
+
+    if (!call) {
+      return { text: 'No pending blocked actions.' };
+    }
+
+    pendingCalls.set('__global__', globalList);
+
+    if (call.sessionKey) {
+      const sessionList = pendingCalls.get(call.sessionKey) || [];
+      const idx = sessionList.findIndex(
+        (c) => c.toolName === call.toolName && c.timestamp === call.timestamp
+      );
+      if (idx !== -1) {
+        sessionList.splice(idx, 1);
+        pendingCalls.set(call.sessionKey, sessionList);
       }
+      blockedSessions.delete(call.sessionKey);
+      api.logger.info(`[GuardClaw] 🔓 Session unlocked (denied): ${call.sessionKey}`);
+    }
 
-      pendingCalls.set('__global__', globalList);
+    const displayInput = formatParams(call.toolName, call.params);
 
-      if (call.sessionKey) {
-        const sessionList = pendingCalls.get(call.sessionKey) || [];
-        const idx = sessionList.findIndex(
-          (c) => c.toolName === call.toolName && c.timestamp === call.timestamp
-        );
-        if (idx !== -1) {
-          sessionList.splice(idx, 1);
-          pendingCalls.set(call.sessionKey, sessionList);
-        }
+    fetch(`${GUARDCLAW_URL}/api/memory/record`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolName: call.toolName, command: displayInput, riskScore: call.riskScore, decision: 'deny', sessionKey: call.sessionKey }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
 
-        // Clear the session lock
-        blockedSessions.delete(call.sessionKey);
-        api.logger.info(`[GuardClaw] 🔓 Session unlocked (denied): ${call.sessionKey}`);
-      }
+    return { text: `❌ Denied: ${call.toolName} (${displayInput})` };
+  };
 
-      const displayInput = formatParams(call.toolName, call.params);
-
-      // Record to GuardClaw memory
-      fetch(`${GUARDCLAW_URL}/api/memory/record`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toolName: call.toolName, command: displayInput, riskScore: call.riskScore, decision: 'deny', sessionKey: call.sessionKey }),
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => {});
-
-      return { text: `❌ Denied: ${call.toolName} (${displayInput})` };
-    },
-  });
+  // Register both hyphenated and non-hyphenated versions
+  api.registerCommand({ name: 'approve-last', description: 'Approve the last blocked tool call', handler: handleApprove });
+  api.registerCommand({ name: 'approve', description: 'Approve the last blocked tool call', handler: handleApprove });
+  api.registerCommand({ name: 'deny-last', description: 'Deny the last blocked tool call', handler: handleDeny });
+  api.registerCommand({ name: 'deny', description: 'Deny the last blocked tool call', handler: handleDeny });
 
   api.registerCommand({
     name: 'pending',
