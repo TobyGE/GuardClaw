@@ -78,8 +78,9 @@ const ModelCard = ({ model, selected, onSelect, recommended }) => (
   </button>
 );
 
-export default function SettingsModal({ isOpen, onClose, currentToken, currentLlmConfig, onSave }) {
-  const [activeTab, setActiveTab] = useState('llm');
+export default function SettingsModal({ isOpen, onClose, currentToken, currentLlmConfig, onSave, defaultTab }) {
+  const [activeTab, setActiveTab] = useState(defaultTab || 'llm');
+  useEffect(() => { if (defaultTab) setActiveTab(defaultTab); }, [defaultTab]);
   const [token, setToken] = useState(currentToken || '');
   const [llmBackend, setLlmBackend] = useState(currentLlmConfig?.backend || 'lmstudio');
   const [lmstudioUrl, setLmstudioUrl] = useState(currentLlmConfig?.lmstudioUrl || 'http://localhost:1234/v1');

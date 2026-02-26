@@ -30,6 +30,7 @@ function App() {
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState(null);
   const [showBlockingModal, setShowBlockingModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [currentToken, setCurrentToken] = useState('');
@@ -335,10 +336,11 @@ function App() {
       />
       <SettingsModal
         isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
+        onClose={() => { setShowSettingsModal(false); setSettingsDefaultTab(null); }}
         currentToken={currentToken}
         currentLlmConfig={llmConfig}
         onSave={handleSaveToken}
+        defaultTab={settingsDefaultTab}
       />
       <BlockingModal
         isOpen={showBlockingModal}
@@ -575,7 +577,7 @@ function App() {
                 <div className="flex items-center space-x-2">
                   {backends && backends.openclaw && (
                     <button
-                      onClick={() => { setBackendFilter('openclaw'); if (!backends.openclaw.connected) setShowSettingsModal(true); }}
+                      onClick={() => { setBackendFilter('openclaw'); if (!backends.openclaw.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } }}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         backendFilter === 'openclaw'
                           ? 'bg-blue-600 text-white shadow-md'
@@ -590,7 +592,7 @@ function App() {
                   )}
                   {backends && backends.nanobot && (
                     <button
-                      onClick={() => { setBackendFilter('nanobot'); if (!backends.nanobot.connected) setShowSettingsModal(true); }}
+                      onClick={() => { setBackendFilter('nanobot'); if (!backends.nanobot.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } }}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         backendFilter === 'nanobot'
                           ? 'bg-blue-600 text-white shadow-md'
