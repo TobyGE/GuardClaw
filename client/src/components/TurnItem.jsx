@@ -185,7 +185,10 @@ function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
   const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
   const name = event.tool || event.subType || 'tool';
-  const input = event.metadata?.input || event.parsedInput || event.payload?.data?.args || event.payload?.data?.input || {};
+  // Try multiple locations for tool input args
+  const rawContent = event.rawEvent?.content;
+  const toolCallBlock = Array.isArray(rawContent) ? rawContent.find(b => b.type === 'toolCall' || b.type === 'tool_use') : null;
+  const input = event.metadata?.input || event.parsedInput || event.payload?.data?.args || event.payload?.data?.input || toolCallBlock?.arguments || toolCallBlock?.input || {};
   let desc = event.command || event.description || '';
   // Enrich edit/write display with actual content
   if (name === 'edit' && !desc.includes('old:')) {
