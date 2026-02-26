@@ -190,16 +190,23 @@ function ToolCallRow({ event }) {
   const toolCallBlock = Array.isArray(rawContent) ? rawContent.find(b => b.type === 'toolCall' || b.type === 'tool_use') : null;
   const input = event.metadata?.input || event.parsedInput || event.payload?.data?.args || event.payload?.data?.input || toolCallBlock?.arguments || toolCallBlock?.input || {};
   let desc = event.command || event.description || '';
+  let fullDesc = null; // full content for expanded view
   // Enrich edit/write display with actual content
   if (name === 'edit' && !desc.includes('old:')) {
     const file = input.file_path || input.path || '';
-    const oldStr = (input.old_string || input.oldText || '').substring(0, 100);
-    const newStr = (input.new_string || input.newText || '').substring(0, 100);
-    if (oldStr || newStr) desc = `edit ${file}\n--- old: ${oldStr}${oldStr.length >= 100 ? '…' : ''}\n+++ new: ${newStr}${newStr.length >= 100 ? '…' : ''}`;
+    const oldStr = input.old_string || input.oldText || '';
+    const newStr = input.new_string || input.newText || '';
+    if (oldStr || newStr) {
+      desc = `edit ${file}\n--- old: ${oldStr.substring(0, 80)}${oldStr.length > 80 ? '…' : ''}\n+++ new: ${newStr.substring(0, 80)}${newStr.length > 80 ? '…' : ''}`;
+      fullDesc = `edit ${file}\n--- old:\n${oldStr}\n+++ new:\n${newStr}`;
+    }
   } else if (name === 'write' && !desc.includes('\n')) {
     const file = input.file_path || input.path || '';
-    const content = (input.content || '').substring(0, 150);
-    if (content) desc = `write ${file}\n${content}${content.length >= 150 ? '…' : ''}`;
+    const content = input.content || '';
+    if (content) {
+      desc = `write ${file}\n${content.substring(0, 100)}${content.length > 100 ? '…' : ''}`;
+      fullDesc = `write ${file}\n${content}`;
+    }
   }
 
   return (
@@ -234,11 +241,11 @@ function ToolCallRow({ event }) {
       {open && (
         <div className="border-t border-gc-border px-3 py-3 space-y-2">
           {/* Full description / command */}
-          {desc && (
+          {(fullDesc || desc) && (
             <div>
               <span className="text-xs text-gc-text-dim">Input:</span>
-              <code className="block mt-1 text-xs bg-gc-bg p-2 rounded break-words whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {desc}
+              <code className="block mt-1 text-xs bg-gc-bg p-2 rounded break-words whitespace-pre-wrap max-h-96 overflow-y-auto">
+                {fullDesc || desc}
               </code>
             </div>
           )}
