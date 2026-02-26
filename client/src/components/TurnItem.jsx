@@ -185,7 +185,19 @@ function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
   const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
   const name = event.tool || event.subType || 'tool';
-  const desc = event.command || event.description || '';
+  const input = event.metadata?.input || event.parsedInput || {};
+  let desc = event.command || event.description || '';
+  // Enrich edit/write display with actual content
+  if (name === 'edit' && !desc.includes('old:')) {
+    const file = input.file_path || input.path || '';
+    const oldStr = (input.old_string || input.oldText || '').substring(0, 100);
+    const newStr = (input.new_string || input.newText || '').substring(0, 100);
+    if (oldStr || newStr) desc = `edit ${file}\n--- old: ${oldStr}${oldStr.length >= 100 ? '…' : ''}\n+++ new: ${newStr}${newStr.length >= 100 ? '…' : ''}`;
+  } else if (name === 'write' && !desc.includes('\n')) {
+    const file = input.file_path || input.path || '';
+    const content = (input.content || '').substring(0, 150);
+    if (content) desc = `write ${file}\n${content}${content.length >= 150 ? '…' : ''}`;
+  }
 
   return (
     <div className="rounded border border-gc-border bg-gc-bg/60">
