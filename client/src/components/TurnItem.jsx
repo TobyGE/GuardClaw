@@ -114,14 +114,14 @@ function formatTime(timestamp) {
 
 /* ---------- ToolOutput: collapsible tool result display ---------- */
 const OUTPUT_PREVIEW = 300;
-function ToolOutput({ result }) {
+function ToolOutput({ result, label = 'Output' }) {
   const [expanded, setExpanded] = useState(false);
   if (!result) return null;
   const hasMore = result.length > OUTPUT_PREVIEW;
   const display = expanded || !hasMore ? result : result.substring(0, OUTPUT_PREVIEW);
   return (
     <div>
-      <span className="text-xs text-gc-text-dim">Output:</span>
+      <span className="text-xs text-gc-text-dim">{label}:</span>
       <code
         className="block mt-1 text-xs bg-black/30 p-2 rounded break-words whitespace-pre-wrap max-h-64 overflow-y-auto border border-gc-border/40 cursor-pointer"
         onClick={() => hasMore && setExpanded(!expanded)}
@@ -242,12 +242,7 @@ function ToolCallRow({ event }) {
         <div className="border-t border-gc-border px-3 py-3 space-y-2">
           {/* Full description / command */}
           {(fullDesc || desc) && (
-            <div>
-              <span className="text-xs text-gc-text-dim">Input:</span>
-              <code className="block mt-1 text-xs bg-gc-bg p-2 rounded break-words whitespace-pre-wrap max-h-96 overflow-y-auto">
-                {fullDesc || desc}
-              </code>
-            </div>
+            <ToolOutput result={fullDesc || desc} label="Input" />
           )}
 
           {/* Tool output (from after_tool_call hook) */}
