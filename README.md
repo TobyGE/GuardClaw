@@ -29,6 +29,7 @@ AI coding agents (`exec`, `write`, `curl`, etc.) can do real damage. GuardClaw w
 - **3-tier risk scoring** — SAFE / WARNING / BLOCK, 100% accuracy on our 30-case benchmark
 - **Optional blocking** — high-risk commands pause for your approval before executing
 - **Chain analysis** — detects multi-step attack patterns (read secrets → exfiltrate)
+- **Adaptive memory** — learns from your approve/deny decisions, auto-adjusts risk scores over time
 - **Completely private** — local LLMs only, zero cloud APIs, your data never leaves
 
 ## Quick Start
@@ -195,6 +196,25 @@ guardclaw help                        # show all commands
 - **Prompt injection defense** — chain history wrapped in XML tags to prevent manipulation
 - **Sub-agent monitoring** — each sub-agent session gets independent chain analysis
 
+## Memory System
+
+GuardClaw learns from your decisions. Every time you approve or deny a blocked command, it records the pattern and adjusts future risk scores accordingly.
+
+**How it works:**
+1. Commands are generalized into patterns (e.g., `curl https://api.notion.com/*`, `cat ~/.ssh/*`)
+2. Each approve/deny updates the pattern's confidence score (deny weighs 3× more than approve)
+3. Risk scores are automatically adjusted based on history — frequently approved patterns get lower scores
+4. After enough consistent approvals (≥3, confidence >0.7), similar commands are auto-approved entirely, skipping the LLM judge
+5. Confidence decays over 30 days, so stale patterns don't override fresh judgment
+
+**Human feedback from the dashboard:**
+Each tool call in the event timeline has **Mark Safe** / **Mark Risky** buttons. Click to train memory on any command — not just blocked ones. This gives you direct control over how GuardClaw scores future commands.
+
+**Safety guardrails:**
+- Commands with score ≥ 9 are never auto-approved regardless of memory
+- Adjusted scores never drop below 3
+- Memory can be viewed and reset from the Memory dashboard tab
+
 ## Roadmap
 
 See the [full roadmap](docs/ROADMAP.md) for detailed feature descriptions.
@@ -205,7 +225,7 @@ See the [full roadmap](docs/ROADMAP.md) for detailed feature descriptions.
 - A2A protocol monitoring
 
 **Recently completed (Feb 2026):**
-SQLite persistence · SSE real-time push · in-dashboard model benchmark · 3-tier verdict system (100% accuracy) · dark mode polish · server modularization · blocking config UI
+Adaptive memory system · Human feedback (Mark Safe/Risky) · Auto-approve by memory · Memory dashboard · Smart pattern extraction · SQLite persistence · SSE real-time push · in-dashboard model benchmark · 3-tier verdict system (100% accuracy) · dark mode polish · server modularization · blocking config UI
 
 ## Links
 

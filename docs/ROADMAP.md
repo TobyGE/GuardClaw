@@ -161,3 +161,23 @@ bash scripts/patch-openclaw.sh
 
 ### nanobot support
 GuardClaw works with [nanobot](https://github.com/HKUDS/nanobot) as an alternative to OpenClaw. Connect via the Settings panel or `--gateway` CLI flag.
+
+## Memory & Learning
+
+### Adaptive memory system
+Records every approve/deny decision into a SQLite-backed pattern store. Commands are generalized into patterns (URLs keep domains, sensitive paths preserved, dangerous commands kept verbatim). Each decision updates the pattern's confidence score, with deny weighing 3× more than approve. Confidence decays linearly over 30 days.
+
+### Memory-based score adjustment
+Risk scores are automatically adjusted based on accumulated pattern history. Frequently approved patterns get lower scores (up to -3), frequently denied patterns get higher scores (up to +2). Requires at least 3 decisions before any adjustment. Scores never adjusted below 3, and commands with score ≥ 9 are never adjusted.
+
+### Auto-approve by memory
+When a pattern reaches high confidence (≥3 approvals, confidence >0.7), the evaluate endpoint returns `allow` immediately — skipping the LLM judge entirely. This eliminates blocking for commands the user has consistently approved. Auto-approve never applies to score ≥ 9 commands.
+
+### Human feedback buttons
+Each tool call in the dashboard event timeline has "Mark Safe" / "Mark Risky" buttons. Clicking records a decision to memory, training the system on any command — not just blocked ones. Feedback is reflected immediately in the Memory dashboard tab.
+
+### Memory dashboard
+Dedicated Memory page showing: stats overview (total decisions, patterns, approve rate, auto-approve count), sortable patterns table (pattern, tool, approves, denies, confidence bar, suggested action, last seen), and a reset button with confirmation dialog.
+
+### Smart pattern extraction
+Exec commands are generalized with domain-aware and security-aware rules: curl/wget keep target domains, sensitive directories (.ssh, .config, .env) are preserved, sensitive filenames (authorized_keys, id_rsa, .bashrc) kept as leaves, while safe paths are wildcarded normally.
