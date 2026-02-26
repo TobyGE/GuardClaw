@@ -104,6 +104,27 @@ function getCachedEvaluation(sessionKey, toolName, params) {
   if (Date.now() > entry.expiresAt) { evaluationCache.delete(key); return null; }
   return entry.result;
 }
+function formatStepCommand(step) {
+  const input = step.parsedInput || step.metadata?.input || {};
+  const tool = step.toolName;
+  if (tool === 'edit') {
+    const file = input.file_path || input.path || '';
+    const oldStr = (input.old_string || input.oldText || '').substring(0, 100);
+    const newStr = (input.new_string || input.newText || '').substring(0, 100);
+    if (oldStr || newStr) return `edit ${file}\n--- old: ${oldStr}${oldStr.length >= 100 ? '…' : ''}\n+++ new: ${newStr}${newStr.length >= 100 ? '…' : ''}`;
+    return `edit ${file}`;
+  }
+  if (tool === 'write') {
+    const file = input.file_path || input.path || '';
+    const content = (input.content || '').substring(0, 150);
+    return `write ${file}\n${content}${content.length >= 150 ? '…' : ''}`;
+  }
+  if (tool === 'read') {
+    return `read ${input.file_path || input.path || ''}`;
+  }
+  return null;
+}
+
 function extractResultText(result) {
   if (!result) return '';
   if (typeof result === 'string') return result;
@@ -1242,7 +1263,7 @@ async function handleAgentEvent(event) {
       duration: step.duration,
       content: step.content?.substring(0, 200) || '', // Truncate for display
       toolName: step.toolName,
-      command: step.command,
+      command: step.command || formatStepCommand(step),
       metadata: step.metadata, // Include full metadata for frontend
       safeguard: step.safeguard || null
     });
