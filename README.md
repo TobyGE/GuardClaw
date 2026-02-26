@@ -198,22 +198,9 @@ guardclaw help                        # show all commands
 
 ## Memory System
 
-GuardClaw learns from your decisions. Every time you approve or deny a blocked command, it records the pattern and adjusts future risk scores accordingly.
+GuardClaw learns from your decisions. Approve/deny actions are recorded as generalized patterns (`curl https://api.notion.com/*`, `cat ~/.ssh/*`), and future risk scores adjust automatically. After enough consistent approvals, similar commands skip the LLM judge entirely.
 
-**How it works:**
-1. Commands are generalized into patterns (e.g., `curl https://api.notion.com/*`, `cat ~/.ssh/*`)
-2. Each approve/deny updates the pattern's confidence score (deny weighs 3× more than approve)
-3. Risk scores are automatically adjusted based on history — frequently approved patterns get lower scores
-4. After enough consistent approvals (≥3, confidence >0.7), similar commands are auto-approved entirely, skipping the LLM judge
-5. Confidence decays over 30 days, so stale patterns don't override fresh judgment
-
-**Human feedback from the dashboard:**
-Each tool call in the event timeline has **Mark Safe** / **Mark Risky** buttons. Click to train memory on any command — not just blocked ones. This gives you direct control over how GuardClaw scores future commands.
-
-**Safety guardrails:**
-- Commands with score ≥ 9 are never auto-approved regardless of memory
-- Adjusted scores never drop below 3
-- Memory can be viewed and reset from the Memory dashboard tab
+Use **Mark Safe** / **Mark Risky** buttons on any tool call in the dashboard to train memory directly. Scores ≥ 9 are never auto-approved. View learned patterns in the Memory tab.
 
 ## Roadmap
 
