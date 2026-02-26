@@ -185,7 +185,7 @@ function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
   const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
   const name = event.tool || event.subType || 'tool';
-  const input = event.metadata?.input || event.parsedInput || {};
+  const input = event.metadata?.input || event.parsedInput || event.payload?.data?.args || event.payload?.data?.input || {};
   let desc = event.command || event.description || '';
   // Enrich edit/write display with actual content
   if (name === 'edit' && !desc.includes('old:')) {
