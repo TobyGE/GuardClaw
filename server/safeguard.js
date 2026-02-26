@@ -34,6 +34,9 @@ const HIGH_RISK_PATTERNS = [
   // e.g. `kill -9 <pid>; cd ~/guardclaw && guardclaw start` should NOT trigger this.
   { re: /pkill[^;&|\n]*guardclaw/i,                     score: 9, reason: 'Killing GuardClaw safety monitor process' },
   { re: /kill(?:all)?[^;&|\n]*guardclaw/i,              score: 9, reason: 'Killing GuardClaw safety monitor process' },
+  { re: /kill\s.*\$\(.*pgrep/,                          score: 9, reason: 'Dynamic PID kill via pgrep (potential self-protection bypass)' },
+  { re: /kill\s.*`.*pgrep/,                             score: 9, reason: 'Dynamic PID kill via pgrep (potential self-protection bypass)' },
+  { re: /pgrep.*\|\s*xargs\s+kill/,                     score: 9, reason: 'Dynamic PID kill via pgrep|xargs (potential self-protection bypass)' },
 ];
 
 // Safe base commands (read-only + no destructive side-effects)

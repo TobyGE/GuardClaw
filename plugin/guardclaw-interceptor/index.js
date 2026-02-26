@@ -98,7 +98,11 @@ export default function (api) {
     if (blockingEnabled && event.toolName === 'exec' && guardclawPid) {
       const cmd = event.params?.command || '';
       if (new RegExp(`kill\\b.*\\b${guardclawPid}\\b`).test(cmd) ||
-          new RegExp(`pkill\\b.*\\b${guardclawPid}\\b`).test(cmd)) {
+          new RegExp(`pkill\\b.*\\b${guardclawPid}\\b`).test(cmd) ||
+          /kill\s.*\$\(.*pgrep/.test(cmd) ||
+          /kill\s.*`.*pgrep/.test(cmd) ||
+          /pgrep.*\|\s*xargs\s+kill/.test(cmd) ||
+          (/kill\b/.test(cmd) && /server\/index\.js|guardclaw/.test(cmd))) {
         api.logger.warn(`[GuardClaw] 🛡️ Blocked kill targeting GuardClaw PID ${guardclawPid}`);
         return {
           block: true,
