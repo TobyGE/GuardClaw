@@ -98,9 +98,23 @@ export function parseEventDetails(event) {
       if (payload.data?.type === 'tool_use') {
         details.type = 'tool-call'; details.tool = payload.data.name; details.subType = payload.data.name;
         details.description = `${payload.data.name}`;
-        if (payload.data.name === 'exec' && payload.data.input?.command) {
-          details.command = payload.data.input.command;
+        const input = payload.data.input || payload.data.args || {};
+        if (payload.data.name === 'exec' && input.command) {
+          details.command = input.command;
           details.description = `exec: ${details.command}`;
+        } else if (payload.data.name === 'edit') {
+          const file = input.file_path || input.path || '';
+          const oldStr = (input.old_string || input.oldText || '').substring(0, 100);
+          const newStr = (input.new_string || input.newText || '').substring(0, 100);
+          details.command = oldStr || newStr
+            ? `edit ${file}\n--- old: ${oldStr}${oldStr.length >= 100 ? '…' : ''}\n+++ new: ${newStr}${newStr.length >= 100 ? '…' : ''}`
+            : `edit ${file}`;
+          details.description = `edit file: ${file}`;
+        } else if (payload.data.name === 'write') {
+          const file = input.file_path || input.path || '';
+          const content = (input.content || '').substring(0, 150);
+          details.command = `write ${file}\n${content}${content.length >= 150 ? '…' : ''}`;
+          details.description = `write file: ${file}`;
         }
         return details;
       }
