@@ -575,7 +575,7 @@ function App() {
                 <div className="flex items-center space-x-2">
                   {backends && backends.openclaw && (
                     <button
-                      onClick={() => setBackendFilter('openclaw')}
+                      onClick={() => { setBackendFilter('openclaw'); if (!backends.openclaw.connected) setShowGatewayModal(true); }}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         backendFilter === 'openclaw'
                           ? 'bg-blue-600 text-white shadow-md'
@@ -583,14 +583,14 @@ function App() {
                       }`}
                     >
                       <span className={`w-2 h-2 rounded-full ${
-                        backends.openclaw.connected ? 'bg-green-500' : 'bg-red-500'
+                        backends.openclaw.connected ? 'bg-green-500' : 'bg-gray-500'
                       }`}></span>
                       <span>OpenClaw</span>
                     </button>
                   )}
                   {backends && backends.nanobot && (
                     <button
-                      onClick={() => setBackendFilter('nanobot')}
+                      onClick={() => { setBackendFilter('nanobot'); if (!backends.nanobot.connected) setShowGatewayModal(true); }}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         backendFilter === 'nanobot'
                           ? 'bg-blue-600 text-white shadow-md'
@@ -598,7 +598,7 @@ function App() {
                       }`}
                     >
                       <span className={`w-2 h-2 rounded-full ${
-                        backends.nanobot.connected ? 'bg-green-500' : 'bg-red-500'
+                        backends.nanobot.connected ? 'bg-green-500' : 'bg-gray-500'
                       }`}></span>
                       <span>Nanobot</span>
                     </button>
