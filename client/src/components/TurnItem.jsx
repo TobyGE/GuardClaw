@@ -207,6 +207,27 @@ function ToolCallRow({ event }) {
       desc = `write ${file}\n${content.substring(0, 100)}${content.length > 100 ? '…' : ''}`;
       fullDesc = `write ${file}\n${content}`;
     }
+  } else if (name === 'message') {
+    const target = input.target || input.channel || '';
+    const msg = input.message || '';
+    if (msg) {
+      desc = `message → ${target}\n${msg.substring(0, 100)}${msg.length > 100 ? '…' : ''}`;
+      fullDesc = `message → ${target}\n${msg}`;
+    }
+  } else if (name === 'sessions_send') {
+    const target = input.sessionKey || input.label || '';
+    const msg = input.message || '';
+    if (msg) {
+      desc = `sessions_send → ${target}\n${msg.substring(0, 100)}${msg.length > 100 ? '…' : ''}`;
+      fullDesc = `sessions_send → ${target}\n${msg}`;
+    }
+  } else if (name === 'browser') {
+    const action = input.action || '';
+    const url = input.targetUrl || input.url || '';
+    desc = `browser ${action}${url ? ' ' + url : ''}`;
+  } else if (name === 'web_fetch') {
+    const url = input.url || '';
+    if (url) desc = `web_fetch ${url}`;
   }
 
   return (
