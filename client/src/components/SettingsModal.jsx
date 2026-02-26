@@ -458,10 +458,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               <Label hint="from ~/.openclaw/openclaw.json">OpenClaw Gateway Token</Label>
               <div className="flex gap-2">
                 <Input
-                  type="text"
+                  type="password"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder="36ca588ed550e209d765cccecd..."
+                  placeholder="Click detect or paste token..."
                   disabled={saving}
                   style={{ fontFamily: 'monospace', fontSize: '13px' }}
                 />
