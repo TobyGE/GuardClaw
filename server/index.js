@@ -805,7 +805,7 @@ app.post('/api/evaluate', async (req, res) => {
     const shouldBlock = blockingEnabled && analysis.riskScore >= 8;
     // Occasionally sample WARNING verdicts (score 4-7) for user feedback (~15% chance)
     const isWarning = analysis.riskScore >= 4 && analysis.riskScore <= 7;
-    const shouldSampleFeedback = blockingEnabled && isWarning && Math.random() < 0.15;
+    const shouldSampleFeedback = blockingEnabled && isWarning && Math.random() < 0.05;
     res.json({
       action: shouldBlock ? 'ask' : (shouldSampleFeedback ? 'ask' : 'allow'),
       feedbackSample: shouldSampleFeedback || undefined,
