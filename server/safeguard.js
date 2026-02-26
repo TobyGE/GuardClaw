@@ -204,7 +204,7 @@ export class SafeguardService {
     return this.analyzeToolAction(action);
   }
 
-  async analyzeCommand(command, chainHistory = null) {
+  async analyzeCommand(command, chainHistory = null, memoryContext = null) {
     // High-risk fast-path: block without LLM for high-confidence dangerous patterns.
     // Must run BEFORE the safe fast-path — some safe base commands (echo, cat) can
     // be piped into dangerous sinks (nc, base64 | bash) and must not be let through.
@@ -249,40 +249,44 @@ export class SafeguardService {
     
     if (!this.enabled) {
       result = this.fallbackAnalysis(command);
-    } else if (chainHistory) {
-      // Chain-aware: build enhanced prompt with history appended
-      const basePrompt = this.createAnalysisPrompt(command);
-      const chainSection = this.buildChainContextSection(chainHistory);
-      const enhancedPrompt = basePrompt.replace(
-        'Output ONLY ONE JSON object (pick exactly one verdict):',
-        `${chainSection}\n\nOutput ONLY ONE JSON object (pick exactly one verdict):`
-      );
-      switch (this.backend) {
-        case 'anthropic':
-          result = await this.analyzeWithClaudePrompt(enhancedPrompt);
-          break;
-        case 'lmstudio':
-          result = await this.analyzeWithLMStudioPrompt(enhancedPrompt, { tool: 'exec', summary: command });
-          break;
-        case 'ollama':
-          result = await this.analyzeWithOllamaPrompt(enhancedPrompt);
-          break;
-        default:
-          result = this.fallbackAnalysis(command);
-      }
     } else {
-      switch (this.backend) {
-        case 'anthropic':
-          result = await this.analyzeWithClaude(command);
-          break;
-        case 'lmstudio':
-          result = await this.analyzeWithLMStudio(command);
-          break;
-        case 'ollama':
-          result = await this.analyzeWithOllama(command);
-          break;
-        default:
-          result = this.fallbackAnalysis(command);
+      const basePrompt = this.createAnalysisPrompt(command);
+      const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+      const memorySection = this.buildMemoryContextSection(memoryContext);
+      const extraContext = chainSection + memorySection;
+      
+      if (extraContext) {
+        const enhancedPrompt = basePrompt.replace(
+          'Output ONLY ONE JSON object (pick exactly one verdict):',
+          `${extraContext}\n\nOutput ONLY ONE JSON object (pick exactly one verdict):`
+        );
+        switch (this.backend) {
+          case 'anthropic':
+            result = await this.analyzeWithClaudePrompt(enhancedPrompt);
+            break;
+          case 'lmstudio':
+            result = await this.analyzeWithLMStudioPrompt(enhancedPrompt, { tool: 'exec', summary: command });
+            break;
+          case 'ollama':
+            result = await this.analyzeWithOllamaPrompt(enhancedPrompt);
+            break;
+          default:
+            result = this.fallbackAnalysis(command);
+        }
+      } else {
+        switch (this.backend) {
+          case 'anthropic':
+            result = await this.analyzeWithClaude(command);
+            break;
+          case 'lmstudio':
+            result = await this.analyzeWithLMStudio(command);
+            break;
+          case 'ollama':
+            result = await this.analyzeWithOllama(command);
+            break;
+          default:
+            result = this.fallbackAnalysis(command);
+        }
       }
     }
 
@@ -293,7 +297,7 @@ export class SafeguardService {
     return result;
   }
 
-  async analyzeToolAction(action, chainHistory = null) {
+  async analyzeToolAction(action, chainHistory = null, memoryContext = null) {
     // Handle chat content separately
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);
@@ -356,7 +360,7 @@ export class SafeguardService {
     if (!this.enabled) {
       result = this.fallbackToolAnalysis(action);
     } else {
-      const prompt = this.createToolAnalysisPrompt(action, chainHistory);
+      const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext);
       
       switch (this.backend) {
         case 'anthropic':
@@ -792,8 +796,18 @@ Look at what data was accessed/fetched and whether the current action could be e
 If the chain is dangerous, verdict should be BLOCK with reason explaining the chain risk.`;
   }
 
-  createToolAnalysisPrompt(action, chainHistory = null) {
+  buildMemoryContextSection(memoryContext) {
+    if (!memoryContext) return '';
+    return `
+
+USER FEEDBACK HISTORY (from past approve/deny decisions):
+${memoryContext}
+Use this to calibrate your judgment — if the user consistently marks a pattern as safe, lean toward SAFE. If marked risky, lean toward WARNING or BLOCK.`;
+  }
+
+  createToolAnalysisPrompt(action, chainHistory = null, memoryContext = null) {
     const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+    const memorySection = this.buildMemoryContextSection(memoryContext);
 
     // canvas eval: extract full JS code and show it prominently (summary is truncated to 120 chars)
     let canvasEvalSection = '';
@@ -808,7 +822,7 @@ If the chain is dangerous, verdict should be BLOCK with reason explaining the ch
     return `You are a security judge. Classify this tool action as SAFE, WARNING, or BLOCK.
 
 TOOL: ${action.tool}
-PARAMS: ${action.summary}${canvasEvalSection}${chainSection}
+PARAMS: ${action.summary}${canvasEvalSection}${chainSection}${memorySection}
 
 RULES (check in order, use FIRST match):
 

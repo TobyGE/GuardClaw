@@ -760,19 +760,26 @@ app.post('/api/evaluate', async (req, res) => {
       }
     }
 
+    // Build memory context for LLM prompt injection
+    const relatedPatterns = memoryStore.lookupRelated(toolName, commandStr);
+    const memoryContext = relatedPatterns.length > 0 ? relatedPatterns.map(p => {
+      const verdict = p.approveCount > p.denyCount ? 'safe' : 'risky';
+      return `- "${p.pattern}" — user marked ${verdict} (${p.approveCount} approves, ${p.denyCount} denies)`;
+    }).join('\n') : null;
+
     let analysis;
 
     if (toolName === 'exec') {
       // For exec, analyze the command with full LLM analysis
       const cmd = params.command || '';
-      analysis = await safeguardService.analyzeCommand(cmd, chainHistory);
+      analysis = await safeguardService.analyzeCommand(cmd, chainHistory, memoryContext);
     } else {
       // For other tools, analyze the action
       analysis = await safeguardService.analyzeToolAction({
         tool: toolName,
         summary: JSON.stringify(params),
         ...params
-      }, chainHistory);
+      }, chainHistory, memoryContext);
     }
 
     // Memory: apply score adjustment from earlier lookup
@@ -796,8 +803,12 @@ app.post('/api/evaluate', async (req, res) => {
     // In monitor mode (blockingEnabled=false), always return 'allow' so the plugin
     // never intercepts — monitoring and blocking are consistent from the user's POV.
     const shouldBlock = blockingEnabled && analysis.riskScore >= 8;
+    // Occasionally sample WARNING verdicts (score 4-7) for user feedback (~15% chance)
+    const isWarning = analysis.riskScore >= 4 && analysis.riskScore <= 7;
+    const shouldSampleFeedback = blockingEnabled && isWarning && Math.random() < 0.15;
     res.json({
-      action: shouldBlock ? 'ask' : 'allow',
+      action: shouldBlock ? 'ask' : (shouldSampleFeedback ? 'ask' : 'allow'),
+      feedbackSample: shouldSampleFeedback || undefined,
       risk: analysis.riskScore,
       originalRisk: analysis.originalRiskScore || analysis.riskScore,
       memoryAdjustment: analysis.memoryAdjustment || 0,

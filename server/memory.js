@@ -333,6 +333,38 @@ export class MemoryStore {
     return this._stmtGetPatternsByTool.all(toolName);
   }
 
+  /**
+   * Find related patterns for LLM context injection.
+   * Returns top patterns by the same tool, sorted by relevance.
+   */
+  lookupRelated(toolName, command, limit = 5) {
+    const exactPattern = this.extractPattern(toolName, command);
+    const allPatterns = this._stmtGetPatternsByTool.all(toolName);
+    
+    // Score each pattern by relevance
+    const scored = allPatterns
+      .filter(p => (p.approveCount + p.denyCount) > 0) // only patterns with decisions
+      .map(p => {
+        let relevance = 0;
+        // Exact match gets highest relevance
+        if (p.pattern === exactPattern) relevance = 100;
+        // Shared prefix (e.g., same base command)
+        else {
+          const pParts = p.pattern.split(/[\s:\/]+/);
+          const eParts = exactPattern.split(/[\s:\/]+/);
+          const shared = pParts.filter((part, i) => eParts[i] === part).length;
+          relevance = shared / Math.max(pParts.length, eParts.length) * 50;
+        }
+        // Boost by total decisions (more data = more relevant)
+        relevance += Math.min(p.approveCount + p.denyCount, 10);
+        return { ...p, relevance };
+      })
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, limit);
+
+    return scored;
+  }
+
   getStats() {
     const dStats = this._stmtDecisionStats.get();
     const pCount = this._stmtPatternCount.get();

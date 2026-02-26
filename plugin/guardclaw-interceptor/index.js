@@ -199,7 +199,18 @@ export default function (api) {
         const memoryLine = result.memory
           ? `**🧠 Memory:** ${result.memory.approveCount > 0 ? `Approved similar ${result.memory.approveCount}×` : ''}${result.memory.approveCount > 0 && result.memory.denyCount > 0 ? ', ' : ''}${result.memory.denyCount > 0 ? `Denied similar ${result.memory.denyCount}×` : ''}${result.memoryAdjustment ? ` (score ${result.originalRisk}→${result.risk})` : ''}\n`
           : '';
-        const userMsg = [
+        const isFeedbackSample = result.feedbackSample;
+        const userMsg = isFeedbackSample ? [
+          `🧠 **GuardClaw wants your feedback** (WARNING)`,
+          ``,
+          `**Tool:** \`${event.toolName}\``,
+          `**Command:** \`${displayInput}\``,
+          `**Why:** ${result.reason}`,
+          ``,
+          `**Help GuardClaw learn — is this safe?**`,
+          `/approve — yes, this is fine`,
+          `/deny — no, this is risky`,
+        ].join('\n') : [
           `🛡️ **GuardClaw blocked a tool call**`,
           ``,
           `**Tool:** \`${event.toolName}\``,
