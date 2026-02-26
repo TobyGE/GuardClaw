@@ -532,7 +532,7 @@ function App() {
         ) : (
           <>
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
               <StatCard
                 title="DAYS PROTECTED"
                 value={daysSinceInstall}
@@ -565,12 +565,6 @@ function App() {
                 color="text-gc-danger"
                 onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
                 active={eventFilter === 'blocked'}
-              />
-              <StatCard
-                title="PATTERNS LEARNED"
-                value={memoryStats?.totalPatterns || 0}
-                color="text-purple-400"
-                onClick={() => setActivePage('memory')}
               />
             </div>
 
