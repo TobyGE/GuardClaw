@@ -575,7 +575,7 @@ function App() {
                 <div className="flex items-center space-x-2">
                   {backends && backends.openclaw && (
                     <button
-                      onClick={() => { setBackendFilter('openclaw'); if (!backends.openclaw.connected) setShowGatewayModal(true); }}
+                      onClick={() => { setBackendFilter('openclaw'); if (!backends.openclaw.connected) setShowSettingsModal(true); }}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         backendFilter === 'openclaw'
                           ? 'bg-blue-600 text-white shadow-md'
@@ -590,7 +590,7 @@ function App() {
                   )}
                   {backends && backends.nanobot && (
                     <button
-                      onClick={() => { setBackendFilter('nanobot'); if (!backends.nanobot.connected) setShowGatewayModal(true); }}
+                      onClick={() => { setBackendFilter('nanobot'); if (!backends.nanobot.connected) setShowSettingsModal(true); }}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         backendFilter === 'nanobot'
                           ? 'bg-blue-600 text-white shadow-md'
