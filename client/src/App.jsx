@@ -26,6 +26,7 @@ function App() {
   const [backendFilter, setBackendFilter] = useState('openclaw'); // 'openclaw', 'nanobot'
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
+  const [memoryStats, setMemoryStats] = useState(null);
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -73,6 +74,7 @@ function App() {
           if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
           fetchEvents();
           fetchSessions();
+          fetch('/api/memory/stats').then(r => r.json()).then(setMemoryStats).catch(() => {});
         }
       } catch (error) {
         console.error('Failed to connect:', error);
@@ -530,7 +532,7 @@ function App() {
         ) : (
           <>
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
               <StatCard
                 title="DAYS PROTECTED"
                 value={daysSinceInstall}
@@ -563,6 +565,12 @@ function App() {
                 color="text-gc-danger"
                 onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
                 active={eventFilter === 'blocked'}
+              />
+              <StatCard
+                title="PATTERNS LEARNED"
+                value={memoryStats?.totalPatterns || 0}
+                color="text-purple-400"
+                onClick={() => setActivePage('memory')}
               />
             </div>
 
