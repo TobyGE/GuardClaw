@@ -111,7 +111,7 @@ function EventItem({ event }) {
             )}
             {riskLevel && (
               <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
-                {riskLevel.label} ({event.safeguard.riskScore}/10)
+                {riskLevel.label}
               </span>
             )}
           </div>
@@ -145,7 +145,7 @@ function EventItem({ event }) {
                 className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
               >
                 <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard.category || 'general'} - {event.safeguard.riskScore}/10)</span>
+                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard.category || 'general'})</span>
               </button>
             )}
           </div>
@@ -175,7 +175,7 @@ function EventItem({ event }) {
                           </span>
                           {stepRisk && (
                             <span className={`text-xs px-2 py-0.5 rounded font-medium ${stepRisk.color}`}>
-                              {stepRisk.label} ({step.safeguard.riskScore})
+                              {stepRisk.label}
                             </span>
                           )}
                         </div>
@@ -278,7 +278,7 @@ function EventItem({ event }) {
               </div>
               <div>
                 <span className="text-gc-text-dim">Risk Score:</span>
-                <span className="ml-2 text-gc-text font-medium">{event.safeguard.riskScore}/10</span>
+                <span className="ml-2 text-gc-text font-medium">{event.safeguard.riskScore <= 3 ? "SAFE" : event.safeguard.riskScore <= 7 ? "WARNING" : "BLOCKED"}</span>
               </div>
               {event.safeguard.category && (
                 <div>

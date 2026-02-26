@@ -198,7 +198,7 @@ function ToolCallRow({ event }) {
           <span className="text-sm font-medium text-gc-text">{name}</span>
           {riskLevel && (
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskLevel.color}`}>
-              {riskLevel.label} {event.safeguard?.riskScore}/10
+              {riskLevel.label}
             </span>
           )}
           {event.safeguard?.chainRisk && (
@@ -361,7 +361,7 @@ function TurnItem({ turn }) {
             <span className="text-gc-text font-medium"><><BotIcon size={14} className="inline mr-1" /> Agent turn</></span>
             {riskLevel && !isContext && (
               <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
-                {riskLevel.label} ({parent.safeguard?.riskScore}/10)
+                {riskLevel.label}
               </span>
             )}
           </div>
@@ -391,7 +391,7 @@ function TurnItem({ turn }) {
                 className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
               >
                 <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({parent.safeguard?.category || 'general'} — {parent.safeguard?.riskScore}/10)</span>
+                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({parent.safeguard?.category || 'general'})</span>
               </button>
             )}
           </div>
@@ -424,7 +424,7 @@ function TurnItem({ turn }) {
                 <GuardClawLogo size={20} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
-              <div><span className="text-gc-text-dim">Risk Score:</span><span className="ml-2 font-medium">{parent.safeguard.riskScore}/10</span></div>
+              <div><span className="text-gc-text-dim">Verdict:</span><span className="ml-2 font-medium">{parent.safeguard.riskScore <= 3 ? 'SAFE' : parent.safeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}</span></div>
               {parent.safeguard.category && <div><span className="text-gc-text-dim">Category:</span><span className="ml-2">{parent.safeguard.category}</span></div>}
               {parent.safeguard.reasoning && (
                 <div><span className="text-gc-text-dim">Reasoning:</span>
@@ -532,7 +532,7 @@ function StandaloneEvent({ event }) {
             )}
             {riskLevel && (
               <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
-                {riskLevel.label} ({event.safeguard.riskScore}/10)
+                {riskLevel.label}
               </span>
             )}
           </div>
@@ -551,7 +551,7 @@ function StandaloneEvent({ event }) {
               className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
             >
               <span>{showAnalysis ? '▼' : '▶'}</span>
-              <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard?.category || 'general'} — {event.safeguard?.riskScore}/10)</span>
+              <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard?.category || 'general'})</span>
             </button>
           )}
 
@@ -561,7 +561,7 @@ function StandaloneEvent({ event }) {
                 <GuardClawLogo size={16} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
-              <div><span className="text-gc-text-dim">Risk Score:</span><span className="ml-2 font-medium">{event.safeguard.riskScore}/10</span></div>
+              <div><span className="text-gc-text-dim">Verdict:</span><span className="ml-2 font-medium">{event.safeguard.riskScore <= 3 ? 'SAFE' : event.safeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}</span></div>
               {event.safeguard.reasoning && <p className="bg-gc-bg/50 p-2 rounded text-sm">{event.safeguard.reasoning}</p>}
             </div>
           )}
