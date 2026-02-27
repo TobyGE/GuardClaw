@@ -179,7 +179,9 @@ if (BACKEND === 'openclaw' || BACKEND === 'auto') {
         logger.warn('OpenClaw connection lost');
       },
       onReconnecting: (attempt, delay) => {
-        logger.info(`OpenClaw reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
+        if (attempt <= 3 || attempt % 10 === 0) {
+          logger.info(`OpenClaw reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
+        }
       }
     }
   );
