@@ -68,6 +68,13 @@ function isClearlySafe(command) {
   const cmd = stripCdPrefix(command.trim());
   if (!cmd) return false;
 
+  // Compound commands (;, |, &&, || after the first command) are NOT safe to fast-path.
+  // stripCdPrefix already handles leading "cd dir &&" chains, but any remaining
+  // compound operators mean multiple commands — must go through LLM.
+  // Exception: simple "cmd 2>&1" (stderr redirect) is fine.
+  if (/[;|]/.test(cmd) && !/^\S+\s.*2>&1\s*$/.test(cmd)) return false;
+  if (/&&|\|\|/.test(cmd)) return false;
+
   // Apply danger overrides first — these disqualify any command
   for (const re of DANGER_PATTERNS) {
     if (re.test(cmd)) return false;
@@ -85,14 +92,11 @@ function isClearlySafe(command) {
   // find: safe only without -exec / -execdir / -delete
   if (base === 'find' && !/\s-exec(dir)?\s/.test(cmd) && !/\s-delete\b/.test(cmd)) return true;
 
-  // git: all normal workflow subcommands (read + write, no force-push or remote deletion)
+  // git: read-only + local write commands only
+  // push excluded — can push malicious code to remote repos, must go through LLM
   if (base === 'git') {
-    // Disqualify force-push and remote branch deletion
-    if (/--force|-f\b/.test(cmd) && /push/.test(cmd)) return false;
-    if (/push.*:/.test(cmd) && /push.*:(\s|$)/.test(cmd)) return false; // delete remote ref
     if (/\brebase\s+-i\b/.test(cmd)) return false; // interactive rebase (complex)
-    // Allow all other git operations
-    return /^git\s+(add|commit|push|pull|merge|checkout|switch|restore|fetch|status|log|diff|branch|show|stash|tag|remote|describe|shortlog|blame|rev-parse|ls-files|ls-remote|submodule|config|init|clone)\b/.test(cmd);
+    return /^git\s+(add|commit|pull|merge|checkout|switch|restore|fetch|status|log|diff|branch|show|stash|tag|remote|describe|shortlog|blame|rev-parse|ls-files|ls-remote|submodule|config|init|clone)\b/.test(cmd);
   }
 
   // npm / yarn / pnpm — normal dev commands (not publish/deploy)
@@ -117,8 +121,8 @@ function isClearlySafe(command) {
   // ts-node, tsx, deno excluded — can execute arbitrary code like node -e
   if (/^(vite|vitest|jest|mocha)\s+/.test(cmd)) return true;
 
-  // Shell builtins: export / source / alias only when non-destructive
-  if (/^(export|source|\.)\s+/.test(cmd) && !/rm|delete|destroy/.test(cmd)) return true;
+  // Shell builtins: export / source removed — can modify env vars or execute arbitrary scripts
+  // Let LLM judge these.
 
   // kill / pkill only when targeting a specific known process by name (not -9 to unknown PIDs)
   // Don't fast-path — let LLM decide for kill commands.
