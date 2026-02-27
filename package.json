@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "server:dev": "nodemon server/index.js",
-    "client:dev": "cd client && vite",
-    "build": "cd client && vite build",
+    "client:dev": "cd client && ./node_modules/.bin/vite",
+    "build": "cd client && ./node_modules/.bin/vite build",
     "start": "node server/index.js",
     "test": "echo \"Tests coming soon\" && exit 0"
   },
