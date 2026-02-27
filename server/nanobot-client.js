@@ -17,6 +17,7 @@ export class NanobotClient {
     this.autoReconnect = options.autoReconnect !== false;
     this.reconnectDelay = options.reconnectDelay || 5000;
     this.maxReconnectDelay = options.maxReconnectDelay || 30000;
+    this.maxReconnectAttempts = options.maxReconnectAttempts || 5;
     this.currentReconnectDelay = this.reconnectDelay;
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
@@ -216,6 +217,12 @@ export class NanobotClient {
     }
 
     this.reconnectAttempts++;
+
+    if (this.reconnectAttempts > this.maxReconnectAttempts) {
+      console.log(`[NanobotClient] Giving up after ${this.maxReconnectAttempts} attempts. Nanobot not available.`);
+      this.onReconnectingCb(this.reconnectAttempts, -1);
+      return;
+    }
 
     const delay = Math.min(
       this.currentReconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),

@@ -202,7 +202,11 @@ if (BACKEND === 'nanobot' || BACKEND === 'auto') {
         logger.warn('Nanobot connection lost');
       },
       onReconnecting: (attempt, delay) => {
-        logger.info(`Nanobot reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
+        if (delay === -1) {
+          logger.warn(`Nanobot: gave up reconnecting after ${attempt - 1} attempts. Not available.`);
+        } else {
+          logger.info(`Nanobot reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
+        }
       }
     }
   );
