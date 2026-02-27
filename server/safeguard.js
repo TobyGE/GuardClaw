@@ -106,8 +106,10 @@ function isClearlySafe(command) {
   // cargo
   if (/^cargo\s+(build|test|check|run|fmt|clippy|doc|help|update|add)\b/.test(cmd)) return true;
 
-  // node / python / ruby / go running a script or --version
-  if (/^(node|python[23]?|ruby|go|java|rustc|tsc|php|perl)\s+/.test(cmd)) return true;
+  // node / python / ruby / go running a script file or --version
+  // EXCLUDE -c (inline code) — can execute arbitrary logic, must go through LLM
+  if (/^(node|python[23]?|ruby|go|java|rustc|tsc|php|perl)\s+/.test(cmd) &&
+      !/^(node|python[23]?|ruby|perl|php)\s+-(c|e)\s/.test(cmd)) return true;
 
   // vite / vitest / jest / mocha — dev tooling
   if (/^(vite|vitest|jest|mocha|ts-node|tsx|deno)\s+/.test(cmd)) return true;
@@ -1386,8 +1388,9 @@ BLOCK — truly dangerous:
 
 SAFE — normal development work:
 - Reading/displaying: cat, head, tail, grep, sed, awk, wc, less, diff, find, ls, file, stat, ps, df, du, lsof, pgrep
-- Dev tools: git (any subcommand), npm/pnpm/yarn install/run/build/test, node, python, pip, cargo
-- Fetching + local processing: curl/wget piped to python3/jq/grep/head/tail (this is data parsing, NOT remote code execution — python3 -c "json.load..." is safe)
+- Dev tools: git (any subcommand), npm/pnpm/yarn install/run/build/test, node/python running script FILES, pip, cargo
+- Fetching + local processing: curl/wget piped to jq/grep/head/tail (data parsing)
+- NOTE: node -e / python3 -c (inline code execution) is NOT automatically safe — evaluate the code content
 - File ops: cd, mkdir, touch, cp, mv
 - System info: echo, printf, env, which, whoami, date, uname
 - Local service tools: openclaw, guardclaw
