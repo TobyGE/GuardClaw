@@ -48,12 +48,13 @@ const SAFE_BASE = new Set([
   'ps', 'df', 'du', 'lsof', 'uname', 'sw_vers',
   // text processing (read-only)
   'sed', 'awk',
-  // creation / navigation (not destructive)
-  'mkdir', 'touch', 'cp', 'mv',
+  // creation (mkdir/touch are safe; cp/mv can overwrite sensitive files → LLM)
+  'mkdir', 'touch',
   // process/port inspection
   'pgrep', 'lsof', 'netstat', 'ss',
-  // project tools
-  'openclaw', 'guardclaw', 'jq', 'yq', 'curl',
+  // project tools (jq/yq are read-only transforms)
+  'openclaw', 'guardclaw', 'jq', 'yq',
+  // NOTE: curl, cp, mv removed — curl can exfiltrate, cp/mv can overwrite sensitive files
 ]);
 
 // Safe compound command: strip leading "cd <dir> &&" chains, then re-check.
@@ -94,8 +95,9 @@ function isClearlySafe(command) {
     return /^git\s+(add|commit|push|pull|merge|checkout|switch|restore|fetch|status|log|diff|branch|show|stash|tag|remote|describe|shortlog|blame|rev-parse|ls-files|ls-remote|submodule|config|init|clone)\b/.test(cmd);
   }
 
-  // npm / npx / yarn / pnpm — normal dev commands (not publish/deploy)
-  if (/^(npm|npx|yarn|pnpm)\s+/.test(cmd)) {
+  // npm / yarn / pnpm — normal dev commands (not publish/deploy)
+  // npx excluded — can download and execute arbitrary packages
+  if (/^(npm|yarn|pnpm)\s+/.test(cmd)) {
     if (/\s(publish|deploy|exec\s|dlx\s)/.test(cmd)) return false;
     return true;
   }
@@ -111,8 +113,9 @@ function isClearlySafe(command) {
   if (/^(node|python[23]?|ruby|go|java|rustc|tsc|php|perl)\s+/.test(cmd) &&
       !/^(node|python[23]?|ruby|perl|php)\s+-(c|e)\s/.test(cmd)) return true;
 
-  // vite / vitest / jest / mocha — dev tooling
-  if (/^(vite|vitest|jest|mocha|ts-node|tsx|deno)\s+/.test(cmd)) return true;
+  // vite / vitest / jest / mocha — dev tooling (build/test only)
+  // ts-node, tsx, deno excluded — can execute arbitrary code like node -e
+  if (/^(vite|vitest|jest|mocha)\s+/.test(cmd)) return true;
 
   // Shell builtins: export / source / alias only when non-destructive
   if (/^(export|source|\.)\s+/.test(cmd) && !/rm|delete|destroy/.test(cmd)) return true;
