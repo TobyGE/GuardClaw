@@ -213,6 +213,7 @@ export default function (api) {
           ``,
           `**Help GuardClaw learn — is this safe?**`,
           `/approve — yes, this is fine`,
+          `/approve-always — always allow this pattern`,
           `/deny — no, this is risky`,
         ].join('\n') : [
           `🛡️ **GuardClaw blocked a tool call**`,
@@ -226,6 +227,7 @@ export default function (api) {
           ``,
           `**Reply one of these to respond:**`,
           `/approve — allow this command once`,
+          `/approve-always — always allow this pattern`,
           `/deny — block and cancel`,
         ].join('\n');
 
@@ -395,9 +397,74 @@ export default function (api) {
     return { text: `❌ Denied: ${call.toolName} (${displayInput})` };
   };
 
+  // ── Approve-always handler — permanently trust this command pattern ──
+  const handleApproveAlways = async (_ctx) => {
+    const globalList = pendingCalls.get('__global__') || [];
+    const call = globalList.pop();
+
+    if (!call) {
+      return { text: '❌ No pending blocked actions.' };
+    }
+
+    pendingCalls.set('__global__', globalList);
+
+    if (call.sessionKey) {
+      const sessionList = pendingCalls.get(call.sessionKey) || [];
+      const idx = sessionList.findIndex(
+        (c) => c.toolName === call.toolName && c.timestamp === call.timestamp
+      );
+      if (idx !== -1) {
+        sessionList.splice(idx, 1);
+        pendingCalls.set(call.sessionKey, sessionList);
+      }
+      blockedSessions.delete(call.sessionKey);
+      api.logger.info(`[GuardClaw] 🔓 Session unlocked (approve-always): ${call.sessionKey}`);
+    }
+
+    const commandKey = `${call.toolName}:${JSON.stringify(call.params)}`;
+    approvedCommands.set(commandKey, Date.now() + 5 * 60 * 1000);
+
+    const displayInput = formatParams(call.toolName, call.params);
+
+    // Retry the agent
+    try {
+      await fetch(`${GUARDCLAW_URL}/api/chat-inject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKey: call.sessionKey,
+          message: `[GUARDCLAW RETRY APPROVED] The user approved the blocked action. Retry it now immediately.\nTool: ${call.toolName}\nInput: ${displayInput}`,
+        }),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch (err) {
+      api.logger.warn(`[GuardClaw] Failed to inject retry signal: ${err.message}`);
+    }
+
+    // Record as approve + set auto-approve permanently
+    fetch(`${GUARDCLAW_URL}/api/memory/record`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toolName: call.toolName,
+        command: displayInput,
+        riskScore: call.riskScore,
+        decision: 'approve',
+        sessionKey: call.sessionKey,
+        alwaysApprove: true,
+      }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+
+    return {
+      text: `✅ Approved & remembered — similar \`${call.toolName}\` commands will be auto-approved.\n\nInput: ${displayInput}`,
+    };
+  };
+
   // Register both hyphenated and non-hyphenated versions
   api.registerCommand({ name: 'approve-last', description: 'Approve the last blocked tool call', handler: handleApprove });
   api.registerCommand({ name: 'approve', description: 'Approve the last blocked tool call', handler: handleApprove });
+  api.registerCommand({ name: 'approve-always', description: 'Approve and always allow this pattern', handler: handleApproveAlways });
   api.registerCommand({ name: 'deny-last', description: 'Deny the last blocked tool call', handler: handleDeny });
   api.registerCommand({ name: 'deny', description: 'Deny the last blocked tool call', handler: handleDeny });
 

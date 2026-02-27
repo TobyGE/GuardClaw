@@ -280,6 +280,14 @@ export class MemoryStore {
   }
 
   /**
+   * Force a pattern's suggestedAction (e.g., 'auto-approve' or 'auto-deny').
+   */
+  setPatternAction(pattern, action) {
+    const stmt = this.db.prepare('UPDATE patterns SET suggestedAction = ? WHERE pattern = ?');
+    stmt.run(action, pattern);
+  }
+
+  /**
    * Get score adjustment based on memory.
    * Returns a value to ADD to the risk score (negative = lower risk).
    * Never adjusts score below 3 or for score >= 9.

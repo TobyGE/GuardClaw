@@ -965,11 +965,18 @@ app.get('/api/memory/lookup', (req, res) => {
 });
 
 app.post('/api/memory/record', (req, res) => {
-  const { toolName, command, riskScore, decision, sessionKey } = req.body;
+  const { toolName, command, riskScore, decision, sessionKey, alwaysApprove } = req.body;
   if (!toolName || !decision) {
     return res.status(400).json({ error: 'Missing toolName or decision' });
   }
   const result = memoryStore.recordDecision(toolName, command, riskScore, decision, sessionKey);
+
+  // If alwaysApprove, force the pattern to auto-approve immediately
+  if (alwaysApprove && result.commandPattern) {
+    memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
+    console.log(`[Memory] 🔒 Pattern permanently trusted: ${result.commandPattern}`);
+  }
+
   res.json({ ok: true, ...result });
 });
 
