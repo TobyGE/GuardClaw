@@ -1817,6 +1817,34 @@ app.listen(PORT, () => {
       console.log('');
       console.log('🎯 GuardClaw is now monitoring your agents!');
       console.log('');
+
+      // ─── Periodic cleanup (every 5 minutes) ─────────────────────────────
+      setInterval(() => {
+        // 1. Purge expired evaluation cache entries
+        let evicted = 0;
+        const now = Date.now();
+        for (const [key, entry] of evaluationCache) {
+          if (now > entry.expiresAt) { evaluationCache.delete(key); evicted++; }
+        }
+
+        // 2. Clean up old streaming tracker sessions (>1 hour)
+        streamingTracker.cleanup(3600000);
+
+        // 3. Clean up stale toolHistoryStore sessions (>2 hours since last entry)
+        const histCutoff = now - 7200000;
+        let histEvicted = 0;
+        for (const [sessionKey, history] of toolHistoryStore) {
+          const lastEntry = history[history.length - 1];
+          if (!lastEntry || lastEntry.timestamp < histCutoff) {
+            toolHistoryStore.delete(sessionKey);
+            histEvicted++;
+          }
+        }
+
+        if (evicted || histEvicted) {
+          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted} sessions evicted`);
+        }
+      }, 300_000);
     });
   } else {
     console.log('⏸️  Auto-connect disabled (AUTO_CONNECT=false)');
