@@ -1,0 +1,9 @@
+{
+  "name": "guardclaw",
+  "description": "GuardClaw AI safety monitor — real-time tool call analysis and blocking for Claude Code",
+  "version": "1.0.0",
+  "author": {
+    "name": "GuardClaw"
+  },
+  "homepage": "https://github.com/TobyGE/GuardClaw"
+}

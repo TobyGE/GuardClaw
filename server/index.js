@@ -859,6 +859,234 @@ app.post('/api/evaluate', async (req, res) => {
   }
 });
 
+// ─── Claude Code Hook Integration ────────────────────────────────────────────
+
+// Pending approvals for Claude Code (HTTP hooks hold the connection)
+const pendingApprovals = new Map(); // id → { toolName, params, riskScore, reason, resolve, createdAt }
+let approvalIdCounter = 0;
+
+// Tool name mapping: Claude Code → GuardClaw
+function mapClaudeCodeTool(toolName) {
+  const map = { Bash: 'exec', Edit: 'edit', Write: 'write', Read: 'read', Glob: 'read', Grep: 'read' };
+  return map[toolName] || toolName.toLowerCase();
+}
+
+// Map Claude Code tool_input → GuardClaw params
+function mapClaudeCodeParams(toolName, toolInput) {
+  if (!toolInput) return {};
+  switch (toolName) {
+    case 'Bash': return { command: toolInput.command || '' };
+    case 'Edit': return { file_path: toolInput.file_path, new_string: toolInput.new_string, old_string: toolInput.old_string };
+    case 'Write': return { file_path: toolInput.file_path, content: toolInput.content };
+    case 'Read': return { file_path: toolInput.file_path };
+    default: return toolInput;
+  }
+}
+
+app.post('/api/hooks/pre-tool-use', async (req, res) => {
+  const { tool_name, tool_input, session_id } = req.body;
+  if (!tool_name) return res.json({});
+
+  const gcToolName = mapClaudeCodeTool(tool_name);
+  const gcParams = mapClaudeCodeParams(tool_name, tool_input);
+  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+
+  try {
+    // Get chain history
+    const chainHistory = getChainHistory(sessionKey, gcToolName);
+
+    // Memory lookup
+    const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+    const mem = memoryStore.lookup(gcToolName, commandStr);
+    let memoryHint = null;
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = { pattern: mem.pattern, approveCount: mem.approveCount, denyCount: mem.denyCount, confidence: mem.confidence, suggestedAction: mem.suggestedAction };
+    }
+
+    // Auto-approve from memory
+    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+      const baseScore = 5;
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
+      const adjScore = Math.max(1, Math.min(10, baseScore + adj));
+      if (adjScore < 9) {
+        console.log(`[GuardClaw] 🧠 Claude Code auto-approved: ${memoryHint.pattern}`);
+        return res.json({});
+      }
+    }
+
+    // Memory context for LLM
+    const relatedPatterns = memoryStore.lookupRelated(gcToolName, commandStr);
+    const memoryContext = relatedPatterns.length > 0
+      ? relatedPatterns.map(p => `- "${p.pattern}" — ${p.approveCount > p.denyCount ? 'safe' : 'risky'} (${p.approveCount}/${p.denyCount})`).join('\n')
+      : null;
+
+    // Evaluate
+    let analysis;
+    if (gcToolName === 'exec') {
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, memoryContext);
+    } else {
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, memoryContext);
+    }
+
+    // Memory adjustment
+    if (memoryHint) {
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, analysis.riskScore);
+      if (adj !== 0) {
+        analysis.originalRiskScore = analysis.riskScore;
+        analysis.riskScore = Math.max(1, Math.min(10, analysis.riskScore + adj));
+      }
+    }
+
+    // Store event
+    const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams).slice(0, 200);
+    eventStore.addEvent({
+      type: 'claude-code-tool',
+      tool: gcToolName,
+      sessionKey,
+      riskScore: analysis.riskScore,
+      category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
+      allowed: analysis.riskScore < 8 ? 1 : 0,
+      data: JSON.stringify({
+        toolName: gcToolName,
+        originalToolName: tool_name,
+        payload: { params: gcParams },
+        safeguard: { riskScore: analysis.riskScore, reasoning: analysis.reasoning, category: analysis.category, verdict: analysis.riskScore >= 8 ? 'blocked' : 'allowed' },
+        source: 'claude-code',
+        timestamp: Date.now(),
+      }),
+    });
+
+    // If safe, allow immediately
+    if (analysis.riskScore < 8) {
+      return res.json({});
+    }
+
+    // High risk: hold request and wait for dashboard approval
+    const approvalId = String(++approvalIdCounter);
+    const reason = analysis.reasoning || 'High risk tool call';
+
+    console.log(`[GuardClaw] 🛑 Claude Code blocked: ${tool_name} (score ${analysis.riskScore}) — waiting for approval #${approvalId}`);
+
+    // macOS notification
+    try {
+      const { exec: execCmd } = await import('child_process');
+      execCmd(`osascript -e 'display notification "Blocked: ${tool_name} (score ${analysis.riskScore})" with title "GuardClaw" sound name "Purr"'`);
+    } catch {}
+
+    const approvalPromise = new Promise((resolve) => {
+      pendingApprovals.set(approvalId, {
+        id: approvalId,
+        toolName: gcToolName,
+        originalToolName: tool_name,
+        params: gcParams,
+        displayInput,
+        riskScore: analysis.riskScore,
+        reason,
+        sessionKey,
+        resolve,
+        createdAt: Date.now(),
+      });
+
+      // Push to SSE clients
+      eventStore.emit({
+        type: 'approval-pending',
+        data: JSON.stringify({
+          id: approvalId, toolName: gcToolName, originalToolName: tool_name,
+          displayInput, riskScore: analysis.riskScore, reason, createdAt: Date.now(),
+        }),
+      });
+
+      // Timeout after 300s → deny
+      setTimeout(() => {
+        if (pendingApprovals.has(approvalId)) {
+          pendingApprovals.delete(approvalId);
+          resolve({ denied: true, reason: 'Approval timeout (300s)' });
+        }
+      }, 300_000);
+    });
+
+    const result = await approvalPromise;
+
+    if (result.denied) {
+      // Record deny in memory
+      memoryStore.recordDecision(gcToolName, displayInput, analysis.riskScore, 'deny', sessionKey);
+      return res.json({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `GuardClaw blocked (score ${analysis.riskScore}/10): ${reason}`,
+        },
+      });
+    }
+
+    // Approved
+    memoryStore.recordDecision(gcToolName, displayInput, analysis.riskScore, 'approve', sessionKey);
+    return res.json({});
+
+  } catch (error) {
+    console.error('[GuardClaw] Claude Code hook error:', error);
+    return res.json({}); // fail-open
+  }
+});
+
+// Approval management endpoints
+app.get('/api/approvals/pending', (req, res) => {
+  const pending = [];
+  for (const [id, entry] of pendingApprovals) {
+    pending.push({
+      id, toolName: entry.toolName, originalToolName: entry.originalToolName,
+      displayInput: entry.displayInput, riskScore: entry.riskScore,
+      reason: entry.reason, createdAt: entry.createdAt,
+      elapsed: Math.round((Date.now() - entry.createdAt) / 1000),
+    });
+  }
+  res.json({ pending });
+});
+
+app.post('/api/approvals/:id/approve', (req, res) => {
+  const entry = pendingApprovals.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'No pending approval with this id' });
+  pendingApprovals.delete(req.params.id);
+  entry.resolve({ denied: false });
+  // Record in memory, optionally as always-approve
+  if (req.body.alwaysApprove) {
+    const commandStr = entry.toolName === 'exec' ? (entry.params.command || '') : JSON.stringify(entry.params);
+    const result = memoryStore.recordDecision(entry.toolName, entry.displayInput, entry.riskScore, 'approve', entry.sessionKey);
+    if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
+  }
+  eventStore.emit({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'approve' }) });
+  console.log(`[GuardClaw] ✅ Claude Code approved: ${entry.originalToolName} (#${req.params.id})`);
+  res.json({ ok: true });
+});
+
+app.post('/api/approvals/:id/deny', (req, res) => {
+  const entry = pendingApprovals.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'No pending approval with this id' });
+  pendingApprovals.delete(req.params.id);
+  entry.resolve({ denied: true, reason: 'Denied by user' });
+  eventStore.emit({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'deny' }) });
+  console.log(`[GuardClaw] ❌ Claude Code denied: ${entry.originalToolName} (#${req.params.id})`);
+  res.json({ ok: true });
+});
+
+// Post-tool-use: store results for chain analysis
+app.post('/api/hooks/post-tool-use', (req, res) => {
+  const { tool_name, tool_input, tool_output, session_id } = req.body;
+  if (!tool_name) return res.json({});
+
+  const gcToolName = mapClaudeCodeTool(tool_name);
+  const gcParams = mapClaudeCodeParams(tool_name, tool_input);
+  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+
+  // Store in toolHistoryStore for chain analysis
+  const resultSnippet = typeof tool_output === 'string'
+    ? tool_output.slice(0, 500)
+    : JSON.stringify(tool_output || '').slice(0, 500);
+  addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
+
+  res.json({});
+});
+
 // ─── Chat Inject API (used by plugin to trigger agent retry after approval) ──
 
 app.post('/api/chat-inject', async (req, res) => {

@@ -7,6 +7,7 @@ import SettingsModal from './components/SettingsModal';
 import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
+import ApprovalBanner from './components/ApprovalBanner';
 import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon, BrainIcon } from './components/icons';
 
 function App() {
@@ -672,6 +673,7 @@ function App() {
                 </div>
               )}
 
+              <ApprovalBanner />
               <div className="flex-1 overflow-y-auto">
                 <EventList events={
                   selectedSession

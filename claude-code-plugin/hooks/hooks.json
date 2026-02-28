@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:3002/api/hooks/pre-tool-use",
+            "timeout": 300,
+            "statusMessage": "⏳ GuardClaw evaluating..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:3002/api/hooks/post-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
