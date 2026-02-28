@@ -74,7 +74,6 @@ function App() {
           setLlmConfig(data.llmConfig || null);
           setBlockingStatus(data.blocking || null);
           if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
-          fetchEvents();
           fetchSessions();
           fetch('/api/memory/stats').then(r => r.json()).then(setMemoryStats).catch(() => {});
         }
