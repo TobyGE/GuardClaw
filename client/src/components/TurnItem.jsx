@@ -439,30 +439,53 @@ function TurnItem({ turn }) {
   if (!parent) {
     const summary = summarizeToolCalls(toolCalls);
     const replyText = reply?.description || reply?.summary || '';
+    const ts = toolCalls.length > 0 ? toolCalls[toolCalls.length - 1].timestamp : null;
     return (
       <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
+        {/* Header */}
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+          <div className="flex items-center gap-2">
             {replyText
-              ? <BotIcon size={18} className="text-gc-primary" />
-              : <HourglassIcon size={18} className="text-gc-warning animate-pulse" />
+              ? <BotIcon size={16} className="text-gc-primary" />
+              : <HourglassIcon size={16} className="text-gc-warning animate-pulse" />
             }
-            <span className="text-sm font-medium text-gc-text-dim">
-              {replyText ? 'Agent turn' : 'Agent working…'}
+            <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
+              OpenClaw
             </span>
-            <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{summary}</span>
+            {toolCalls.length > 0 && (
+              <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{summary}</span>
+            )}
+            {!replyText && (
+              <span className="text-xs text-gc-warning">working…</span>
+            )}
           </div>
-          <span className="text-xs text-gc-text-dim ml-4 whitespace-nowrap">
-            {toolCalls.length > 0 ? formatTime(toolCalls[toolCalls.length - 1].timestamp) : ''}
-          </span>
+          {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
         </div>
-        {/* Agent reply text */}
+
+        {/* Reply text */}
         {replyText && (
-          <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
+          <div className="border-l-2 border-blue-300/50 pl-3 mb-3">
+            <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
+          </div>
         )}
-        <div className="space-y-2">
-          {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
-        </div>
+
+        {/* Tool calls */}
+        {toolCalls.length > 0 && (
+          <div>
+            <button
+              onClick={() => setShowDetails(v => !v)}
+              className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center gap-1 mb-2"
+            >
+              <span>{showDetails ? '▼' : '▶'}</span>
+              <span>{toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}</span>
+            </button>
+            {showDetails && (
+              <div className="space-y-2">
+                {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -479,90 +502,88 @@ function TurnItem({ turn }) {
 
   // ── Case 3: chat-update/chat-message with tool calls → full turn ──
   const riskLevel = getRiskLevel(parent.safeguard?.riskScore, parent.safeguard?.pending);
-  // Prefer: actual agent reply text > parent description > AI-generated summary
   const replyText = reply?.description || reply?.summary || parent.description || parent.summary || '';
   const isContext = parent.safeguard?.isContext;
-
-  // Determine how many unique tool names
-  const toolNames = [...new Set(toolCalls.map(tc => tc.tool || tc.subType).filter(Boolean))];
   const toolSummary = summarizeToolCalls(toolCalls);
+  const ts = parent.timestamp || toolCalls[toolCalls.length - 1]?.timestamp;
 
   return (
     <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center space-x-3 mb-2">
-            <span className="text-gc-text font-medium"><><BotIcon size={14} className="inline mr-1" /> Agent turn</></span>
-            {riskLevel && !isContext && (
-              <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
-                {riskLevel.label}
-              </span>
-            )}
-          </div>
-
-          {/* Agent reply text */}
-          {replyText && (
-            <div className="mb-3">
-              <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
-            </div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <BotIcon size={16} className="text-gc-primary" />
+          <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
+            OpenClaw
+          </span>
+          {toolCalls.length > 0 && (
+            <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{toolSummary}</span>
           )}
+          {riskLevel && !isContext && (
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskLevel.color}`}>
+              {riskLevel.label}
+            </span>
+          )}
+        </div>
+        {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
+      </div>
 
-          {/* Action buttons */}
-          <div className="flex items-center space-x-4 mt-2">
-            {/* Details button */}
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="text-xs text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center space-x-1"
-            >
-              <span>{showDetails ? '▼' : '▶'}</span>
-              <span>📋 Details ({toolSummary})</span>
-            </button>
+      {/* Reply text */}
+      {replyText && (
+        <div className="border-l-2 border-blue-300/50 pl-3 mb-3">
+          <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
+        </div>
+      )}
 
-            {/* Security Analysis button — only if actually scored (not context) */}
-            {!isContext && parent.safeguard?.riskScore != null && (
-              <button
-                onClick={() => setShowAnalysis(!showAnalysis)}
-                className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
-              >
-                <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({parent.safeguard?.category || 'general'})</span>
-              </button>
-            )}
-          </div>
-
-          {/* streamingSteps hint removed — Details button already shows the count */}
-
-          {/* ── Details Panel ── */}
+      {/* Tool calls */}
+      {toolCalls.length > 0 && (
+        <div className="mb-2">
+          <button
+            onClick={() => setShowDetails(v => !v)}
+            className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center gap-1 mb-2"
+          >
+            <span>{showDetails ? '▼' : '▶'}</span>
+            <span>{toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}</span>
+          </button>
           {showDetails && (
-            <div className="mt-3 ml-4 space-y-2 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded p-3">
-              <div className="flex items-center space-x-2 mb-2">
-                <span className="text-lg">📋</span>
-                <span className="text-blue-700 dark:text-blue-300 font-semibold text-sm">
-                  Event Details — {toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Tool call rows (from grouped events) */}
-              <div className="space-y-2">
-                {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
-              </div>
-
-              {/* streamingSteps from parent removed — tool calls shown via ToolCallRow above */}
+            <div className="space-y-2">
+              {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ── Security Analysis Panel ── */}
+      {/* Security Analysis */}
+      {!isContext && parent.safeguard?.riskScore != null && (
+        <div className="mt-1">
+          <button
+            onClick={() => setShowAnalysis(!showAnalysis)}
+            className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
+          >
+            <span>{showAnalysis ? '▼' : '▶'}</span>
+            <span className="inline-flex items-center gap-1">
+              <GuardClawLogo size={14} /> Security Analysis ({parent.safeguard?.category || 'general'})
+            </span>
+          </button>
+
           {showAnalysis && parent.safeguard && (
-            <div className="mt-3 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
+            <div className="mt-2 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2">
-                <GuardClawLogo size={20} />
+                <GuardClawLogo size={16} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
-              <div><span className="text-gc-text-dim">Verdict:</span><span className="ml-2 font-medium">{parent.safeguard.riskScore <= 3 ? 'SAFE' : parent.safeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}</span></div>
-              {parent.safeguard.category && <div><span className="text-gc-text-dim">Category:</span><span className="ml-2">{parent.safeguard.category}</span></div>}
+              <div>
+                <span className="text-gc-text-dim">Verdict: </span>
+                <span className="font-medium">
+                  {parent.safeguard.riskScore <= 3 ? 'SAFE' : parent.safeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}
+                </span>
+              </div>
+              {parent.safeguard.category && (
+                <div><span className="text-gc-text-dim">Category: </span>{parent.safeguard.category}</div>
+              )}
               {parent.safeguard.reasoning && (
-                <div><span className="text-gc-text-dim">Reasoning:</span>
+                <div>
+                  <span className="text-gc-text-dim">Reasoning:</span>
                   <p className="mt-1 bg-gc-bg/50 p-2 rounded text-sm">{parent.safeguard.reasoning}</p>
                 </div>
               )}
@@ -576,22 +597,24 @@ function TurnItem({ turn }) {
               )}
               {parent.safeguard.allowed !== undefined && (
                 <div>
-                  <span className="text-gc-text-dim">Action:</span>
-                  <span className={`ml-2 font-medium ${parent.safeguard.allowed ? 'text-gc-safe' : 'text-gc-danger'}`}>
+                  <span className="text-gc-text-dim">Action: </span>
+                  <span className={`font-medium ${parent.safeguard.allowed ? 'text-gc-safe' : 'text-gc-danger'}`}>
                     {parent.safeguard.allowed ? '✓ Allowed' : '✗ Blocked'}
                   </span>
                 </div>
               )}
-              {parent.safeguard.memory && <MemoryHint memory={parent.safeguard.memory} adjustment={parent.safeguard.memoryAdjustment} originalScore={parent.safeguard.originalRiskScore} currentScore={parent.safeguard.riskScore} />}
+              {parent.safeguard.memory && (
+                <MemoryHint
+                  memory={parent.safeguard.memory}
+                  adjustment={parent.safeguard.memoryAdjustment}
+                  originalScore={parent.safeguard.originalRiskScore}
+                  currentScore={parent.safeguard.riskScore}
+                />
+              )}
             </div>
           )}
         </div>
-
-        {/* Timestamp */}
-        <div className="text-sm text-gc-text-dim ml-4 whitespace-nowrap flex-shrink-0">
-          {formatTime(parent.timestamp || Date.now())}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
