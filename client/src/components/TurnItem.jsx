@@ -347,53 +347,106 @@ function ReplyText({ text, expanded, onToggle }) {
   );
 }
 
-/* ---------- TurnItem: one agent response turn ---------- */
-function CCTurnItem({ turn }) {
-  const { toolCalls, userPrompt, replies = [] } = turn;
+/* ---------- AgentTurnItem: unified turn display for OpenClaw + Claude Code ----------
+ *
+ * Both bots produce the same structure:
+ *   userPrompt (optional) → toolCalls → agentReplies
+ *
+ * OpenClaw: no user prompt (GuardClaw doesn't receive inbound user messages);
+ *           single reply from parent.description/summary; risk scoring available.
+ * Claude Code: userPrompt from claude-code-prompt event; multiple reply segments;
+ *              no turn-level risk scoring (per-tool scoring happens in ToolCallRow).
+ *
+ * Source is determined by turn.isCCTurn.
+ */
+function AgentTurnItem({ turn }) {
+  const isCCTurn = !!turn.isCCTurn;
+  const toolCalls = turn.toolCalls || [];
+
+  // ── Normalize agent replies ──
+  let agentReplies = [];
+  if (isCCTurn) {
+    agentReplies = (turn.replies || []).map((r, i, arr) => ({
+      text: r.text || '',
+      isFinal: i === arr.length - 1,
+      id: r.id,
+    }));
+  } else if (turn.parent) {
+    const text = turn.reply?.description || turn.reply?.summary
+      || turn.parent?.description || turn.parent?.summary || '';
+    if (text) agentReplies = [{ text, isFinal: true, id: turn.parent.id }];
+  }
+
+  const isInProgress = agentReplies.length === 0;
+
+  // ── Timestamp ──
+  const ts = isCCTurn
+    ? (turn.replies?.[turn.replies.length - 1]?.timestamp
+        || toolCalls[toolCalls.length - 1]?.timestamp
+        || turn.userPrompt?.timestamp)
+    : (turn.parent?.timestamp || toolCalls[toolCalls.length - 1]?.timestamp);
+
+  // ── Risk (OpenClaw only — from parent event's safeguard) ──
+  const parentSafeguard = isCCTurn ? null : (turn.parent?.safeguard || null);
+  const isContext = parentSafeguard?.isContext;
+  const riskLevel = getRiskLevel(parentSafeguard?.riskScore, parentSafeguard?.pending);
+
+  // ── Visual identity ──
+  const pill = isCCTurn
+    ? 'text-purple-600 bg-purple-50 border-purple-200'
+    : 'text-blue-600 bg-blue-50 border-blue-200';
+  const pillLabel = isCCTurn ? 'Claude Code' : 'OpenClaw';
+  const botColor = isCCTurn ? 'text-purple-500' : 'text-gc-primary';
+  const replyBorder = isCCTurn ? 'border-purple-300/50' : 'border-blue-300/50';
+  const replyLabelColor = isCCTurn ? 'text-purple-400/60' : 'text-blue-400/60';
+
   const [showDetails, setShowDetails] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const [expandedReplies, setExpandedReplies] = useState({});
-
-  const hasReplies = replies.length > 0;
-  const lastReply = replies[replies.length - 1];
-  const promptText = userPrompt?.text || '';
-  const ts = lastReply?.timestamp || toolCalls[toolCalls.length - 1]?.timestamp || userPrompt?.timestamp;
-
   const toggleReply = (i) => setExpandedReplies(v => ({ ...v, [i]: !v[i] }));
 
   return (
     <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          {hasReplies
-            ? <BotIcon size={16} className="text-purple-500" />
-            : <HourglassIcon size={16} className="text-gc-warning animate-pulse" />
+          {isInProgress
+            ? <HourglassIcon size={16} className="text-gc-warning animate-pulse" />
+            : <BotIcon size={16} className={botColor} />
           }
-          <span className="text-xs font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2 py-0.5">
-            Claude Code
+          <span className={`text-xs font-semibold rounded-full px-2 py-0.5 border ${pill}`}>
+            {pillLabel}
           </span>
           {toolCalls.length > 0 && (
             <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
               {summarizeToolCalls(toolCalls)}
             </span>
           )}
-          {!hasReplies && (
+          {riskLevel && !isContext && (
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskLevel.color}`}>
+              {riskLevel.label}
+            </span>
+          )}
+          {isInProgress && (
             <span className="text-xs text-gc-warning">working…</span>
           )}
         </div>
         {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
       </div>
 
-      {/* User prompt bubble */}
-      {promptText && (
+      {/* ── User prompt bubble (when available — CC only for now) ── */}
+      {turn.userPrompt?.text && (
         <div className="mb-3 flex justify-end">
           <div className="max-w-[85%] bg-gc-primary/10 border border-gc-primary/20 rounded-xl rounded-tr-sm px-3 py-2">
-            <p className="text-xs text-gc-text leading-relaxed whitespace-pre-wrap">{promptText}</p>
+            <p className="text-xs text-gc-text leading-relaxed whitespace-pre-wrap">
+              {turn.userPrompt.text}
+            </p>
           </div>
         </div>
       )}
 
-      {/* Tool calls */}
+      {/* ── Tool calls ── */}
       {toolCalls.length > 0 && (
         <div className="mb-3">
           <button
@@ -411,150 +464,24 @@ function CCTurnItem({ turn }) {
         </div>
       )}
 
-      {/* All reply segments in order */}
-      {replies.map((reply, i) => (
-        <div key={reply.id || i} className="border-l-2 border-purple-300/50 pl-3 mb-2">
-          {replies.length > 1 && (
-            <span className="text-[10px] text-purple-400/60 font-mono mb-1 block">
-              {i < replies.length - 1 ? '◎ intermediate' : '◉ final'}
+      {/* ── Agent replies ── */}
+      {agentReplies.map((reply, i) => (
+        <div key={reply.id || i} className={`border-l-2 ${replyBorder} pl-3 mb-2`}>
+          {agentReplies.length > 1 && (
+            <span className={`text-[10px] font-mono mb-1 block ${replyLabelColor}`}>
+              {reply.isFinal ? '◉ final' : '◎ intermediate'}
             </span>
           )}
-          <ReplyText text={reply.text || ''} expanded={!!expandedReplies[i]} onToggle={() => toggleReply(i)} />
+          <ReplyText
+            text={reply.text}
+            expanded={!!expandedReplies[i]}
+            onToggle={() => toggleReply(i)}
+          />
         </div>
       ))}
-    </div>
-  );
-}
 
-function TurnItem({ turn }) {
-  const { parent, toolCalls, reply } = turn;
-  const [showDetails, setShowDetails] = useState(false);
-  const [showAnalysis, setShowAnalysis] = useState(false);
-  const [showFullReply, setShowFullReply] = useState(false);
-
-  // ── Case 0: Claude Code turn ──
-  if (turn.isCCTurn) return <CCTurnItem turn={turn} />;
-
-  // ── Case 1: orphan tool-calls only (agent still running / no parent) ──
-  if (!parent) {
-    const summary = summarizeToolCalls(toolCalls);
-    const replyText = reply?.description || reply?.summary || '';
-    const ts = toolCalls.length > 0 ? toolCalls[toolCalls.length - 1].timestamp : null;
-    return (
-      <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            {replyText
-              ? <BotIcon size={16} className="text-gc-primary" />
-              : <HourglassIcon size={16} className="text-gc-warning animate-pulse" />
-            }
-            <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
-              OpenClaw
-            </span>
-            {toolCalls.length > 0 && (
-              <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{summary}</span>
-            )}
-            {!replyText && (
-              <span className="text-xs text-gc-warning">working…</span>
-            )}
-          </div>
-          {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
-        </div>
-
-        {/* Reply text */}
-        {replyText && (
-          <div className="border-l-2 border-blue-300/50 pl-3 mb-3">
-            <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
-          </div>
-        )}
-
-        {/* Tool calls */}
-        {toolCalls.length > 0 && (
-          <div>
-            <button
-              onClick={() => setShowDetails(v => !v)}
-              className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center gap-1 mb-2"
-            >
-              <span>{showDetails ? '▼' : '▶'}</span>
-              <span>{toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}</span>
-            </button>
-            {showDetails && (
-              <div className="space-y-2">
-                {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── Case 2: standalone event (no tool calls) ──
-  if (toolCalls.length === 0) {
-    // Chat messages with no tool calls → render as conversation context bubble
-    const isChat = parent.type === 'chat-update' || parent.type === 'chat-message';
-    if (isChat || parent.safeguard?.isContext) {
-      return <ChatContextBubble event={parent} />;
-    }
-    return <StandaloneEvent event={parent} />;
-  }
-
-  // ── Case 3: chat-update/chat-message with tool calls → full turn ──
-  const riskLevel = getRiskLevel(parent.safeguard?.riskScore, parent.safeguard?.pending);
-  const replyText = reply?.description || reply?.summary || parent.description || parent.summary || '';
-  const isContext = parent.safeguard?.isContext;
-  const toolSummary = summarizeToolCalls(toolCalls);
-  const ts = parent.timestamp || toolCalls[toolCalls.length - 1]?.timestamp;
-
-  return (
-    <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <BotIcon size={16} className="text-gc-primary" />
-          <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
-            OpenClaw
-          </span>
-          {toolCalls.length > 0 && (
-            <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">{toolSummary}</span>
-          )}
-          {riskLevel && !isContext && (
-            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskLevel.color}`}>
-              {riskLevel.label}
-            </span>
-          )}
-        </div>
-        {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
-      </div>
-
-      {/* Reply text */}
-      {replyText && (
-        <div className="border-l-2 border-blue-300/50 pl-3 mb-3">
-          <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
-        </div>
-      )}
-
-      {/* Tool calls */}
-      {toolCalls.length > 0 && (
-        <div className="mb-2">
-          <button
-            onClick={() => setShowDetails(v => !v)}
-            className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center gap-1 mb-2"
-          >
-            <span>{showDetails ? '▼' : '▶'}</span>
-            <span>{toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}</span>
-          </button>
-          {showDetails && (
-            <div className="space-y-2">
-              {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Security Analysis */}
-      {!isContext && parent.safeguard?.riskScore != null && (
+      {/* ── Security Analysis (OpenClaw only) ── */}
+      {!isCCTurn && !isContext && parentSafeguard?.riskScore != null && (
         <div className="mt-1">
           <button
             onClick={() => setShowAnalysis(!showAnalysis)}
@@ -562,11 +489,11 @@ function TurnItem({ turn }) {
           >
             <span>{showAnalysis ? '▼' : '▶'}</span>
             <span className="inline-flex items-center gap-1">
-              <GuardClawLogo size={14} /> Security Analysis ({parent.safeguard?.category || 'general'})
+              <GuardClawLogo size={14} /> Security Analysis ({parentSafeguard?.category || 'general'})
             </span>
           </button>
 
-          {showAnalysis && parent.safeguard && (
+          {showAnalysis && (
             <div className="mt-2 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2">
                 <GuardClawLogo size={16} />
@@ -575,40 +502,41 @@ function TurnItem({ turn }) {
               <div>
                 <span className="text-gc-text-dim">Verdict: </span>
                 <span className="font-medium">
-                  {parent.safeguard.riskScore <= 3 ? 'SAFE' : parent.safeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}
+                  {parentSafeguard.riskScore <= 3 ? 'SAFE'
+                    : parentSafeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}
                 </span>
               </div>
-              {parent.safeguard.category && (
-                <div><span className="text-gc-text-dim">Category: </span>{parent.safeguard.category}</div>
+              {parentSafeguard.category && (
+                <div><span className="text-gc-text-dim">Category: </span>{parentSafeguard.category}</div>
               )}
-              {parent.safeguard.reasoning && (
+              {parentSafeguard.reasoning && (
                 <div>
                   <span className="text-gc-text-dim">Reasoning:</span>
-                  <p className="mt-1 bg-gc-bg/50 p-2 rounded text-sm">{parent.safeguard.reasoning}</p>
+                  <p className="mt-1 bg-gc-bg/50 p-2 rounded text-sm">{parentSafeguard.reasoning}</p>
                 </div>
               )}
-              {parent.safeguard.concerns?.length > 0 && (
+              {parentSafeguard.concerns?.length > 0 && (
                 <div>
                   <span className="text-gc-text-dim">Concerns:</span>
                   <ul className="mt-1 list-disc list-inside">
-                    {parent.safeguard.concerns.map((c, i) => <li key={i}>{c}</li>)}
+                    {parentSafeguard.concerns.map((c, i) => <li key={i}>{c}</li>)}
                   </ul>
                 </div>
               )}
-              {parent.safeguard.allowed !== undefined && (
+              {parentSafeguard.allowed !== undefined && (
                 <div>
                   <span className="text-gc-text-dim">Action: </span>
-                  <span className={`font-medium ${parent.safeguard.allowed ? 'text-gc-safe' : 'text-gc-danger'}`}>
-                    {parent.safeguard.allowed ? '✓ Allowed' : '✗ Blocked'}
+                  <span className={`font-medium ${parentSafeguard.allowed ? 'text-gc-safe' : 'text-gc-danger'}`}>
+                    {parentSafeguard.allowed ? '✓ Allowed' : '✗ Blocked'}
                   </span>
                 </div>
               )}
-              {parent.safeguard.memory && (
+              {parentSafeguard.memory && (
                 <MemoryHint
-                  memory={parent.safeguard.memory}
-                  adjustment={parent.safeguard.memoryAdjustment}
-                  originalScore={parent.safeguard.originalRiskScore}
-                  currentScore={parent.safeguard.riskScore}
+                  memory={parentSafeguard.memory}
+                  adjustment={parentSafeguard.memoryAdjustment}
+                  originalScore={parentSafeguard.originalRiskScore}
+                  currentScore={parentSafeguard.riskScore}
                 />
               )}
             </div>
@@ -617,6 +545,23 @@ function TurnItem({ turn }) {
       )}
     </div>
   );
+}
+
+function TurnItem({ turn }) {
+  const { parent, toolCalls } = turn;
+
+  // ── Agent turns: CC (isCCTurn) + OC orphan (no parent) + OC full turn (has parent + tools) ──
+  if (turn.isCCTurn || toolCalls.length > 0) {
+    return <AgentTurnItem turn={turn} />;
+  }
+
+  // ── Standalone: chat-update/chat-message with no tool calls ──
+  if (!parent) return null; // shouldn't happen
+  const isChat = parent.type === 'chat-update' || parent.type === 'chat-message';
+  if (isChat || parent.safeguard?.isContext) {
+    return <ChatContextBubble event={parent} />;
+  }
+  return <StandaloneEvent event={parent} />;
 }
 
 /* ---------- ChatContextBubble: conversation message shown as context, not a security event ---------- */
