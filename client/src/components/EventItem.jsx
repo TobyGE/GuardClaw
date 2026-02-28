@@ -5,6 +5,8 @@ import { useState } from 'react';
 function EventItem({ event }) {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
+  const [showFullContent, setShowFullContent] = useState(false);
+  const CONTENT_PREVIEW_LINES = 5;
 
   const getRiskLevel = (score, pending) => {
     if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse' };
@@ -96,11 +98,11 @@ function EventItem({ event }) {
           {/* Header with type and risk badge */}
           <div className="flex items-center space-x-3 mb-2">
             <span className="text-gc-text font-medium inline-flex items-center gap-1.5">
-              {displayName === 'exec' ? <><TerminalIcon size={14} /> exec</> :
+              {(displayName === 'exec' || displayName === 'cc:exec') ? <><TerminalIcon size={14} /> {displayName}</> :
                displayName === 'chat-message' ? <><MessageIcon size={14} /> chat-message</> :
-               displayName === 'write' ? <><PencilIcon size={14} /> write</> :
-               displayName === 'edit' ? <><PencilIcon size={14} /> edit</> :
-               displayName === 'read' ? <><FileTextIcon size={14} /> read</> :
+               (displayName === 'write' || displayName === 'cc:write') ? <><PencilIcon size={14} /> {displayName}</> :
+               (displayName === 'edit' || displayName === 'cc:edit') ? <><PencilIcon size={14} /> {displayName}</> :
+               (displayName === 'read' || displayName === 'cc:read') ? <><FileTextIcon size={14} /> {displayName}</> :
                displayName === 'web_fetch' ? <><GlobeIcon size={14} /> web_fetch</> :
                displayName === 'browser' ? <><GlobeIcon size={14} /> browser</> :
                displayName === 'message' ? <><MessageIcon size={14} /> message</> :
@@ -119,13 +121,26 @@ function EventItem({ event }) {
           </div>
 
           {/* Content preview */}
-          {content && (
-            <div className="mb-3">
-              <code className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded inline-block max-w-full break-words whitespace-pre-wrap">
-                {content}
-              </code>
-            </div>
-          )}
+          {content && (() => {
+            const lines = content.split('\n');
+            const isLong = lines.length > CONTENT_PREVIEW_LINES;
+            const displayContent = (!isLong || showFullContent) ? content : lines.slice(0, CONTENT_PREVIEW_LINES).join('\n');
+            return (
+              <div className="mb-3">
+                <code className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded block max-w-full break-words whitespace-pre-wrap overflow-x-auto">
+                  {displayContent}
+                </code>
+                {isLong && (
+                  <button
+                    onClick={() => setShowFullContent(v => !v)}
+                    className="text-xs text-blue-400 hover:text-blue-300 mt-1 transition-colors"
+                  >
+                    {showFullContent ? '▲ 收起' : `▼ 展开全部 (${lines.length} 行)`}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Buttons row */}
           <div className="flex items-center space-x-4 mt-2">

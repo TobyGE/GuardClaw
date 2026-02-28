@@ -941,7 +941,16 @@ app.post('/api/hooks/pre-tool-use', async (req, res) => {
     }
 
     // Store event
-    const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams).slice(0, 200);
+    const formatDisplayInput = (toolName, params) => {
+      switch(toolName) {
+        case 'exec': return params.command || '';
+        case 'write': return (params.file_path || params.path || '?') + '\n' + (params.content || '');
+        case 'edit': return (params.file_path || params.path || '?') + '\n' + (params.old_string || params.oldText || '').slice(0, 300);
+        case 'read': return params.file_path || params.path || JSON.stringify(params);
+        default: return JSON.stringify(params);
+      }
+    };
+    const displayInput = formatDisplayInput(gcToolName, gcParams);
     const verdict = analysis.riskScore >= 8 ? 'blocked' : 'allowed';
     eventStore.addEvent({
       type: 'claude-code-tool',
