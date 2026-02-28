@@ -282,6 +282,14 @@ export class MemoryStore {
   /**
    * Force a pattern's suggestedAction (e.g., 'auto-approve' or 'auto-deny').
    */
+  resetPattern(toolName, command) {
+    const commandPattern = this.extractPattern(toolName, command);
+    this.db.prepare('DELETE FROM patterns WHERE pattern = ?').run(commandPattern);
+    this.db.prepare('DELETE FROM decisions WHERE commandPattern = ?').run(commandPattern);
+    console.log(`[Memory] 🗑 Pattern reset: "${commandPattern}"`);
+    return { commandPattern };
+  }
+
   setPatternAction(pattern, action) {
     const stmt = this.db.prepare('UPDATE patterns SET suggestedAction = ? WHERE pattern = ?');
     stmt.run(action, pattern);

@@ -136,46 +136,62 @@ function ToolOutput({ result, label = 'Output' }) {
 
 /* ---------- Memory Feedback Buttons ---------- */
 function MemoryFeedback({ event }) {
-  const [status, setStatus] = useState(null); // null | 'allow' | 'deny' | 'error'
-  
+  const [status, setStatus] = useState(null); // null | 'approve' | 'deny'
+  const [loading, setLoading] = useState(false);
+
   const record = async (decision) => {
+    if (loading) return;
     const toolName = event.tool || event.subType || 'exec';
     const command = event.command || event.description || '';
+
+    // Clicking the active button again → un-mark (reset UI, tell server to reset)
+    if (status === decision) {
+      setLoading(true);
+      await fetch('/api/memory/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolName, command, riskScore: event.safeguard?.riskScore || 0, decision: 'neutral', sessionKey: event.sessionKey || null }),
+      }).catch(() => {});
+      setStatus(null);
+      setLoading(false);
+      return;
+    }
+
+    // New decision (or switching from the other button)
+    setLoading(true);
     try {
       const res = await fetch('/api/memory/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toolName,
-          command,
-          riskScore: event.safeguard?.riskScore || 0,
-          decision,
-          sessionKey: event.sessionKey || null,
-        }),
+        body: JSON.stringify({ toolName, command, riskScore: event.safeguard?.riskScore || 0, decision, sessionKey: event.sessionKey || null }),
       });
       if (res.ok) setStatus(decision);
-      else setStatus('error');
-    } catch {
-      setStatus('error');
-    }
+    } catch {}
+    setLoading(false);
   };
-
-  if (status === 'allow') return <span className="text-xs text-green-400 ml-2">Marked Safe</span>;
-  if (status === 'deny') return <span className="text-xs text-red-400 ml-2">Marked Risky</span>;
-  if (status === 'error') return <span className="text-xs text-yellow-400 ml-2">Error</span>;
 
   return (
     <span className="inline-flex items-center ml-2 gap-1">
       <button
         onClick={(e) => { e.stopPropagation(); record('approve'); }}
-        className="text-xs px-1.5 py-0.5 rounded border border-green-700/50 text-green-400 hover:bg-green-900/30 transition-colors"
+        disabled={loading}
+        className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
+          status === 'approve'
+            ? 'bg-green-600 border-green-600 text-white font-medium'
+            : 'border-green-700/50 text-green-400 hover:bg-green-900/30'
+        }`}
         title="Train memory: similar commands are safe"
-      >Mark Safe</button>
+      >✓ Safe</button>
       <button
         onClick={(e) => { e.stopPropagation(); record('deny'); }}
-        className="text-xs px-1.5 py-0.5 rounded border border-red-700/50 text-red-400 hover:bg-red-900/30 transition-colors"
+        disabled={loading}
+        className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
+          status === 'deny'
+            ? 'bg-red-600 border-red-600 text-white font-medium'
+            : 'border-red-700/50 text-red-400 hover:bg-red-900/30'
+        }`}
         title="Train memory: similar commands are risky"
-      >Mark Risky</button>
+      >✕ Risk</button>
     </span>
   );
 }

@@ -1270,6 +1270,11 @@ app.post('/api/memory/record', (req, res) => {
   if (!toolName || !decision) {
     return res.status(400).json({ error: 'Missing toolName or decision' });
   }
+  // 'neutral' = user un-marked: delete the pattern entirely
+  if (decision === 'neutral') {
+    const result = memoryStore.resetPattern(toolName, command);
+    return res.json({ ok: true, ...result });
+  }
   const result = memoryStore.recordDecision(toolName, command, riskScore, decision, sessionKey);
 
   // If alwaysApprove, force the pattern to auto-approve immediately
