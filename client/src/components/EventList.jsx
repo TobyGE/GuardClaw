@@ -69,8 +69,24 @@ function groupEventsIntoTurns(events) {
     } else if (isCCTool) {
       pendingToolCalls.push(event);
     } else if (isCCReply) {
-      // Intermediate reply — accumulate, do NOT close turn
-      pendingReplies.push(event);
+      const promptId = event.promptId;
+      if (!promptId || promptId === pendingPrompt?.id) {
+        // Reply belongs to current pending turn (normal case)
+        pendingReplies.push(event);
+      } else {
+        // promptId mismatch: reply arrived after user sent next prompt (race condition).
+        // Retroactively attach to the correct already-flushed CC turn.
+        let matched = false;
+        for (let i = turns.length - 1; i >= 0; i--) {
+          if (turns[i].isCCTurn && turns[i].userPrompt?.id === promptId) {
+            turns[i].replies = turns[i].replies || [];
+            turns[i].replies.push(event);
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) pendingReplies.push(event); // fallback
+      }
     } else {
       // Other event types — flush any pending CC turn, then show standalone
       if (pendingToolCalls.length > 0 || pendingReplies.length > 0) {
@@ -102,8 +118,8 @@ function groupEventsIntoTurns(events) {
     });
   }
 
-  // Return chronological order (oldest first, newest at bottom — standard chat convention)
-  return turns;
+  // Newest-first: most recent turn at top
+  return turns.reverse();
 }
 
 function EventList({ events }) {

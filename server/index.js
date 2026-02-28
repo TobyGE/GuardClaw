@@ -84,6 +84,7 @@ const MAX_TOOL_HISTORY = 10;
 // processor can reuse it instead of making a second LLM call for the same tool.
 // Key: `${sessionKey}:${toolName}:${stableParamsJson}`, TTL: 60s
 const evaluationCache = new Map(); // key → { result, expiresAt }
+const lastCCPromptId = new Map();  // sessionKey → promptEventId (for prompt→reply linking)
 const EVAL_CACHE_TTL_MS = 60_000;
 
 function evalCacheKey(sessionKey, toolName, params) {
@@ -1119,19 +1120,30 @@ app.post('/api/hooks/user-prompt', (req, res) => {
   const { session_id, prompt } = req.body;
   if (!prompt) return res.json({});
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  const promptId = `cc-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   eventStore.addEvent({
+    id: promptId,
     type: 'claude-code-prompt',
     sessionKey,
     text: typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
     timestamp: Date.now(),
   });
+  lastCCPromptId.set(sessionKey, promptId); // track for stop-hook reply linking
   res.json({});
 });
 
 app.post('/api/hooks/stop', async (req, res) => {
   const { session_id, transcript_path } = req.body;
-  if (!transcript_path) return res.json({});
+  // Respond immediately — don't block CC from continuing
+  res.json({});
+  if (!transcript_path) return;
+
+  const stoppedAt = Date.now(); // timestamp when CC actually stopped
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  // Grab and clear the promptId before any async work to avoid race conditions
+  const promptId = lastCCPromptId.get(sessionKey);
+  lastCCPromptId.delete(sessionKey);
+
   try {
     const { readFileSync } = await import('fs');
     const lines = readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
@@ -1157,11 +1169,11 @@ app.post('/api/hooks/stop', async (req, res) => {
         type: 'claude-code-reply',
         sessionKey,
         text: lastText,
-        timestamp: Date.now(),
+        timestamp: stoppedAt, // use CC-stop timestamp, not post-file-read timestamp
+        promptId,             // explicit link: this reply belongs to that prompt
       });
     }
   } catch {}
-  res.json({});
 });
 
 // ─── Chat Inject API (used by plugin to trigger agent retry after approval) ──

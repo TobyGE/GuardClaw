@@ -44,25 +44,11 @@ function App() {
   useEffect(() => { backendFilterRef.current = backendFilter; }, [backendFilter]);
   useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
 
-  // Auto-scroll to bottom (chat convention: newest at bottom)
+  // Scroll container ref (newest-first display: scroll to top on tab switch)
   const scrollContainerRef = useRef(null);
-  const isNearBottomRef = useRef(true); // assume start at bottom
-  const handleScrollContainerScroll = () => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const threshold = 120; // px from bottom — within this = "at bottom"
-    isNearBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - threshold;
-  };
   useEffect(() => {
-    if (isNearBottomRef.current && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-    }
-  }, [events]);
-  // On tab/session switch: always jump to bottom
-  useEffect(() => {
-    isNearBottomRef.current = true;
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      scrollContainerRef.current.scrollTop = 0;
     }
   }, [backendFilter, selectedSession]);
   const [activePage, setActivePage] = useState('events'); // 'events' | 'memory'
@@ -700,7 +686,6 @@ function App() {
               <div
                 className="flex-1 overflow-y-auto"
                 ref={scrollContainerRef}
-                onScroll={handleScrollContainerScroll}
               >
                 <EventList events={
                   selectedSession
