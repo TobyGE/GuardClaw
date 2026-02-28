@@ -39,10 +39,12 @@ function App() {
   const [blockingStatus, setBlockingStatus] = useState(null);
   const [failClosed, setFailClosed] = useState(true);
   const [showFailClosedModal, setShowFailClosedModal] = useState(false);
+  // Keep refs in sync synchronously during render (not via useEffect)
+  // so the SSE event handler always sees the latest values without stale-closure issues
   const backendFilterRef = useRef(backendFilter);
+  backendFilterRef.current = backendFilter;
   const selectedSessionRef = useRef(selectedSession);
-  useEffect(() => { backendFilterRef.current = backendFilter; }, [backendFilter]);
-  useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
+  selectedSessionRef.current = selectedSession;
 
   // Scroll container ref (newest-first display: scroll to top on tab switch)
   const scrollContainerRef = useRef(null);
@@ -236,6 +238,7 @@ function App() {
 
   // Refetch events when filter, backend, or session changes
   useEffect(() => {
+    setEvents([]); // clear immediately so stale tab events don't show during fetch
     const refetchEvents = async () => {
       try {
         const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
@@ -588,9 +591,9 @@ function App() {
                 <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
                   {backends && [
-                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setBackendFilter('openclaw'); if (!backends.openclaw?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
-                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setBackendFilter('nanobot'); if (!backends.nanobot?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
-                    { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => setBackendFilter('claude-code') },
+                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); if (!backends.openclaw?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); if (!backends.nanobot?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                   ]
                     .filter(b => backends[b.key])
                     .sort((a, b) => (backends[b.key]?.connected ? 1 : 0) - (backends[a.key]?.connected ? 1 : 0))
