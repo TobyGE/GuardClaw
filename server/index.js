@@ -441,12 +441,16 @@ app.get('/api/sessions', (req, res) => {
     } else {
       // Derive parent and label from session key
       // Formats: agent:main:main, agent:main:telegram:direct:123, agent:main:subagent:<uuid>
-      const isSubagent = key.includes(':subagent:');
+      //          claude-code:<session-uuid>
+      const isCCSession = key.startsWith('claude-code:');
+      const isSubagent = !isCCSession && key.includes(':subagent:');
       const parentKey = isSubagent ? key.replace(/:subagent:[^:]+$/, ':main') : null;
       const shortId = isSubagent ? key.split(':subagent:')[1]?.substring(0, 8) : null;
 
       let label;
-      if (isSubagent) {
+      if (isCCSession) {
+        label = 'Claude Code';
+      } else if (isSubagent) {
         label = `Sub-agent ${shortId}`;
       } else {
         // Extract channel from key: agent:main:<channel>:... or agent:main:main

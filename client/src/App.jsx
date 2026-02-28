@@ -633,36 +633,46 @@ function App() {
                 </div>
               </div>
 
-              {/* Session Tabs — only show for OpenClaw events */}
-              {sessions.length > 1 && backendFilter !== 'nanobot' && backendFilter !== 'claude-code' && (
-                <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
-                  <button
-                    onClick={() => setSelectedSession(null)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                      selectedSession === null
-                        ? 'bg-gc-primary text-white'
-                        : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
-                    }`}
-                  >
-                    All Sessions
-                  </button>
-                  {sessions.map((s) => (
+              {/* Session Tabs — filtered by current backend */}
+              {(() => {
+                const visibleSessions = sessions.filter(s => {
+                  if (backendFilter === 'openclaw') return s.key.startsWith('agent:');
+                  if (backendFilter === 'nanobot') return s.key.startsWith('nanobot');
+                  if (backendFilter === 'claude-code') return s.key.startsWith('claude-code:');
+                  // 'all': show everything
+                  return true;
+                });
+                if (visibleSessions.length <= 1 || backendFilter === 'claude-code') return null;
+                return (
+                  <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
                     <button
-                      key={s.key}
-                      onClick={() => setSelectedSession(s.key)}
+                      onClick={() => setSelectedSession(null)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                        selectedSession === s.key
+                        selectedSession === null
                           ? 'bg-gc-primary text-white'
                           : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
-                      } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
+                      }`}
                     >
-                      <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
-                      <span>{s.label}</span>
-                      <span className="text-[10px] opacity-60">({s.eventCount})</span>
+                      All Sessions
                     </button>
-                  ))}
-                </div>
-              )}
+                    {visibleSessions.map((s) => (
+                      <button
+                        key={s.key}
+                        onClick={() => setSelectedSession(s.key)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                          selectedSession === s.key
+                            ? 'bg-gc-primary text-white'
+                            : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
+                        } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
+                      >
+                        <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
+                        <span>{s.label}</span>
+                        <span className="text-[10px] opacity-60">({s.eventCount})</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
 
               <ApprovalBanner />
               <div className="flex-1 overflow-y-auto">
