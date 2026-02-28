@@ -1109,6 +1109,57 @@ app.post('/api/hooks/post-tool-use', (req, res) => {
   res.json({});
 });
 
+// ─── Claude Code conversation hooks ──────────────────────────────────────────
+
+app.post('/api/hooks/user-prompt', (req, res) => {
+  const { session_id, prompt } = req.body;
+  if (!prompt) return res.json({});
+  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  eventStore.addEvent({
+    type: 'claude-code-prompt',
+    sessionKey,
+    text: typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
+    timestamp: Date.now(),
+  });
+  res.json({});
+});
+
+app.post('/api/hooks/stop', async (req, res) => {
+  const { session_id, transcript_path } = req.body;
+  if (!transcript_path) return res.json({});
+  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  try {
+    const { readFileSync } = await import('fs');
+    const lines = readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
+    // Find the last assistant message with text content
+    let lastText = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]);
+        const role = entry.role || entry.type;
+        if (role === 'assistant') {
+          const content = entry.message?.content || entry.content;
+          if (Array.isArray(content)) {
+            const block = content.find(b => b.type === 'text' && b.text?.trim());
+            if (block?.text) { lastText = block.text; break; }
+          } else if (typeof content === 'string' && content.trim()) {
+            lastText = content; break;
+          }
+        }
+      } catch {}
+    }
+    if (lastText) {
+      eventStore.addEvent({
+        type: 'claude-code-reply',
+        sessionKey,
+        text: lastText,
+        timestamp: Date.now(),
+      });
+    }
+  } catch {}
+  res.json({});
+});
+
 // ─── Chat Inject API (used by plugin to trigger agent retry after approval) ──
 
 app.post('/api/chat-inject', async (req, res) => {

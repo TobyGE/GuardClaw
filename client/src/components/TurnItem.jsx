@@ -332,11 +332,80 @@ function ReplyText({ text, expanded, onToggle }) {
 }
 
 /* ---------- TurnItem: one agent response turn ---------- */
+function CCTurnItem({ turn }) {
+  const { parent, toolCalls, userPrompt } = turn;
+  const [showDetails, setShowDetails] = useState(false);
+  const [showFullReply, setShowFullReply] = useState(false);
+
+  const replyText = parent?.text || '';
+  const promptText = userPrompt?.text || '';
+  const hasReply = !!replyText;
+  const ts = parent?.timestamp || toolCalls[toolCalls.length - 1]?.timestamp || userPrompt?.timestamp;
+
+  return (
+    <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {hasReply
+            ? <BotIcon size={16} className="text-purple-500" />
+            : <HourglassIcon size={16} className="text-gc-warning animate-pulse" />
+          }
+          <span className="text-xs font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2 py-0.5">
+            Claude Code
+          </span>
+          <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
+            {summarizeToolCalls(toolCalls) || (hasReply ? 'turn' : 'working…')}
+          </span>
+        </div>
+        {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
+      </div>
+
+      {/* User prompt bubble */}
+      {promptText && (
+        <div className="mb-3 flex justify-end">
+          <div className="max-w-[85%] bg-gc-primary/10 border border-gc-primary/20 rounded-xl rounded-tr-sm px-3 py-2">
+            <p className="text-xs text-gc-text leading-relaxed whitespace-pre-wrap">{promptText}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tool calls */}
+      {toolCalls.length > 0 && (
+        <div className="mb-3">
+          <button
+            onClick={() => setShowDetails(v => !v)}
+            className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center gap-1 mb-2"
+          >
+            <span>{showDetails ? '▼' : '▶'}</span>
+            <span>{toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}</span>
+          </button>
+          {showDetails && (
+            <div className="space-y-2">
+              {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CC reply */}
+      {replyText && (
+        <div className="border-l-2 border-purple-300/50 pl-3">
+          <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TurnItem({ turn }) {
   const { parent, toolCalls, reply } = turn;
   const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showFullReply, setShowFullReply] = useState(false);
+
+  // ── Case 0: Claude Code turn ──
+  if (turn.isCCTurn) return <CCTurnItem turn={turn} />;
 
   // ── Case 1: orphan tool-calls only (agent still running / no parent) ──
   if (!parent) {

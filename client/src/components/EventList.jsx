@@ -21,65 +21,77 @@ function groupEventsIntoTurns(events) {
 
   const turns = [];
   let pendingToolCalls = [];
+  let pendingPrompt = null; // user's message that started this CC turn
 
   for (const event of chronological) {
     const type = event.type || '';
-    const isChat = type === 'chat-update' || type === 'chat-message';
+
+    // ── OpenClaw: chat reply closes the current tool-call group ──
+    const isOCChat = type === 'chat-update' || type === 'chat-message';
+    // ── Claude Code: reply closes the CC tool-call group ──
+    const isCCReply = type === 'claude-code-reply';
+    // ── Claude Code: tool call ──
+    const isCCTool = type === 'claude-code-tool';
+    // ── Claude Code: user prompt starts a new turn ──
+    const isCCPrompt = type === 'claude-code-prompt';
     const isContext = event.safeguard?.isContext;
 
-    if (isChat) {
+    if (isOCChat) {
       if (pendingToolCalls.length > 0) {
-        // chat event after tool calls → full agent turn with this as the reply/parent
-        turns.push({
-          parent: event,
-          toolCalls: pendingToolCalls,
-          id: event.id || `turn-${event.timestamp}`,
-        });
+        turns.push({ parent: event, toolCalls: pendingToolCalls, id: event.id || `turn-${event.timestamp}` });
         pendingToolCalls = [];
       } else {
-        // Standalone chat message with no preceding tool calls
-        // Check if the last turn is an agent turn with no reply yet → attach as reply
         const last = turns[turns.length - 1];
         if (last && last.toolCalls.length > 0 && !last.reply && isContext) {
           last.reply = event;
         } else {
-          turns.push({
-            parent: event,
-            toolCalls: [],
-            id: event.id || `turn-${event.timestamp}`,
-          });
+          turns.push({ parent: event, toolCalls: [], id: event.id || `turn-${event.timestamp}` });
         }
       }
     } else if (type === 'tool-call') {
       pendingToolCalls.push(event);
+    } else if (isCCPrompt) {
+      // Flush any orphan CC tool calls from the previous turn
+      if (pendingToolCalls.length > 0) {
+        turns.push({ parent: null, userPrompt: pendingPrompt, toolCalls: [...pendingToolCalls], isCCTurn: true, id: `cc-orphan-${Date.now()}` });
+        pendingToolCalls = [];
+      }
+      pendingPrompt = event;
+    } else if (isCCTool) {
+      pendingToolCalls.push(event);
+    } else if (isCCReply) {
+      // CC reply closes the current CC turn
+      turns.push({
+        parent: event,          // reply event
+        userPrompt: pendingPrompt,
+        toolCalls: pendingToolCalls,
+        isCCTurn: true,
+        id: event.id || `cc-turn-${event.timestamp}`,
+      });
+      pendingToolCalls = [];
+      pendingPrompt = null;
     } else {
       // Other event types — flush orphans then show standalone
       if (pendingToolCalls.length > 0) {
-        turns.push({
-          parent: null,
-          toolCalls: [...pendingToolCalls],
-          id: `orphan-${pendingToolCalls[0]?.id || Date.now()}`,
-        });
+        turns.push({ parent: null, toolCalls: [...pendingToolCalls], isCCTurn: pendingToolCalls[0]?.type === 'claude-code-tool', id: `orphan-${pendingToolCalls[0]?.id || Date.now()}` });
         pendingToolCalls = [];
+        pendingPrompt = null;
       }
-      turns.push({
-        parent: event,
-        toolCalls: [],
-        id: event.id || `standalone-${event.timestamp}`,
-      });
+      turns.push({ parent: event, toolCalls: [], id: event.id || `standalone-${event.timestamp}` });
     }
   }
 
-  // Remaining orphan tool-calls (agent still running, no parent yet)
+  // Remaining orphans
   if (pendingToolCalls.length > 0) {
     turns.push({
       parent: null,
+      userPrompt: pendingPrompt,
       toolCalls: pendingToolCalls,
+      isCCTurn: pendingToolCalls[0]?.type === 'claude-code-tool',
       id: `inprogress-${Date.now()}`,
     });
   }
 
-  // Reverse back to newest-first for display
   return turns.reverse();
 }
 
