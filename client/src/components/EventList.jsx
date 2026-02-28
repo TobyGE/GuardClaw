@@ -21,6 +21,7 @@ function groupEventsIntoTurns(events) {
 
   const turns = [];
   let pendingToolCalls = [];
+  let pendingReplies = []; // CC intermediate + final reply segments
   let pendingPrompt = null; // user's message that started this CC turn
 
   for (const event of chronological) {
@@ -51,44 +52,53 @@ function groupEventsIntoTurns(events) {
     } else if (type === 'tool-call') {
       pendingToolCalls.push(event);
     } else if (isCCPrompt) {
-      // Flush any orphan CC tool calls from the previous turn
-      if (pendingToolCalls.length > 0) {
-        turns.push({ parent: null, userPrompt: pendingPrompt, toolCalls: [...pendingToolCalls], isCCTurn: true, id: `cc-orphan-${Date.now()}` });
+      // New user prompt → flush current CC turn first
+      if (pendingToolCalls.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
+        turns.push({
+          parent: pendingReplies[pendingReplies.length - 1] || null,
+          userPrompt: pendingPrompt,
+          toolCalls: [...pendingToolCalls],
+          replies: [...pendingReplies],
+          isCCTurn: true,
+          id: pendingPrompt?.id || `cc-turn-${Date.now()}`,
+        });
         pendingToolCalls = [];
+        pendingReplies = [];
       }
       pendingPrompt = event;
     } else if (isCCTool) {
       pendingToolCalls.push(event);
     } else if (isCCReply) {
-      // CC reply closes the current CC turn
-      turns.push({
-        parent: event,          // reply event
-        userPrompt: pendingPrompt,
-        toolCalls: pendingToolCalls,
-        isCCTurn: true,
-        id: event.id || `cc-turn-${event.timestamp}`,
-      });
-      pendingToolCalls = [];
-      pendingPrompt = null;
+      // Intermediate reply — accumulate, do NOT close turn
+      pendingReplies.push(event);
     } else {
-      // Other event types — flush orphans then show standalone
-      if (pendingToolCalls.length > 0) {
-        turns.push({ parent: null, toolCalls: [...pendingToolCalls], isCCTurn: pendingToolCalls[0]?.type === 'claude-code-tool', id: `orphan-${pendingToolCalls[0]?.id || Date.now()}` });
+      // Other event types — flush any pending CC turn, then show standalone
+      if (pendingToolCalls.length > 0 || pendingReplies.length > 0) {
+        turns.push({
+          parent: pendingReplies[pendingReplies.length - 1] || null,
+          userPrompt: pendingPrompt,
+          toolCalls: [...pendingToolCalls],
+          replies: [...pendingReplies],
+          isCCTurn: true,
+          id: pendingPrompt?.id || `cc-orphan-${Date.now()}`,
+        });
         pendingToolCalls = [];
+        pendingReplies = [];
         pendingPrompt = null;
       }
       turns.push({ parent: event, toolCalls: [], id: event.id || `standalone-${event.timestamp}` });
     }
   }
 
-  // Remaining orphans
-  if (pendingToolCalls.length > 0) {
+  // Remaining CC turn in progress
+  if (pendingToolCalls.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
     turns.push({
-      parent: null,
+      parent: pendingReplies[pendingReplies.length - 1] || null,
       userPrompt: pendingPrompt,
       toolCalls: pendingToolCalls,
-      isCCTurn: pendingToolCalls[0]?.type === 'claude-code-tool',
-      id: `inprogress-${Date.now()}`,
+      replies: pendingReplies,
+      isCCTurn: true,
+      id: pendingPrompt?.id || `cc-inprogress-${Date.now()}`,
     });
   }
 

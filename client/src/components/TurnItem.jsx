@@ -349,30 +349,37 @@ function ReplyText({ text, expanded, onToggle }) {
 
 /* ---------- TurnItem: one agent response turn ---------- */
 function CCTurnItem({ turn }) {
-  const { parent, toolCalls, userPrompt } = turn;
+  const { toolCalls, userPrompt, replies = [] } = turn;
   const [showDetails, setShowDetails] = useState(false);
-  const [showFullReply, setShowFullReply] = useState(false);
+  const [expandedReplies, setExpandedReplies] = useState({});
 
-  const replyText = parent?.text || '';
+  const hasReplies = replies.length > 0;
+  const lastReply = replies[replies.length - 1];
   const promptText = userPrompt?.text || '';
-  const hasReply = !!replyText;
-  const ts = parent?.timestamp || toolCalls[toolCalls.length - 1]?.timestamp || userPrompt?.timestamp;
+  const ts = lastReply?.timestamp || toolCalls[toolCalls.length - 1]?.timestamp || userPrompt?.timestamp;
+
+  const toggleReply = (i) => setExpandedReplies(v => ({ ...v, [i]: !v[i] }));
 
   return (
     <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          {hasReply
+          {hasReplies
             ? <BotIcon size={16} className="text-purple-500" />
             : <HourglassIcon size={16} className="text-gc-warning animate-pulse" />
           }
           <span className="text-xs font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2 py-0.5">
             Claude Code
           </span>
-          <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
-            {summarizeToolCalls(toolCalls) || (hasReply ? 'turn' : 'working…')}
-          </span>
+          {toolCalls.length > 0 && (
+            <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
+              {summarizeToolCalls(toolCalls)}
+            </span>
+          )}
+          {!hasReplies && (
+            <span className="text-xs text-gc-warning">working…</span>
+          )}
         </div>
         {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
       </div>
@@ -404,12 +411,17 @@ function CCTurnItem({ turn }) {
         </div>
       )}
 
-      {/* CC reply */}
-      {replyText && (
-        <div className="border-l-2 border-purple-300/50 pl-3">
-          <ReplyText text={replyText} expanded={showFullReply} onToggle={() => setShowFullReply(v => !v)} />
+      {/* All reply segments in order */}
+      {replies.map((reply, i) => (
+        <div key={reply.id || i} className="border-l-2 border-purple-300/50 pl-3 mb-2">
+          {replies.length > 1 && (
+            <span className="text-[10px] text-purple-400/60 font-mono mb-1 block">
+              {i < replies.length - 1 ? '◎ intermediate' : '◉ final'}
+            </span>
+          )}
+          <ReplyText text={reply.text || ''} expanded={!!expandedReplies[i]} onToggle={() => toggleReply(i)} />
         </div>
-      )}
+      ))}
     </div>
   );
 }
