@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
+  <a href="#claude-code-integration">Claude Code</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
-  <a href="#claude-code-integration">Claude Code</a> ·
   <a href="#dashboard-guide">Dashboard Guide</a> ·
   <a href="#active-blocking-details">Active Blocking</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
@@ -57,6 +57,24 @@ guardclaw start                        # opens dashboard at localhost:3002
 
 That's it. GuardClaw connects to your agent platform and starts monitoring immediately.
 
+### Claude Code Integration
+
+GuardClaw works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via its HTTP hooks system — no OpenClaw required.
+
+```bash
+# Install the Claude Code hooks (writes to ~/.claude/settings.json)
+node scripts/install-claude-code.js
+
+# Start GuardClaw
+guardclaw start
+```
+
+Every Bash, Read, Write, and Edit command in Claude Code is now risk-scored before execution. High-risk commands pause in the terminal while you approve/deny from the GuardClaw dashboard.
+
+The dashboard shows Claude Code sessions in a dedicated tab with full conversation context — user prompts, agent replies, and all tool calls grouped into turns.
+
+To uninstall: `node scripts/install-claude-code.js --uninstall`
+
 ### Enable Full Tool Monitoring (OpenClaw)
 
 By default only chat events are visible. To see **every** tool call (read, write, exec…):
@@ -84,24 +102,6 @@ openclaw gateway restart       # restart to load the plugin
 | Approval prompts for high-risk | ❌ | ✅ |
 
 Once installed, toggle blocking on/off from the dashboard 🛡️ button — no restart needed.
-
-### Claude Code Integration
-
-GuardClaw works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via its HTTP hooks system — no OpenClaw required.
-
-```bash
-# Install the Claude Code hooks (writes to ~/.claude/settings.json)
-node scripts/install-claude-code.js
-
-# Start GuardClaw
-guardclaw start
-```
-
-Every Bash, Read, Write, and Edit command in Claude Code is now risk-scored before execution. High-risk commands pause in the terminal while you approve/deny from the GuardClaw dashboard.
-
-The dashboard shows Claude Code sessions in a dedicated tab with full conversation context — user prompts, agent replies, and all tool calls grouped into turns.
-
-To uninstall: `node scripts/install-claude-code.js --uninstall`
 
 ## How It Works
 
