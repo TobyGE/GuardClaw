@@ -84,7 +84,7 @@ function ApprovalItem({ item, onApprove, onDeny }) {
           onClick={() => onApprove(item.id, true)}
           className="py-2.5 text-[11px] font-medium text-gc-text-dim hover:bg-gc-border/30 hover:text-gc-text transition-colors border-r border-gc-border"
         >
-          Always
+          Always Approve
         </button>
         <button
           onClick={() => onDeny(item.id)}
