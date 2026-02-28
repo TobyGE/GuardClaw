@@ -1,81 +1,94 @@
 import { useState, useEffect } from 'react';
+import GuardClawLogo from './GuardClawLogo';
 
 function ApprovalItem({ item, onApprove, onDeny }) {
   const [expanded, setExpanded] = useState(false);
 
   const score = item.riskScore || 0;
-  const scoreColor = score >= 9 ? 'text-red-400' : 'text-orange-400';
-  const borderColor = score >= 9 ? 'border-red-500/60' : 'border-orange-500/60';
-  const bgColor = score >= 9 ? 'bg-red-950/40' : 'bg-orange-950/40';
+  const isHighRisk = score >= 8;
+  const borderColor = isHighRisk ? 'border-l-gc-danger' : 'border-l-gc-warning';
+  const scoreColor = isHighRisk ? 'text-gc-danger' : 'text-gc-warning';
+  const scoreBg = isHighRisk ? 'bg-gc-danger/8 border-gc-danger/20' : 'bg-gc-warning/8 border-gc-warning/20';
+  const labelColor = isHighRisk ? 'text-gc-danger' : 'text-gc-warning';
+
+  // Command block color by tool
+  const tool = item.toolName || '';
+  const cmdBg = tool === 'exec' ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+    : (tool === 'write' || tool === 'edit') ? 'bg-sky-50 border-sky-200 text-sky-800'
+    : 'bg-gc-bg border-gc-border text-gc-text';
+
   const lines = (item.displayInput || '').split('\n');
-  const isLong = lines.length > 6;
-  const shownContent = expanded ? item.displayInput : lines.slice(0, 6).join('\n');
+  const isLong = lines.length > 5;
+  const shownContent = expanded ? item.displayInput : lines.slice(0, 5).join('\n');
+
+  // Elapsed
+  const elapsed = item.elapsed != null ? `${item.elapsed}s` : '';
 
   return (
-    <div className={`${bgColor} border ${borderColor} rounded-xl overflow-hidden shadow-xl`}>
-      {/* Header bar */}
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-black/20 border-b border-white/5">
-        <span className="text-base">🛑</span>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-xs font-semibold text-white/90 uppercase tracking-wide">Blocked</span>
-          <span className="text-xs bg-white/10 text-white/60 px-2 py-0.5 rounded-full">
-            {item.originalToolName || item.toolName}
-          </span>
-          <span className="text-xs text-white/40">from</span>
-          <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-medium">
-            Claude Code
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-sm font-bold font-mono ${scoreColor}`}>
-            {score}<span className="text-white/30 text-xs font-normal">/10</span>
-          </span>
-          <span className="text-xs text-white/30">{item.elapsed}s ago</span>
-        </div>
+    <div className={`bg-gc-card border border-gc-border border-l-[3px] ${borderColor} rounded-lg overflow-hidden`}>
+
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-gc-border">
+        <GuardClawLogo size={14} />
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${labelColor}`}>Blocked</span>
+        <span className="text-xs text-gc-text-dim font-mono">{item.originalToolName || item.toolName}</span>
+        <span className="text-gc-border text-xs">·</span>
+        <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2 py-0.5">
+          Claude Code
+        </span>
+        <div className="flex-1" />
+        <span className={`text-xs font-bold font-mono ${scoreColor} ${scoreBg} border rounded px-1.5 py-0.5`}>
+          {score}/10
+        </span>
+        {elapsed && <span className="text-[10px] text-gc-text-dim">{elapsed}</span>}
       </div>
 
-      {/* Command block */}
-      <div className="px-4 pt-3 pb-2">
-        <div className="bg-black/30 rounded-lg border border-white/5 p-3">
-          <pre className={`text-xs text-green-300 font-mono whitespace-pre-wrap break-all overflow-y-auto ${expanded ? 'max-h-64' : 'max-h-24'}`}>
-            {shownContent}
-          </pre>
-          {isLong && (
-            <button
-              onClick={() => setExpanded(v => !v)}
-              className="text-xs text-white/40 hover:text-white/70 mt-1.5 transition-colors"
-            >
-              {expanded ? '▲ 收起' : `▼ 展开全部 (${lines.length} 行)`}
-            </button>
-          )}
+      {/* Command + Reason */}
+      <div className="px-3.5 py-3 border-b border-gc-border space-y-2">
+        {/* Label (file path for write/edit, "Command" for exec) */}
+        <div className="text-[10px] font-medium text-gc-text-dim uppercase tracking-wider">
+          {tool === 'exec' ? 'Command' : tool === 'read' ? 'File' : lines[0] || 'Input'}
         </div>
+
+        {/* Content block */}
+        <code className={`block text-xs font-mono leading-relaxed rounded-md border px-2.5 py-2 whitespace-pre-wrap break-all overflow-y-auto ${cmdBg} ${expanded ? 'max-h-48' : 'max-h-20'}`}>
+          {tool === 'write' || tool === 'edit'
+            ? (expanded ? lines.slice(1).join('\n') : lines.slice(1, 6).join('\n'))
+            : shownContent}
+        </code>
+
+        {isLong && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="text-[10px] text-gc-text-dim hover:text-gc-text transition-colors"
+          >
+            {expanded ? '▲ 收起' : `▼ 展开全部 (${lines.length} 行)`}
+          </button>
+        )}
 
         {/* Reason */}
         {item.reason && (
-          <div className="flex items-start gap-1.5 mt-2.5">
-            <span className="text-xs text-white/30 shrink-0 mt-0.5">Why:</span>
-            <span className="text-xs text-white/50 leading-relaxed">{item.reason}</span>
-          </div>
+          <p className="text-[11px] text-gc-text-dim leading-relaxed">{item.reason}</p>
         )}
       </div>
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-white/5">
+      <div className="grid grid-cols-3">
         <button
           onClick={() => onApprove(item.id)}
-          className="flex-1 py-2 bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors"
+          className="py-2.5 text-xs font-semibold text-gc-safe hover:bg-gc-safe/5 transition-colors border-r border-gc-border"
         >
           ✓ Approve
         </button>
         <button
           onClick={() => onApprove(item.id, true)}
-          className="px-3 py-2 bg-emerald-900/60 hover:bg-emerald-800/80 text-emerald-300 text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+          className="py-2.5 text-[11px] font-medium text-gc-text-dim hover:bg-gc-border/30 hover:text-gc-text transition-colors border-r border-gc-border"
         >
-          ✓ Always
+          Always
         </button>
         <button
           onClick={() => onDeny(item.id)}
-          className="flex-1 py-2 bg-red-600/80 hover:bg-red-500 text-white text-xs font-semibold rounded-lg transition-colors"
+          className="py-2.5 text-xs font-semibold text-gc-danger hover:bg-gc-danger/5 transition-colors"
         >
           ✕ Deny
         </button>
@@ -127,7 +140,7 @@ export default function ApprovalBanner() {
   if (pending.length === 0) return null;
 
   return (
-    <div className="mx-4 mt-3 space-y-2">
+    <div className="px-4 pt-3 pb-1 space-y-2">
       {pending.map(item => (
         <ApprovalItem
           key={item.id}

