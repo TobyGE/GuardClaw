@@ -8,12 +8,12 @@ import EventItem from './EventItem';
  * A "turn" is a group of tool-call events that belong to the same agent
  * response, optionally capped by a parent chat-update or chat-message event.
  *
- * Algorithm (work on oldest-first, then reverse for display):
+ * Algorithm (work on oldest-first; final display is also oldest-first / newest at bottom):
  *   1. Reverse events to oldest-first
  *   2. Walk forward; accumulate tool-calls into a pending buffer
  *   3. When we hit a chat-update/chat-message → it becomes the parent; flush buffer as its children
  *   4. Remaining orphan tool-calls (no parent yet) → one extra "In Progress" group
- *   5. Re-reverse groups for newest-first display
+ *   5. Return groups in chronological order (oldest first, newest last)
  */
 function groupEventsIntoTurns(events) {
   // Events from API are newest-first; reverse to process chronologically
@@ -102,7 +102,8 @@ function groupEventsIntoTurns(events) {
     });
   }
 
-  return turns.reverse();
+  // Return chronological order (oldest first, newest at bottom — standard chat convention)
+  return turns;
 }
 
 function EventList({ events }) {
