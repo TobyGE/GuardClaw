@@ -395,6 +395,7 @@
         <ul class="nav-links">
             <li><a href="#features">Features</a></li>
             <li><a href="#how-it-works">How It Works</a></li>
+            <li><a href="#claude-code">Claude Code</a></li>
             <li><a href="#install">Install</a></li>
             <li><a href="https://github.com/TobyGE/GuardClaw" class="nav-cta">GitHub →</a></li>
         </ul>
@@ -411,6 +412,7 @@
         <h1>Security for<br><span class="gradient">AI Agents</span></h1>
         <p class="hero-sub">
             Every tool call risk-scored before execution by a local LLM.<br>
+            Works with OpenClaw, Claude Code, and nanobot.<br>
             100% private. Zero cloud. Complete visibility.
         </p>
         <div class="hero-buttons">
@@ -570,12 +572,46 @@
     </div>
 </section>
 
+<!-- Claude Code -->
+<section class="blocking-section" id="claude-code">
+    <div class="container">
+        <div class="blocking-grid">
+            <div class="blocking-text">
+                <h3>🔌 Works with Claude Code</h3>
+                <p>GuardClaw integrates directly with <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent)">Claude Code</a> via HTTP hooks — no OpenClaw required. Every Bash, Read, Write, and Edit command is risk-scored before execution.</p>
+                <ul class="blocking-list">
+                    <li><span class="check">✓</span> Pre-execution blocking — dangerous commands pause in Claude Code's terminal</li>
+                    <li><span class="check">✓</span> Dashboard approval — approve or deny from the GuardClaw UI</li>
+                    <li><span class="check">✓</span> Dedicated tab — Claude Code sessions shown separately with full conversation context</li>
+                    <li><span class="check">✓</span> One-line install — <code>node scripts/install-claude-code.js</code></li>
+                    <li><span class="check">✓</span> Works alongside OpenClaw — monitor both platforms from one dashboard</li>
+                </ul>
+            </div>
+            <div class="code-block" style="margin: 0;">
+                <div class="code-header">
+                    <span class="code-dot code-dot-r"></span>
+                    <span class="code-dot code-dot-y"></span>
+                    <span class="code-dot code-dot-g"></span>
+                </div>
+                <span class="line"><span class="comment"># Install Claude Code hooks</span></span>
+                <span class="line"><span class="cmd">node</span> scripts/install-claude-code.js</span>
+                <span class="line"></span>
+                <span class="line"><span class="comment"># Start GuardClaw</span></span>
+                <span class="line"><span class="cmd">guardclaw start</span></span>
+                <span class="line"></span>
+                <span class="line"><span class="comment"># Done! Every Claude Code tool</span></span>
+                <span class="line"><span class="comment"># call is now monitored.</span></span>
+            </div>
+        </div>
+    </div>
+</section>
+
 <!-- Install -->
 <section class="install-section" id="install">
     <div class="container">
         <div class="section-header">
             <h2>Get Started in 60 Seconds</h2>
-            <p>Requires <a href="https://lmstudio.ai" style="color:var(--accent)">LM Studio</a> or <a href="https://ollama.ai" style="color:var(--accent)">Ollama</a> running locally, plus <a href="https://github.com/openclaw/openclaw" style="color:var(--accent)">OpenClaw</a> or <a href="https://github.com/HKUDS/nanobot" style="color:var(--accent)">nanobot</a>.</p>
+            <p>Requires <a href="https://lmstudio.ai" style="color:var(--accent)">LM Studio</a> or <a href="https://ollama.ai" style="color:var(--accent)">Ollama</a> running locally, plus <a href="https://github.com/openclaw/openclaw" style="color:var(--accent)">OpenClaw</a>, <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent)">Claude Code</a>, or <a href="https://github.com/HKUDS/nanobot" style="color:var(--accent)">nanobot</a>.</p>
         </div>
         <div class="code-block">
             <div class="code-header">

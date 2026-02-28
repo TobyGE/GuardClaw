@@ -11,6 +11,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
+  <a href="#claude-code-integration">Claude Code</a> ·
   <a href="#dashboard-guide">Dashboard Guide</a> ·
   <a href="#active-blocking-details">Active Blocking</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
@@ -30,6 +31,7 @@ AI coding agents (`exec`, `write`, `curl`, etc.) can do real damage. GuardClaw w
 - **Optional blocking** — high-risk commands pause for your approval before executing
 - **Chain analysis** — detects multi-step attack patterns (read secrets → exfiltrate)
 - **Adaptive memory** — learns from your approve/deny decisions, auto-adjusts risk scores over time
+- **Multi-platform** — works with OpenClaw, Claude Code, and nanobot
 - **Completely private** — local LLMs only, zero cloud APIs, your data never leaves
 
 ## Quick Start
@@ -37,7 +39,7 @@ AI coding agents (`exec`, `write`, `curl`, etc.) can do real damage. GuardClaw w
 ### Prerequisites
 
 - [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.ai) running locally
-- [OpenClaw](https://github.com/openclaw/openclaw) or [nanobot](https://github.com/HKUDS/nanobot)
+- [OpenClaw](https://github.com/openclaw/openclaw), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), or [nanobot](https://github.com/HKUDS/nanobot)
 
 **Recommended model:** `qwen/qwen3-4b-2507` — fast (~2s/call), 100% accuracy
 
@@ -82,6 +84,24 @@ openclaw gateway restart       # restart to load the plugin
 | Approval prompts for high-risk | ❌ | ✅ |
 
 Once installed, toggle blocking on/off from the dashboard 🛡️ button — no restart needed.
+
+### Claude Code Integration
+
+GuardClaw works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via its HTTP hooks system — no OpenClaw required.
+
+```bash
+# Install the Claude Code hooks (writes to ~/.claude/settings.json)
+node scripts/install-claude-code.js
+
+# Start GuardClaw
+guardclaw start
+```
+
+Every Bash, Read, Write, and Edit command in Claude Code is now risk-scored before execution. High-risk commands pause in the terminal while you approve/deny from the GuardClaw dashboard.
+
+The dashboard shows Claude Code sessions in a dedicated tab with full conversation context — user prompts, agent replies, and all tool calls grouped into turns.
+
+To uninstall: `node scripts/install-claude-code.js --uninstall`
 
 ## How It Works
 
@@ -212,7 +232,7 @@ See the [full roadmap](docs/ROADMAP.md) for detailed feature descriptions.
 - A2A protocol monitoring
 
 **Recently completed (Feb 2026):**
-Adaptive memory system · Human feedback (Mark Safe/Risky) · Auto-approve by memory · Memory dashboard · Smart pattern extraction · SQLite persistence · SSE real-time push · in-dashboard model benchmark · 3-tier verdict system (100% accuracy) · dark mode polish · server modularization · blocking config UI
+**Claude Code integration** (HTTP hooks + dashboard tab + approval workflow) · Adaptive memory system · Human feedback (Mark Safe/Risky) · Auto-approve by memory · Memory dashboard · Smart pattern extraction · SQLite persistence · SSE real-time push · in-dashboard model benchmark · 3-tier verdict system (100% accuracy) · dark mode polish · server modularization · blocking config UI
 
 ## Links
 
