@@ -106,15 +106,16 @@ function groupEventsIntoTurns(events) {
     }
   }
 
-  // Remaining CC turn in progress
+  // Remaining in-progress turn (OC orphan or CC in-progress)
   if (pendingToolCalls.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
     turns.push({
       parent: pendingReplies[pendingReplies.length - 1] || null,
       userPrompt: pendingPrompt,
       toolCalls: pendingToolCalls,
       replies: pendingReplies,
-      isCCTurn: true,
-      id: pendingPrompt?.id || `cc-inprogress-${Date.now()}`,
+      // isCCTurn only if there's a pending CC prompt — OC orphans have no pendingPrompt
+      isCCTurn: !!pendingPrompt,
+      id: pendingPrompt?.id || `inprogress-${Date.now()}`,
     });
   }
 
