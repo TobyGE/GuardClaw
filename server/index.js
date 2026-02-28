@@ -988,7 +988,7 @@ app.post('/api/hooks/pre-tool-use', async (req, res) => {
       });
 
       // Push to SSE clients
-      eventStore.emit({
+      eventStore.notifyListeners({
         type: 'approval-pending',
         data: JSON.stringify({
           id: approvalId, toolName: gcToolName, originalToolName: tool_name,
@@ -1024,7 +1024,7 @@ app.post('/api/hooks/pre-tool-use', async (req, res) => {
     return res.json({});
 
   } catch (error) {
-    console.error('[GuardClaw] Claude Code hook error:', error);
+    console.error('[GuardClaw] Claude Code hook error:', error.message);
     return res.json({}); // fail-open
   }
 });
@@ -1054,7 +1054,7 @@ app.post('/api/approvals/:id/approve', (req, res) => {
     const result = memoryStore.recordDecision(entry.toolName, entry.displayInput, entry.riskScore, 'approve', entry.sessionKey);
     if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
   }
-  eventStore.emit({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'approve' }) });
+  eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'approve' }) });
   console.log(`[GuardClaw] ✅ Claude Code approved: ${entry.originalToolName} (#${req.params.id})`);
   res.json({ ok: true });
 });
@@ -1064,7 +1064,7 @@ app.post('/api/approvals/:id/deny', (req, res) => {
   if (!entry) return res.status(404).json({ error: 'No pending approval with this id' });
   pendingApprovals.delete(req.params.id);
   entry.resolve({ denied: true, reason: 'Denied by user' });
-  eventStore.emit({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'deny' }) });
+  eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'deny' }) });
   console.log(`[GuardClaw] ❌ Claude Code denied: ${entry.originalToolName} (#${req.params.id})`);
   res.json({ ok: true });
 });
