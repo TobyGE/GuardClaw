@@ -84,7 +84,8 @@ const MAX_TOOL_HISTORY = 10;
 // processor can reuse it instead of making a second LLM call for the same tool.
 // Key: `${sessionKey}:${toolName}:${stableParamsJson}`, TTL: 60s
 const evaluationCache = new Map(); // key → { result, expiresAt }
-const lastCCPromptId = new Map();  // sessionKey → promptEventId (for prompt→reply linking)
+const lastCCPromptId = new Map();    // sessionKey → promptEventId (for prompt→reply linking)
+const lastCCPromptTime = new Map(); // sessionKey → epoch ms when UserPromptSubmit fired
 const EVAL_CACHE_TTL_MS = 60_000;
 
 function evalCacheKey(sessionKey, toolName, params) {
@@ -1128,7 +1129,8 @@ app.post('/api/hooks/user-prompt', (req, res) => {
     text: typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
     timestamp: Date.now(),
   });
-  lastCCPromptId.set(sessionKey, promptId); // track for stop-hook reply linking
+  lastCCPromptId.set(sessionKey, promptId);   // track for stop-hook reply linking
+  lastCCPromptTime.set(sessionKey, Date.now()); // timestamp when prompt was submitted
   res.json({});
 });
 
@@ -1140,30 +1142,49 @@ app.post('/api/hooks/stop', async (req, res) => {
 
   const stoppedAt = Date.now(); // timestamp when CC actually stopped
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
-  // Grab and clear the promptId before any async work to avoid race conditions
+  // Grab and clear the promptId/time before any async work to avoid race conditions
   const promptId = lastCCPromptId.get(sessionKey);
   lastCCPromptId.delete(sessionKey);
+  // promptTime: when the user submitted this turn's prompt (used to filter old assistant entries)
+  const promptTime = lastCCPromptTime.get(sessionKey) || (stoppedAt - 60_000);
+  lastCCPromptTime.delete(sessionKey);
 
+  // Poll the transcript until an assistant entry timestamped AFTER the user's
+  // prompt appears. CC flushes the reply shortly after firing Stop, so we
+  // poll every 200ms for up to 5s instead of a fixed one-shot delay.
   try {
     const { readFileSync } = await import('fs');
-    const lines = readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
-    // Find the last assistant message with text content
     let lastText = null;
-    for (let i = lines.length - 1; i >= 0; i--) {
+    const maxWait = 5000;
+    const pollMs = 200;
+    const waitStart = Date.now();
+
+    while (Date.now() - waitStart < maxWait) {
+      await new Promise(resolve => setTimeout(resolve, pollMs));
       try {
-        const entry = JSON.parse(lines[i]);
-        const role = entry.role || entry.type;
-        if (role === 'assistant') {
-          const content = entry.message?.content || entry.content;
-          if (Array.isArray(content)) {
-            const block = content.find(b => b.type === 'text' && b.text?.trim());
-            if (block?.text) { lastText = block.text; break; }
-          } else if (typeof content === 'string' && content.trim()) {
-            lastText = content; break;
-          }
+        const lines = readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const entry = JSON.parse(lines[i]);
+            if (entry.type !== 'assistant') continue;
+            // Only accept entries written after the user's prompt (avoids previous-turn lag)
+            const entryTs = entry.timestamp ? new Date(entry.timestamp).getTime() : 0;
+            if (entryTs < promptTime) break; // entries are chronological; older ones follow
+            const content = entry.message?.content || entry.content;
+            let text = null;
+            if (Array.isArray(content)) {
+              const block = content.find(b => b.type === 'text' && b.text?.trim());
+              text = block?.text || null;
+            } else if (typeof content === 'string' && content.trim()) {
+              text = content;
+            }
+            if (text) { lastText = text; break; }
+          } catch {}
         }
       } catch {}
+      if (lastText) break;
     }
+
     if (lastText) {
       eventStore.addEvent({
         type: 'claude-code-reply',
