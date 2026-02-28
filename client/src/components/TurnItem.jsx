@@ -324,26 +324,24 @@ function ToolCallRow({ event }) {
   );
 }
 
-/* ---------- ReplyText: expandable agent reply snippet ---------- */
-const REPLY_PREVIEW = 200;
-
+/* ---------- ReplyText: 2-line preview with expand ---------- */
 function ReplyText({ text, expanded, onToggle }) {
   if (!text) return null;
-  const hasMore = text.length > REPLY_PREVIEW;
+  // Heuristic: more than 2 newlines OR long enough to wrap past 2 lines
+  const hasMore = text.includes('\n') ? text.split('\n').filter(l => l.trim()).length > 2 : text.length > 160;
   return (
-    <p
-      className="text-sm text-gc-text bg-gc-bg px-3 py-2 rounded border-l-2 border-blue-400/50 break-words whitespace-pre-wrap cursor-default"
+    <div
+      className={`text-sm text-gc-text bg-gc-bg px-3 py-2 rounded break-words whitespace-pre-wrap ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
       onClick={hasMore ? onToggle : undefined}
-      style={hasMore ? { cursor: 'pointer' } : {}}
     >
-      {expanded || !hasMore ? text : text.substring(0, REPLY_PREVIEW)}
+      <p className={!expanded && hasMore ? 'line-clamp-2' : ''}>{text}</p>
       {hasMore && !expanded && (
-        <span className="text-blue-400 ml-1 select-none">… show more</span>
+        <span className="text-blue-400 text-xs mt-1 block select-none">show more ▼</span>
       )}
       {hasMore && expanded && (
-        <span className="text-blue-400 ml-1 select-none"> show less</span>
+        <span className="text-blue-400 text-xs mt-1 block select-none">show less ▲</span>
       )}
-    </p>
+    </div>
   );
 }
 
