@@ -49,6 +49,8 @@ function EventItem({ event }) {
     ? `${event.tool}` 
     : eventType === 'chat-update' 
     ? 'chat-message'
+    : eventType === 'claude-code-tool'
+    ? `cc:${event.tool || 'unknown'}`
     : eventType;
   
   const status = event.status || 'completed';

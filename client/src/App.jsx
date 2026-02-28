@@ -113,6 +113,7 @@ function App() {
                 const sessionKey = e.sessionKey || e.payload?.sessionKey || '';
                 if (backend === 'openclaw') return sessionKey.includes('agent:');
                 if (backend === 'nanobot') return sessionKey.includes('nanobot');
+                if (backend === 'claude-code') return sessionKey.startsWith('claude-code:');
                 return true;
               });
           setEvents(filteredEvents);
@@ -186,7 +187,8 @@ function App() {
         const ss = selectedSessionRef.current;
         const matchesBackend = bf === 'all'
           || (bf === 'openclaw' && eventSessionKey2.includes('agent:'))
-          || (bf === 'nanobot' && eventSessionKey2.includes('nanobot'));
+          || (bf === 'nanobot' && eventSessionKey2.includes('nanobot'))
+          || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'));
         const matchesSession = !ss || eventSessionKey2 === ss;
         if (matchesBackend && matchesSession) {
           setEvents((prev) => [newEvent, ...prev]);
@@ -239,6 +241,7 @@ function App() {
                 const sessionKey = e.sessionKey || e.payload?.sessionKey || '';
                 if (backendFilter === 'openclaw') return sessionKey.includes('agent:');
                 if (backendFilter === 'nanobot') return sessionKey.includes('nanobot');
+                if (backendFilter === 'claude-code') return sessionKey.startsWith('claude-code:');
                 return true;
               });
           setEvents(filteredEvents);
@@ -576,36 +579,24 @@ function App() {
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
-                  {backends && backends.openclaw && (
-                    <button
-                      onClick={() => { setBackendFilter('openclaw'); if (!backends.openclaw.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } }}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        backendFilter === 'openclaw'
-                          ? 'bg-blue-600 text-white shadow-md'
-                          : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full ${
-                        backends.openclaw.connected ? 'bg-green-500' : 'bg-gray-500'
-                      }`}></span>
-                      <span>OpenClaw</span>
-                    </button>
-                  )}
-                  {backends && backends.nanobot && (
-                    <button
-                      onClick={() => { setBackendFilter('nanobot'); if (!backends.nanobot.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } }}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        backendFilter === 'nanobot'
-                          ? 'bg-blue-600 text-white shadow-md'
-                          : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                      }`}
-                    >
-                      <span className={`w-2 h-2 rounded-full ${
-                        backends.nanobot.connected ? 'bg-green-500' : 'bg-gray-500'
-                      }`}></span>
-                      <span>Nanobot</span>
-                    </button>
-                  )}
+                  {backends && [
+                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setBackendFilter('openclaw'); if (!backends.openclaw?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setBackendFilter('nanobot'); if (!backends.nanobot?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => setBackendFilter('claude-code') },
+                  ]
+                    .filter(b => backends[b.key])
+                    .sort((a, b) => (backends[b.key]?.connected ? 1 : 0) - (backends[a.key]?.connected ? 1 : 0))
+                    .map(b => (
+                      <button key={b.key} onClick={b.onClick}
+                        className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          backendFilter === b.key ? `${b.activeColor} text-white shadow-md` : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${backends[b.key]?.connected ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                        <span>{b.label}</span>
+                      </button>
+                    ))
+                  }
                 </div>
                 <div className="flex-1"></div>
                 <span className="text-xs text-gc-text-dim">
@@ -622,7 +613,7 @@ function App() {
                     Real-time Events
                     {backendFilter !== 'all' && (
                       <span className="ml-2 text-sm text-gc-text-dim">
-                        ({backendFilter === 'openclaw' ? 'OpenClaw' : 'Nanobot'})
+                        ({backendFilter === 'openclaw' ? 'OpenClaw' : backendFilter === 'nanobot' ? 'Nanobot' : 'Claude Code'})
                       </span>
                     )}
                   </h2>
@@ -643,7 +634,7 @@ function App() {
               </div>
 
               {/* Session Tabs — only show for OpenClaw events */}
-              {sessions.length > 1 && backendFilter !== 'nanobot' && (
+              {sessions.length > 1 && backendFilter !== 'nanobot' && backendFilter !== 'claude-code' && (
                 <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
                   <button
                     onClick={() => setSelectedSession(null)}

@@ -279,6 +279,8 @@ app.get('/api/status', async (req, res) => {
   for (const { client, name } of activeClients) {
     backends[name] = client.getConnectionStats();
   }
+  // Claude Code is always "connected" — it's an HTTP hook, no WebSocket needed
+  backends['claude-code'] = { connected: true, label: 'Claude Code', type: 'http-hook' };
 
   // Connected if ANY backend is connected
   const anyConnected = activeClients.some(({ client }) => client.connected);
@@ -884,6 +886,7 @@ function mapClaudeCodeParams(toolName, toolInput) {
 }
 
 app.post('/api/hooks/pre-tool-use', async (req, res) => {
+  console.log(`[GuardClaw] 🔔 pre-tool-use received:`, JSON.stringify(req.body).slice(0, 500));
   const { tool_name, tool_input, session_id } = req.body;
   if (!tool_name) return res.json({});
 
@@ -939,18 +942,28 @@ app.post('/api/hooks/pre-tool-use', async (req, res) => {
 
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams).slice(0, 200);
+    const verdict = analysis.riskScore >= 8 ? 'blocked' : 'allowed';
     eventStore.addEvent({
       type: 'claude-code-tool',
       tool: gcToolName,
+      command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
+      description: displayInput,
       sessionKey,
       riskScore: analysis.riskScore,
       category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
       allowed: analysis.riskScore < 8 ? 1 : 0,
+      safeguard: {
+        riskScore: analysis.riskScore,
+        reasoning: analysis.reasoning,
+        category: analysis.category,
+        verdict,
+        allowed: analysis.riskScore < 8,
+      },
       data: JSON.stringify({
         toolName: gcToolName,
         originalToolName: tool_name,
         payload: { params: gcParams },
-        safeguard: { riskScore: analysis.riskScore, reasoning: analysis.reasoning, category: analysis.category, verdict: analysis.riskScore >= 8 ? 'blocked' : 'allowed' },
+        safeguard: { riskScore: analysis.riskScore, reasoning: analysis.reasoning, category: analysis.category, verdict },
         source: 'claude-code',
         timestamp: Date.now(),
       }),
