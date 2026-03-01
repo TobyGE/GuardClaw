@@ -82,10 +82,7 @@ guardclaw start
 
 That's it. Every tool call is now risk-scored. Safe operations auto-approve silently:
 
-```
-⎿ PreToolUse:Edit says: ⛨ GuardClaw: auto-approved (score: 2)
-    — Updating blog config email, normal project file edit matching user request
-```
+![Claude Code auto-approve](docs/screenshots/cc-auto-approve.png)
 
 Dangerous operations fall through to Claude Code's normal permission prompt — you only get asked when it actually matters.
 
