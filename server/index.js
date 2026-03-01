@@ -113,6 +113,7 @@ const MAX_TOOL_HISTORY = 10;
 const evaluationCache = new Map(); // key → { result, expiresAt }
 const lastCCPromptId = new Map();    // sessionKey → promptEventId (for prompt→reply linking)
 const lastCCPromptTime = new Map(); // sessionKey → epoch ms when UserPromptSubmit fired
+const lastCCPromptText = new Map();  // sessionKey → last user prompt text (for LLM context)
 const ccTranscriptPaths = new Map(); // session_id → transcript_path (cached from Stop hook)
 const ccLastReadLine = new Map();    // session_id → last line number processed for intermediate text
 const EVAL_CACHE_TTL_MS = 60_000;
@@ -1000,6 +1001,45 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     // Get chain history
     const chainHistory = getChainHistory(sessionKey, gcToolName);
 
+    // Build task context from user prompt, cwd, and recent tool history
+    const { cwd, transcript_path } = req.body;
+    let userPrompt = lastCCPromptText.get(sessionKey);
+
+    // If no cached prompt (e.g. hook registered after prompt was sent), try reading from transcript
+    if (!userPrompt && transcript_path) {
+      try {
+        const lines = fs.readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
+        // Scan backwards for the last user message with text content (not tool_result)
+        for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
+          try {
+            const entry = JSON.parse(lines[i]);
+            if (entry.type === 'user' && entry.message?.role === 'user') {
+              const content = entry.message.content;
+              if (typeof content === 'string' && content.trim()) {
+                userPrompt = content.trim().slice(0, 500);
+                break;
+              }
+              if (Array.isArray(content)) {
+                const textBlock = content.find(b => b.type === 'text' && b.text?.trim());
+                if (textBlock) {
+                  userPrompt = textBlock.text.trim().slice(0, 500);
+                  break;
+                }
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
+    // Recent tools in this session (last 5) for context
+    const sessionHistory = toolHistoryStore.get(sessionKey) || [];
+    const recentTools = sessionHistory.slice(-5).map(h => `${h.toolName}: ${(h.resultSnippet || '').slice(0, 80)}`);
+
+    const taskContext = (userPrompt || cwd || recentTools.length > 0)
+      ? { userPrompt: userPrompt || null, cwd: cwd || null, recentTools: recentTools.length > 0 ? recentTools : null }
+      : null;
+
     // Memory lookup
     const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
     const mem = memoryStore.lookup(gcToolName, commandStr);
@@ -1014,8 +1054,16 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
       if (adjScore < 9) {
-        console.log(`[GuardClaw] 🧠 Claude Code auto-approved: ${memoryHint.pattern}`);
-        return res.json({});
+        const memMsg = `⛨ GuardClaw: auto-approved by memory (pattern: ${memoryHint.pattern})`;
+        console.log(`[GuardClaw] 🧠 ${memMsg}`);
+        return res.json({
+          systemMessage: memMsg,
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'allow',
+            permissionDecisionReason: memMsg,
+          },
+        });
       }
     }
 
@@ -1028,9 +1076,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     // Evaluate
     let analysis;
     if (gcToolName === 'exec') {
-      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, memoryContext);
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, memoryContext, taskContext);
     } else {
-      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, memoryContext);
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, memoryContext, taskContext);
     }
 
     // Memory adjustment
@@ -1053,7 +1101,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       }
     };
     const displayInput = formatDisplayInput(gcToolName, gcParams);
-    const verdict = analysis.riskScore >= 8 ? 'blocked' : 'allowed';
+    const verdict = analysis.riskScore >= 8 ? 'pass-through' : 'auto-approved';
     eventStore.addEvent({
       type: 'claude-code-tool',
       tool: gcToolName,
@@ -1080,86 +1128,37 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       }),
     });
 
-    // If safe, allow immediately
-    if (analysis.riskScore < 8) {
-      return res.json({});
-    }
+    // Single-direction: auto-allow everything except high-risk
+    const CC_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_CC_PASS_THRESHOLD || '8', 10);
 
-    // High risk: hold request and wait for dashboard approval
-    const approvalId = String(++approvalIdCounter);
-    const reason = analysis.reasoning || 'High risk tool call';
-
-    console.log(`[GuardClaw] 🛑 Claude Code blocked: ${tool_name} (score ${analysis.riskScore}) — waiting for approval #${approvalId}`);
-
-    // macOS notification
-    try {
-      const { exec: execCmd } = await import('child_process');
-      execCmd(`osascript -e 'display notification "Blocked: ${tool_name} (score ${analysis.riskScore})" with title "GuardClaw" sound name "Purr"'`);
-    } catch {}
-
-    const approvalPromise = new Promise((resolve) => {
-      pendingApprovals.set(approvalId, {
-        id: approvalId,
-        toolName: gcToolName,
-        originalToolName: tool_name,
-        params: gcParams,
-        displayInput,
-        riskScore: analysis.riskScore,
-        reason,
-        sessionKey,
-        resolve,
-        createdAt: Date.now(),
-      });
-
-      // Push to SSE clients
-      eventStore.notifyListeners({
-        type: 'approval-pending',
-        data: JSON.stringify({
-          id: approvalId, toolName: gcToolName, originalToolName: tool_name,
-          displayInput, riskScore: analysis.riskScore, reason, createdAt: Date.now(),
-        }),
-      });
-
-      // Timeout after 300s → deny
-      setTimeout(() => {
-        if (pendingApprovals.has(approvalId)) {
-          pendingApprovals.delete(approvalId);
-          resolve({ denied: true, reason: 'Approval timeout (300s)' });
-        }
-      }, 300_000);
-    });
-
-    const result = await approvalPromise;
-
-    if (result.denied) {
-      // Record deny in memory
-      memoryStore.recordDecision(gcToolName, displayInput, analysis.riskScore, 'deny', sessionKey);
+    if (analysis.riskScore < CC_PASS_THRESHOLD) {
+      // Enrich reasoning with task context for rule-based verdicts
+      let reasoning = analysis.reasoning || '';
+      if (taskContext?.userPrompt && analysis.backend === 'rules') {
+        reasoning += ` | Task: "${taskContext.userPrompt.slice(0, 100)}"`;
+      }
+      const reason = reasoning ? ` — ${reasoning}` : '';
+      const msg = `⛨ GuardClaw: auto-approved (score: ${analysis.riskScore})${reason}`;
+      console.log(`[GuardClaw] ${msg}`);
       return res.json({
+        systemMessage: msg,
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: `GuardClaw blocked (score ${analysis.riskScore}/10): ${reason}`,
+          permissionDecision: 'allow',
+          permissionDecisionReason: msg,
         },
       });
     }
 
-    // Approved
-    memoryStore.recordDecision(gcToolName, displayInput, analysis.riskScore, 'approve', sessionKey);
+    // High risk → pass-through to CC's normal permission prompt
+    console.log(`[GuardClaw] ⛨ Claude Code pass-through: ${tool_name} (score ${analysis.riskScore}) — user will decide`);
+
     return res.json({});
 
   } catch (error) {
     console.error('[GuardClaw] Claude Code hook error:', error.message);
-    if (failClosedEnabled) {
-      console.error('[GuardClaw] ⛔ Fail-closed: denying tool due to analysis error');
-      return res.json({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: `GuardClaw error (fail-closed): ${error.message}. Safety analysis could not complete.`,
-        },
-      });
-    }
-    return res.json({}); // fail-open (legacy default)
+    // On error, always pass-through — let Claude Code handle normally
+    return res.json({});
   }
 });
 
@@ -1324,6 +1323,7 @@ app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
   });
   lastCCPromptId.set(sessionKey, promptId);   // track for stop-hook reply linking
   lastCCPromptTime.set(sessionKey, Date.now()); // timestamp when prompt was submitted
+  lastCCPromptText.set(sessionKey, promptText.slice(0, 500)); // cache for LLM context in pre-tool-use
   res.json({});
 });
 

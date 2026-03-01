@@ -316,7 +316,7 @@ export class SafeguardService {
     return this.analyzeToolAction(action);
   }
 
-  async analyzeCommand(command, chainHistory = null, memoryContext = null) {
+  async analyzeCommand(command, chainHistory = null, memoryContext = null, taskContext = null) {
     // High-risk fast-path: block without LLM for high-confidence dangerous patterns.
     // Must run BEFORE the safe fast-path — some safe base commands (echo, cat) can
     // be piped into dangerous sinks (nc, base64 | bash) and must not be let through.
@@ -365,7 +365,8 @@ export class SafeguardService {
       const basePrompt = this.createAnalysisPrompt(command);
       const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
       const memorySection = this.buildMemoryContextSection(memoryContext);
-      const extraContext = chainSection + memorySection;
+      const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
+      const extraContext = taskSection + chainSection + memorySection;
       
       if (extraContext) {
         const enhancedPrompt = basePrompt.replace(
@@ -409,7 +410,7 @@ export class SafeguardService {
     return result;
   }
 
-  async analyzeToolAction(action, chainHistory = null, memoryContext = null) {
+  async analyzeToolAction(action, chainHistory = null, memoryContext = null, taskContext = null) {
     // Handle chat content separately
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);
@@ -513,7 +514,7 @@ export class SafeguardService {
       // If there's chain history (prior reads), the URL could carry stolen data
       if (chainHistory && chainHistory.length > 0) {
         // Let LLM judge whether this is exfiltration given the chain context
-        const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext);
+        const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
         return this.runLLMPrompt(prompt, action);
       }
       // No chain — check URL for embedded secrets patterns
@@ -642,7 +643,7 @@ export class SafeguardService {
 
     // write / edit: judge path + content together
     if (action.tool === 'write' || action.tool === 'edit') {
-      return this.analyzeWriteAction(action);
+      return this.analyzeWriteAction(action, taskContext);
     }
 
     // Check cache first
@@ -660,7 +661,7 @@ export class SafeguardService {
     if (!this.enabled) {
       result = this.fallbackToolAnalysis(action);
     } else {
-      const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext);
+      const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
       
       switch (this.backend) {
         case 'anthropic':
@@ -686,7 +687,7 @@ export class SafeguardService {
 
   // Specialized analysis for write / edit tool calls.
   // Judges both the file path and the content being written.
-  async analyzeWriteAction(action) {
+  async analyzeWriteAction(action, taskContext = null) {
     const input = action.parsedInput || {};
     const filePath = input.file_path || input.path || '';
     const content = input.content || input.new_string || '';
@@ -773,11 +774,12 @@ export class SafeguardService {
     }
 
     // Safe path + no dangerous content — build LLM prompt with content snippet
-    const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool);
+    const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
+    const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection);
     return this.runLLMPrompt(prompt, action);
   }
 
-  createWriteAnalysisPrompt(filePath, content, oldStr, tool) {
+  createWriteAnalysisPrompt(filePath, content, oldStr, tool, taskSection = '') {
     const snippet = content.length > 600 ? content.substring(0, 600) + '\n…(truncated)' : content;
     const oldSnippet = oldStr.length > 200 ? oldStr.substring(0, 200) + '…' : oldStr;
     const isEdit = tool === 'edit';
@@ -785,7 +787,7 @@ export class SafeguardService {
     return `You are a security judge. Classify this file ${isEdit ? 'edit' : 'write'} as SAFE, WARNING, or BLOCK.
 
 FILE PATH: ${filePath || '(unknown)'}
-${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snippet}`}
+${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snippet}`}${taskSection}
 
 RULES (check in order, use FIRST match):
 
@@ -1107,9 +1109,30 @@ ${memoryContext}
 Use this to calibrate your judgment — if the user consistently marks a pattern as safe, lean toward SAFE. If marked risky, lean toward WARNING or BLOCK.`;
   }
 
-  createToolAnalysisPrompt(action, chainHistory = null, memoryContext = null) {
+  buildTaskContextSection(taskContext) {
+    if (!taskContext) return '';
+    const parts = [];
+    if (taskContext.userPrompt) {
+      parts.push(`USER REQUEST: "${taskContext.userPrompt}"`);
+    }
+    if (taskContext.cwd) {
+      parts.push(`WORKING DIR: ${taskContext.cwd}`);
+    }
+    if (taskContext.recentTools && taskContext.recentTools.length > 0) {
+      parts.push(`RECENT TOOLS IN THIS TURN:\n${taskContext.recentTools.join('\n')}`);
+    }
+    if (parts.length === 0) return '';
+    return `
+
+TASK CONTEXT (what the user asked the agent to do):
+${parts.join('\n')}
+Use this context to judge whether the tool call is expected given the user's request. A tool call that directly serves the user's stated goal is more likely safe.`;
+  }
+
+  createToolAnalysisPrompt(action, chainHistory = null, memoryContext = null, taskContext = null) {
     const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
     const memorySection = this.buildMemoryContextSection(memoryContext);
+    const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
 
     // canvas eval: extract full JS code and show it prominently (summary is truncated to 120 chars)
     let canvasEvalSection = '';
@@ -1124,7 +1147,7 @@ Use this to calibrate your judgment — if the user consistently marks a pattern
     return `You are a security judge. Classify this tool action as SAFE, WARNING, or BLOCK.
 
 TOOL: ${action.tool}
-PARAMS: ${action.summary}${canvasEvalSection}${chainSection}${memorySection}
+PARAMS: ${action.summary}${canvasEvalSection}${taskSection}${chainSection}${memorySection}
 
 RULES (check in order, use FIRST match):
 
