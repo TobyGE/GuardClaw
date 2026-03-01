@@ -7,8 +7,8 @@
           {
             "type": "http",
             "url": "http://127.0.0.1:3002/api/hooks/pre-tool-use",
-            "timeout": 300,
-            "statusMessage": "⏳ GuardClaw evaluating..."
+            "timeout": 30,
+            "statusMessage": "⛨ GuardClaw evaluating..."
           }
         ]
       }

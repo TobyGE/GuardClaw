@@ -125,10 +125,21 @@ function isClearlySafe(command) {
   // find: safe only without -exec / -execdir / -delete
   if (base === 'find' && !/\s-exec(dir)?\s/.test(cmd) && !/\s-delete\b/.test(cmd)) return true;
 
-  // git: read-only + local write commands only
+  // git: read-only + safe local write commands only
   // push excluded — can push malicious code to remote repos, must go through LLM
   if (base === 'git') {
-    if (/\brebase\s+-i\b/.test(cmd)) return false; // interactive rebase (complex)
+    // Destructive flags/subcommands — must go through LLM
+    if (/\brebase\s+-i\b/.test(cmd)) return false;           // interactive rebase
+    if (/\breset\s+--hard\b/.test(cmd)) return false;        // discard all changes
+    if (/\bcheckout\s+(--\s+\.|\.)\s*$/.test(cmd)) return false; // discard working tree
+    if (/\brestore\s+(\.|--staged\s+\.)/.test(cmd)) return false; // bulk restore
+    if (/\bclean\s+-[a-zA-Z]*f/.test(cmd)) return false;     // delete untracked files
+    if (/\bbranch\s+-[a-zA-Z]*D/.test(cmd)) return false;    // force delete branch
+    if (/\bstash\s+(drop|clear)\b/.test(cmd)) return false;  // discard stashed changes
+    if (/\bpush\s+.*--force\b/.test(cmd)) return false;      // force push (already excluded but explicit)
+    if (/\bconfig\s+--global\b/.test(cmd)) return false;     // modify global git config
+    if (/\bsubmodule\s+deinit\b/.test(cmd)) return false;    // remove submodule content
+    // Safe: read-only commands + local non-destructive writes
     return /^git\s+(add|commit|pull|merge|checkout|switch|restore|fetch|status|log|diff|branch|show|stash|tag|remote|describe|shortlog|blame|rev-parse|ls-files|ls-remote|submodule|config|init|clone)\b/.test(cmd);
   }
 
@@ -161,6 +172,62 @@ function isClearlySafe(command) {
   // Don't fast-path — let LLM decide for kill commands.
 
   return false;
+}
+
+// Generate a specific reasoning string for commands that pass the safe fast-path.
+// This replaces the generic "read-only / standard dev workflow command" with a
+// message that tells the user exactly WHY this command was considered safe.
+function describeSafeRule(command) {
+  const cmd = stripCdPrefix(command.trim());
+  const base = cmd.split(/\s+/)[0].replace(/^.*\//, '');
+
+  // Read-only / inspection commands
+  const READ_ONLY = new Set(['cat','head','tail','less','more','wc','file','stat','du','df',
+    'which','whereis','type','whoami','hostname','uname','date','uptime','id','groups','env',
+    'printenv','locale','pwd','echo','printf','true','false']);
+  if (READ_ONLY.has(base)) return `Read-only command "${base}" has no side effects`;
+
+  // Search / list commands
+  if (['ls','tree','find','grep','rg','ag','fd'].includes(base))
+    return `Search/list command "${base}" only reads the filesystem`;
+
+  // Text processing
+  if (['sed','awk','sort','uniq','cut','tr','column','jq','yq','xargs'].includes(base))
+    return `Text processing command "${base}" (no in-place modification)`;
+
+  // Git
+  if (base === 'git') {
+    const sub = cmd.match(/^git\s+(\S+)/)?.[1] || '';
+    const readOps = new Set(['status','log','diff','show','branch','remote','describe',
+      'shortlog','blame','rev-parse','ls-files','ls-remote','fetch']);
+    if (readOps.has(sub)) return `"git ${sub}" is a read-only Git operation`;
+    return `"git ${sub}" is a standard local Git operation with no external communication`;
+  }
+
+  // Package managers
+  if (/^(npm|yarn|pnpm)\s+/.test(cmd)) {
+    const sub = cmd.match(/^(?:npm|yarn|pnpm)\s+(\S+)/)?.[1] || '';
+    return `Package manager command "${base} ${sub}" runs locally within the project`;
+  }
+
+  // Python / pip
+  if (/^pip[23]?\s+/.test(cmd)) return `"${base}" package management command`;
+  if (/^python[23]?\s+\S+\.py/.test(cmd)) return `Running a local Python script file`;
+
+  // Node
+  if (/^node\s+\S+\.m?js/.test(cmd)) return `Running a local Node.js script file`;
+
+  // Build / test tools
+  if (['make','cmake','cargo','go','mvn','gradle'].includes(base))
+    return `Build tool "${base}" runs locally within the project`;
+  if (['vite','vitest','jest','mocha'].includes(base))
+    return `Test/dev server "${base}" runs locally`;
+
+  // Directory operations
+  if (['cd','mkdir','touch'].includes(base))
+    return `"${base}" is a basic filesystem operation with minimal risk`;
+
+  return `The command "${base}" matched safe-path rules (no destructive flags, no external communication)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +341,7 @@ export class SafeguardService {
       return {
         riskScore: 1,
         category: 'safe',
-        reasoning: 'Rule-based: read-only / standard dev workflow command',
+        reasoning: describeSafeRule(command),
         allowed: true,
         warnings: [],
         backend: 'rules',
@@ -354,7 +421,7 @@ export class SafeguardService {
       'memory_search',  // semantic search over local memory files
       'memory_get',     // read snippet from memory file
       'web_search',     // search query (read-only)
-      'web_fetch',      // fetch URL content (read-only)
+      // NOTE: 'web_fetch' removed — handled separately below (URL can carry exfiltrated data)
       'session_status', // status info
       'sessions_list',  // list sessions
       'sessions_history', // read session history
@@ -375,18 +442,95 @@ export class SafeguardService {
       };
     }
 
-    // Read tool: safe in general, but sensitive paths need LLM analysis
+    // Read tool: generally safe, but sensitive paths need higher scrutiny
     if (action.tool === 'read') {
       const filePath = action.file_path || action.parsedInput?.file_path || action.summary || '';
+
+      // Known sensitive paths — high risk, should trigger approval prompt
       const sensitive = SENSITIVE_READ_PATHS.find(({ re }) => re.test(filePath));
       if (sensitive) {
         this.cacheStats.ruleCalls++;
         return {
-          riskScore: 7,
+          riskScore: 8,
           category: 'sensitive-read',
           reasoning: `Reading sensitive file: ${sensitive.reason} — ${filePath}`,
-          allowed: true,
+          allowed: false,
           warnings: [sensitive.reason],
+          backend: 'rules',
+        };
+      }
+
+      // Catch .env files anywhere (not just home dir)
+      // e.g. ~/projects/app/.env.production, /tmp/.env
+      if (/\.env(\.[a-zA-Z]+)?$/.test(filePath) || /\/\.env\./.test(filePath)) {
+        this.cacheStats.ruleCalls++;
+        return {
+          riskScore: 7,
+          category: 'sensitive-read',
+          reasoning: `Reading environment file that may contain secrets — ${filePath}`,
+          allowed: true,
+          warnings: ['Environment file may contain API keys or credentials'],
+          backend: 'rules',
+        };
+      }
+
+      // Catch common credential file patterns not in SENSITIVE_READ_PATHS
+      const CRED_FILE_PATTERNS = [
+        { re: /(?:secret|token|password|passwd|credential|api[_-]?key)s?(?:\.|$)/i, reason: 'Filename suggests credentials' },
+        { re: /\bid_(?:rsa|ed25519|ecdsa|dsa)\b/, reason: 'SSH private key file' },
+        { re: /\.pem$/, reason: 'PEM certificate/key file' },
+        { re: /\.p12$|\.pfx$/, reason: 'PKCS12 certificate bundle' },
+        { re: /\.key$/, reason: 'Key file' },
+        { re: /\.keystore$|\.jks$/, reason: 'Java keystore' },
+      ];
+      const credMatch = CRED_FILE_PATTERNS.find(({ re }) => re.test(filePath));
+      if (credMatch) {
+        this.cacheStats.ruleCalls++;
+        return {
+          riskScore: 7,
+          category: 'sensitive-read',
+          reasoning: `${credMatch.reason} — ${filePath}`,
+          allowed: true,
+          warnings: [credMatch.reason],
+          backend: 'rules',
+        };
+      }
+
+      this.cacheStats.ruleCalls++;
+      return {
+        riskScore: 1,
+        category: 'safe',
+        reasoning: `Reading project file — ${filePath || 'unknown path'}`,
+        allowed: true,
+        warnings: [],
+        backend: 'rules',
+      };
+    }
+
+    // WebFetch: URL can carry exfiltrated data in query params or path
+    if (action.tool === 'web_fetch') {
+      const url = action.url || action.parsedInput?.url || action.summary || '';
+      // If there's chain history (prior reads), the URL could carry stolen data
+      if (chainHistory && chainHistory.length > 0) {
+        // Let LLM judge whether this is exfiltration given the chain context
+        const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext);
+        return this.runLLMPrompt(prompt, action);
+      }
+      // No chain — check URL for embedded secrets patterns
+      const SECRET_IN_URL = [
+        { re: /[?&](?:key|token|secret|password|credential|api_key)=/i, reason: 'URL query parameter contains credential-like key' },
+        { re: /(?:sk-ant-|sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|github_pat_)/, reason: 'URL contains embedded API key or token' },
+        { re: /-----BEGIN/, reason: 'URL contains embedded certificate/key data' },
+      ];
+      const urlMatch = SECRET_IN_URL.find(({ re }) => re.test(url));
+      if (urlMatch) {
+        this.cacheStats.ruleCalls++;
+        return {
+          riskScore: 9,
+          category: 'data-exfiltration',
+          reasoning: `Potential data exfiltration via WebFetch: ${urlMatch.reason} — ${url.slice(0, 120)}`,
+          allowed: false,
+          warnings: [urlMatch.reason],
           backend: 'rules',
         };
       }
@@ -394,7 +538,7 @@ export class SafeguardService {
       return {
         riskScore: 1,
         category: 'safe',
-        reasoning: `Read-only tool: read`,
+        reasoning: `WebFetch to ${url.slice(0, 80)} — no chain history, no embedded secrets`,
         allowed: true,
         warnings: [],
         backend: 'rules',
@@ -416,11 +560,14 @@ export class SafeguardService {
       if (patternMatch || pathMatch) {
         this.cacheStats.ruleCalls++;
         const reason = (patternMatch || pathMatch).reason;
+        // Broad credential search across home dir or root = higher risk
+        const broadSearch = !searchPath || /^[/~]$|^\/Users\/|^\/home\//.test(searchPath);
+        const score = broadSearch ? 8 : 7;
         return {
-          riskScore: 7,
+          riskScore: score,
           category: 'sensitive-search',
-          reasoning: `${reason}: ${action.tool}("${pattern}"${searchPath ? `, "${searchPath}"` : ''})`,
-          allowed: true,
+          reasoning: `${reason}: ${action.tool}("${pattern}"${searchPath ? `, "${searchPath}"` : ''})${broadSearch ? ' — broad search scope' : ''}`,
+          allowed: score < 8,
           warnings: [reason],
           backend: 'rules',
         };
@@ -441,10 +588,10 @@ export class SafeguardService {
       ];
       const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re }) => re.test(task));
       return {
-        riskScore: dangerousTask ? 7 : 4,
+        riskScore: dangerousTask ? 8 : 4,
         category: 'agent-spawn',
         reasoning: dangerousTask ? `${dangerousTask.reason}: ${task.slice(0, 100)}` : `Sub-agent spawned: ${task.slice(0, 100)}`,
-        allowed: true,
+        allowed: !dangerousTask,
         warnings: dangerousTask ? [dangerousTask.reason] : ['Sub-agent runs with full tool permissions'],
         backend: 'rules',
       };
@@ -656,7 +803,7 @@ WARNING — everything else:
 - Writing to home dir root (~/filename) with unclear purpose
 
 Output ONLY ONE JSON object:
-{"verdict": "SAFE|WARNING|BLOCK", "reason": "one sentence"}`;
+{"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the command does, then why it is safe/warning/block"}`;
   }
 
   // Run LLM with a prompt, routing to the configured backend.
@@ -989,7 +1136,9 @@ BLOCK — action exfiltrates private data or modifies system/sensitive files:
 - browser interacting with payment/banking pages
 
 SAFE — no dangerous side effects:
-- read, web_search, web_fetch, image, tts, session_status, sessions_list, sessions_history
+- web_search, image, tts, session_status, sessions_list, sessions_history
+- read to non-sensitive project files (NOT ~/.ssh, ~/.aws, .env, credentials, key files)
+- web_fetch to well-known domains with no secrets in URL (NOT with embedded API keys, tokens, or data from prior reads)
 - process (OpenClaw internal process manager — not Unix kill)
 - write/edit to project dirs (~/guardclaw, ~/openclaw, ~/.openclaw/workspace, ~/projects, ~/Desktop, /tmp)
 - browser: snapshot, screenshot, navigate to URLs
@@ -1006,7 +1155,7 @@ WARNING — has side effects but is normal agent work:
 - Anything not matching SAFE or BLOCK
 
 Output ONLY ONE JSON object (pick exactly one verdict):
-{"verdict": "SAFE|WARNING|BLOCK", "reason": "one sentence"}`;
+{"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the action does, then why it is safe/warning/block"}`;
   }
 
   async analyzeWithClaudePrompt(prompt) {
@@ -1040,13 +1189,13 @@ Output ONLY ONE JSON object (pick exactly one verdict):
       system: `/no_think
 You are a security judge. Output ONLY valid JSON — no thinking, no explanations, no markdown, no <think> tags.
 Pick exactly one verdict: SAFE, WARNING, or BLOCK.
-Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
+Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the command does + why this verdict"}`
     },
 
     // qwen3-4b: capable thinking model — full prompt, stricter output control
     'qwen/qwen3-4b-2507': {
       temperature: 0.05,
-      max_tokens: 150,
+      max_tokens: 250,
       promptStyle: 'full',
       system: `/no_think
 You are a security judge for an AI agent sandbox. Your job: classify tool actions as SAFE, WARNING, or BLOCK.
@@ -1058,7 +1207,7 @@ CRITICAL RULES:
 - Any tool that sends data outside or modifies runtime environment = at minimum WARNING
 
 Output ONLY valid JSON. No thinking, no explanation, no markdown fences.
-Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
+Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: state what the command/action does, then why it is safe/warning/block"}`
     },
 
     // qwen2.5-0.5b-instruct: tiny model — too small for reliable judgment, use minimal prompt
@@ -1068,7 +1217,7 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
       promptStyle: 'minimal',
       system: `You are a security judge. Output ONLY valid JSON.
 Pick exactly one verdict: SAFE, WARNING, or BLOCK.
-Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
+Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the command does + why this verdict"}`
     },
 
     // gpt-oss-20b: capable model — full detail, richer reasoning
@@ -1078,7 +1227,7 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
       promptStyle: 'full',
       system: `You are a security judge. Output ONLY valid JSON — no explanations, no markdown.
 Pick exactly one verdict: SAFE, WARNING, or BLOCK.
-Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
+Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the command does + why this verdict"}`
     }
   };
 
@@ -1087,7 +1236,7 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
     temperature: 0.1,
     max_tokens: 200,
     promptStyle: 'full',
-    system: 'You are a security judge. Output ONLY valid JSON — no explanations, no markdown. Pick exactly one verdict: SAFE, WARNING, or BLOCK. Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}'
+    system: 'You are a security judge. Output ONLY valid JSON — no explanations, no markdown. Pick exactly one verdict: SAFE, WARNING, or BLOCK. Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the command does + why this verdict"}'
   };
 
   getModelConfig(modelName) {
@@ -1120,8 +1269,14 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"one sentence"}`
 TOOL: ${action.tool}
 ACTION: ${action.summary}${canvasEvalSection}
 
-IF tool is read, web_search, web_fetch, image, tts, process, session_status, sessions_list, sessions_history:
+IF tool is web_search, image, tts, process, session_status, sessions_list, sessions_history:
   → {"verdict":"SAFE","reason":"Read-only tool"}
+
+IF tool is read and path is NOT sensitive (~/.ssh, ~/.aws, .env, credentials, key files):
+  → {"verdict":"SAFE","reason":"Reading non-sensitive project file"}
+
+IF tool is read and path IS sensitive:
+  → {"verdict":"WARNING","reason":"Reading sensitive file"}
 
 IF write/edit to ~/.bashrc, ~/.zshrc, ~/.ssh/, /etc/, /usr/:
   → {"verdict":"BLOCK","reason":"Dangerous file path"}
@@ -1553,7 +1708,7 @@ WARNING — has side effects but not destructive:
 - Anything not matching SAFE or BLOCK
 
 Output ONLY ONE JSON object (pick exactly one verdict):
-{"verdict": "SAFE|WARNING|BLOCK", "reason": "one sentence"}`;
+{"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the action does, then why it is safe/warning/block"}`;
   }
 
   parseAnalysisResponse(content, command) {

@@ -59,7 +59,18 @@ That's it. GuardClaw connects to your agent platform and starts monitoring immed
 
 ### Claude Code Integration
 
-GuardClaw works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via its HTTP hooks system — no OpenClaw required.
+**The problem:** Claude Code asks for permission on nearly every tool call — file edits, shell commands, even safe operations like `git status`. You end up babysitting an agent that should be autonomous, pressing "Yes" dozens of times per session.
+
+**The fix:** GuardClaw acts as a smart permission layer via Claude Code's [HTTP hooks](https://code.claude.com/docs/en/hooks). Every tool call is risk-scored by your local LLM *before* Claude Code's permission prompt fires:
+
+- **Score < 8** → auto-approved, permission prompt is skipped entirely
+- **Score ≥ 8** → GuardClaw stays silent, Claude Code asks you as normal
+
+You only get interrupted when it actually matters. Safe operations (`git commit`, `npm test`, file reads, project edits) flow through silently with a one-line annotation in the terminal:
+
+```
+⎿ PreToolUse:Edit says: ⛨ GuardClaw: auto-approved (score: 2) — Writing to project file within working directory
+```
 
 ```bash
 # Install the Claude Code hooks (writes to ~/.claude/settings.json)
@@ -68,8 +79,6 @@ node scripts/install-claude-code.js
 # Start GuardClaw
 guardclaw start
 ```
-
-Every Bash, Read, Write, and Edit command in Claude Code is now risk-scored before execution. High-risk commands pause in the terminal while you approve/deny from the GuardClaw dashboard.
 
 The dashboard shows Claude Code sessions in a dedicated tab with full conversation context — user prompts, agent replies, and all tool calls grouped into turns.
 
