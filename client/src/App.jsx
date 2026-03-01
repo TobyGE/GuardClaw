@@ -24,7 +24,7 @@ function App() {
   });
   const [events, setEvents] = useState([]);
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
-  const [backendFilter, setBackendFilter] = useState('openclaw'); // 'openclaw', 'nanobot'
+  const [backendFilter, setBackendFilter] = useState('all'); // 'all', 'openclaw', 'nanobot', 'claude-code'
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
   const [memoryStats, setMemoryStats] = useState(null);
@@ -45,6 +45,9 @@ function App() {
   backendFilterRef.current = backendFilter;
   const selectedSessionRef = useRef(selectedSession);
   selectedSessionRef.current = selectedSession;
+
+  // Ref for forwarding approval SSE events to ApprovalBanner
+  const approvalEventRef = useRef(null);
 
   // Scroll container ref (newest-first display: scroll to top on tab switch)
   const scrollContainerRef = useRef(null);
@@ -157,10 +160,15 @@ function App() {
 
     connectToBackend();
 
-    // Set up SSE for real-time updates
-    const eventSource = new EventSource('/api/events');
-    
-    eventSource.onmessage = (e) => {
+    // Set up SSE for real-time updates with auto-reconnect
+    const eventSourceRef = { current: null };
+    let retryDelay = 3000;
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
+    const MAX_DELAY = 30000;
+    let disposed = false;
+
+    const handleSSEMessage = (e) => {
       try {
         const newEvent = JSON.parse(e.data);
         const isUpdate = newEvent._update;
@@ -215,23 +223,55 @@ function App() {
             return prev.map(s => s.key === eventSessionKey ? { ...s, eventCount: s.eventCount + 1, lastEventTime: Date.now() } : s);
           });
         }
+        // Forward approval events to ApprovalBanner
+        if (newEvent.type === 'approval-pending' || newEvent.type === 'approval-resolved') {
+          approvalEventRef.current?.();
+        }
       } catch (error) {
         console.error('Failed to parse event:', error);
       }
     };
 
-    eventSource.onerror = () => {
-      setConnected(false);
-      eventSource.close();
-      // Attempt to reconnect after 5 seconds
-      setTimeout(connectToBackend, 5000);
+    const setupSSE = () => {
+      if (disposed) return;
+      // Close previous connection if any
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      const es = new EventSource('/api/events');
+      eventSourceRef.current = es;
+
+      es.onopen = () => {
+        retryDelay = 3000;
+        retryCount = 0;
+      };
+
+      es.onmessage = handleSSEMessage;
+
+      es.onerror = () => {
+        setConnected(false);
+        es.close();
+        if (disposed) return;
+        retryCount++;
+        if (retryCount > MAX_RETRIES) {
+          console.warn('[GuardClaw] SSE: max retries reached, will retry in 30s');
+          setTimeout(() => { retryCount = 0; setupSSE(); }, MAX_DELAY);
+          return;
+        }
+        console.log(`[GuardClaw] SSE: reconnecting in ${retryDelay / 1000}s (attempt ${retryCount}/${MAX_RETRIES})`);
+        setTimeout(() => { connectToBackend(); setupSSE(); }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, MAX_DELAY);
+      };
     };
+
+    setupSSE();
 
     // Session status refresh (sub-agent active/inactive) — lightweight, every 30s
     const sessionRefresh = setInterval(fetchSessions, 30000);
 
     return () => {
-      eventSource.close();
+      disposed = true;
+      if (eventSourceRef.current) eventSourceRef.current.close();
       clearInterval(sessionRefresh);
     };
   }, []);
@@ -590,6 +630,14 @@ function App() {
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => { setSelectedSession(null); setBackendFilter('all'); }}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      backendFilter === 'all' ? 'bg-gc-primary text-white shadow-md' : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
+                    }`}
+                  >
+                    <span>All</span>
+                  </button>
                   {backends && [
                     { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); if (!backends.openclaw?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
                     { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); if (!backends.nanobot?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
@@ -627,6 +675,9 @@ function App() {
                         ({backendFilter === 'openclaw' ? 'OpenClaw' : backendFilter === 'nanobot' ? 'Nanobot' : 'Claude Code'})
                       </span>
                     )}
+                    {backendFilter === 'all' && (
+                      <span className="ml-2 text-sm text-gc-text-dim">(all backends)</span>
+                    )}
                   </h2>
                   {eventFilter && (
                     <div className="flex items-center space-x-2">
@@ -650,10 +701,14 @@ function App() {
                   if (backendFilter === 'openclaw') return s.key.startsWith('agent:');
                   if (backendFilter === 'nanobot') return s.key.startsWith('nanobot');
                   if (backendFilter === 'claude-code') return s.key.startsWith('claude-code:');
-                  // 'all': show everything
                   return true;
                 });
-                if (visibleSessions.length <= 1 || backendFilter === 'claude-code') return null;
+                if (visibleSessions.length <= 1) return null;
+                const getSessionBackend = (key) => {
+                  if (key.startsWith('claude-code:')) return { label: 'CC', color: 'bg-purple-500' };
+                  if (key.startsWith('nanobot')) return { label: 'NB', color: 'bg-blue-500' };
+                  return { label: 'OC', color: 'bg-blue-600' };
+                };
                 return (
                   <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
                     <button
@@ -666,26 +721,30 @@ function App() {
                     >
                       All Sessions
                     </button>
-                    {visibleSessions.map((s) => (
-                      <button
-                        key={s.key}
-                        onClick={() => setSelectedSession(s.key)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                          selectedSession === s.key
-                            ? 'bg-gc-primary text-white'
-                            : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
-                        } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
-                      >
-                        <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
-                        <span>{s.label}</span>
-                        <span className="text-[10px] opacity-60">({s.eventCount})</span>
-                      </button>
-                    ))}
+                    {visibleSessions.map((s) => {
+                      const backend = backendFilter === 'all' ? getSessionBackend(s.key) : null;
+                      return (
+                        <button
+                          key={s.key}
+                          onClick={() => setSelectedSession(s.key)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                            selectedSession === s.key
+                              ? 'bg-gc-primary text-white'
+                              : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
+                          } ${s.isSubagent && !s.active ? 'opacity-40' : ''}`}
+                        >
+                          {backend && <span className={`w-1.5 h-1.5 rounded-full ${backend.color}`} title={backend.label}></span>}
+                          <span>{s.isSubagent ? (s.active ? <GitBranchIcon size={14} /> : <CheckIcon size={14} />) : <BotIcon size={14} />}</span>
+                          <span>{s.label}</span>
+                          <span className="text-[10px] opacity-60">({s.eventCount})</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 );
               })()}
 
-              <ApprovalBanner />
+              <ApprovalBanner onApprovalEvent={approvalEventRef} />
               <div
                 className="flex-1 overflow-y-auto"
                 ref={scrollContainerRef}

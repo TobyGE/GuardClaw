@@ -7,10 +7,13 @@ import Anthropic from '@anthropic-ai/sdk';
 
 // Danger overrides — these patterns disqualify ANY command from the safe fast-path.
 const DANGER_PATTERNS = [
-  /\|\s*(sh|bash|zsh|fish|python[23]?|perl|ruby|node|php)\b/,  // pipe to interpreter
-  /\beval\s/,                                                    // eval
-  /base64\s+(-d|--decode)\s*\|/,                                 // decode + pipe
-  /\bsudo\b/,                                                    // elevated privileges
+  /\|[\s&]*(sh|bash|zsh|fish|python[23]?|perl|ruby|node|php)\b/, // pipe to interpreter (with optional &)
+  /\beval\s/,                                                      // eval
+  /base64\s+(-d|--decode)\s*\|/,                                   // decode + pipe
+  /\bsudo\b/,                                                      // elevated privileges
+  />\s*>\s*\(\s*(sh|bash|zsh|fish)\b/,                             // redirect to process substitution > >(bash)
+  /<<<.*\$\(/,                                                     // here-string with command substitution
+  /\|&\s*(sh|bash|zsh|fish)\b/,                                   // |& pipe to shell
 ];
 
 // ---------------------------------------------------------------------------
@@ -21,12 +24,15 @@ const HIGH_RISK_PATTERNS = [
   // Reverse shell via nc/ncat -e
   { re: /\bnc(?:at)?\s+.*-e\b/,                         score: 9, reason: 'nc/ncat reverse shell (-e flag)' },
   // Data exfiltration via nc to non-localhost
-  { re: /\|\s*nc(?:at)?\s+(?!localhost|127\.0\.0\.1)/, score: 9, reason: 'Piping data to nc (potential exfiltration)' },
+  { re: /\|[\s&]*nc(?:at)?\s+(?!localhost|127\.0\.0\.1)/, score: 9, reason: 'Piping data to nc (potential exfiltration)' },
   // base64 decode piped to shell
-  { re: /base64\s+(-d|--decode).*\|\s*(bash|sh|zsh|fish)/, score: 9, reason: 'base64 decode piped to shell (obfuscated code execution)' },
-  // curl/wget piped to shell
-  { re: /\bcurl\b.*\|\s*(bash|sh|zsh|fish|sudo)\b/,    score: 9, reason: 'curl output piped to shell (remote code execution)' },
-  { re: /\bwget\b.*\|\s*(bash|sh|zsh|fish|sudo)\b/,    score: 9, reason: 'wget output piped to shell (remote code execution)' },
+  { re: /base64\s+(-d|--decode).*\|[\s&]*(bash|sh|zsh|fish)/, score: 9, reason: 'base64 decode piped to shell (obfuscated code execution)' },
+  // curl/wget piped to shell (with or without spaces around pipe)
+  { re: /\bcurl\b.*\|[\s&]*(bash|sh|zsh|fish|sudo)\b/, score: 9, reason: 'curl output piped to shell (remote code execution)' },
+  { re: /\bwget\b.*\|[\s&]*(bash|sh|zsh|fish|sudo)\b/, score: 9, reason: 'wget output piped to shell (remote code execution)' },
+  // curl/wget via process substitution or here-string
+  { re: /\bcurl\b.*>\s*>\s*\(\s*(bash|sh)\b/,          score: 9, reason: 'curl via process substitution (RCE)' },
+  { re: /(bash|sh)\s*<<<.*\$\(\s*curl/,                 score: 9, reason: 'curl via here-string (RCE)' },
   // Python/perl one-liner exec from stdin
   { re: /python[23]?\s+-c\s+['"].*exec\s*\(/,          score: 9, reason: 'Python exec() one-liner (code injection)' },
   // GuardClaw self-protection — killing the safety monitor by name.
@@ -37,6 +43,33 @@ const HIGH_RISK_PATTERNS = [
   { re: /kill\s.*\$\(.*pgrep/,                          score: 9, reason: 'Dynamic PID kill via pgrep (potential self-protection bypass)' },
   { re: /kill\s.*`.*pgrep/,                             score: 9, reason: 'Dynamic PID kill via pgrep (potential self-protection bypass)' },
   { re: /pgrep.*\|\s*xargs\s+kill/,                     score: 9, reason: 'Dynamic PID kill via pgrep|xargs (potential self-protection bypass)' },
+];
+
+// ---------------------------------------------------------------------------
+// Sensitive paths for the Read tool — files that should NOT be auto-safe.
+// Read of these paths scores 7 (warning) instead of 1 (safe).
+// ---------------------------------------------------------------------------
+const SENSITIVE_READ_PATHS = [
+  { re: /[/~]\.ssh\//, reason: 'SSH credentials / config' },
+  { re: /[/~]\.aws\//, reason: 'AWS credentials / config' },
+  { re: /[/~]\.gnupg\//, reason: 'GPG keyring' },
+  { re: /[/~]\.config\/gcloud\//, reason: 'Google Cloud credentials' },
+  { re: /[/~]\.azure\//, reason: 'Azure credentials' },
+  { re: /[/~]\.kube\/config/, reason: 'Kubernetes credentials' },
+  { re: /[/~]\.docker\/config\.json/, reason: 'Docker registry credentials' },
+  { re: /\/etc\/passwd/, reason: 'System user database' },
+  { re: /\/etc\/shadow/, reason: 'System password hashes' },
+  { re: /\/etc\/sudoers/, reason: 'Sudo configuration' },
+  { re: /[/~]\.env(?:\.|$)/, reason: 'Environment file (may contain secrets)' },
+  { re: /[/~]\.netrc/, reason: 'Network credentials file' },
+  { re: /[/~]\.npmrc/, reason: 'npm config (may contain auth token)' },
+  { re: /[/~]\.pypirc/, reason: 'PyPI config (may contain auth token)' },
+  { re: /[/~]\.gem\/credentials/, reason: 'RubyGems credentials' },
+  { re: /[/~]\.config\/gh\/hosts\.yml/, reason: 'GitHub CLI credentials' },
+  { re: /[/~]\.gitconfig/, reason: 'Git config (may contain credentials)' },
+  { re: /credentials\.json/, reason: 'Credentials file' },
+  { re: /service[_-]?account.*\.json/, reason: 'Service account key file' },
+  { re: /[/~]\.terraform\.d\/credentials/, reason: 'Terraform credentials' },
 ];
 
 // Safe base commands (read-only + no destructive side-effects)
@@ -317,7 +350,7 @@ export class SafeguardService {
 
     // Fast-path: clearly safe tools — no side effects, no writes, no network posts
     const SAFE_TOOLS = new Set([
-      'read',           // read files (any path — exfiltration caught by message privacy check)
+      // NOTE: 'read' removed — handled separately below with sensitive path detection
       'memory_search',  // semantic search over local memory files
       'memory_get',     // read snippet from memory file
       'web_search',     // search query (read-only)
@@ -340,6 +373,114 @@ export class SafeguardService {
         warnings: [],
         backend: 'rules',
       };
+    }
+
+    // Read tool: safe in general, but sensitive paths need LLM analysis
+    if (action.tool === 'read') {
+      const filePath = action.file_path || action.parsedInput?.file_path || action.summary || '';
+      const sensitive = SENSITIVE_READ_PATHS.find(({ re }) => re.test(filePath));
+      if (sensitive) {
+        this.cacheStats.ruleCalls++;
+        return {
+          riskScore: 7,
+          category: 'sensitive-read',
+          reasoning: `Reading sensitive file: ${sensitive.reason} — ${filePath}`,
+          allowed: true,
+          warnings: [sensitive.reason],
+          backend: 'rules',
+        };
+      }
+      this.cacheStats.ruleCalls++;
+      return {
+        riskScore: 1,
+        category: 'safe',
+        reasoning: `Read-only tool: read`,
+        allowed: true,
+        warnings: [],
+        backend: 'rules',
+      };
+    }
+
+    // Glob/Grep: check if searching for sensitive patterns or paths
+    if (action.tool === 'glob' || action.tool === 'grep') {
+      const pattern = action.pattern || action.parsedInput?.pattern || action.summary || '';
+      const searchPath = action.path || action.parsedInput?.path || '';
+      // Flag searches targeting credential files or content
+      const SENSITIVE_SEARCH = [
+        { re: /\.ssh|\.aws|\.gnupg|\.kube|\.docker|credentials|\.env\b/i, reason: 'Searching for credential files/paths' },
+        { re: /password|secret|token|api[_-]?key|private[_-]?key|auth/i, reason: 'Searching for secrets in file contents' },
+        { re: /\.pem$|\.key$|id_rsa|id_ed25519/i, reason: 'Searching for private key files' },
+      ];
+      const patternMatch = SENSITIVE_SEARCH.find(({ re }) => re.test(pattern));
+      const pathMatch = SENSITIVE_SEARCH.find(({ re }) => re.test(searchPath));
+      if (patternMatch || pathMatch) {
+        this.cacheStats.ruleCalls++;
+        const reason = (patternMatch || pathMatch).reason;
+        return {
+          riskScore: 7,
+          category: 'sensitive-search',
+          reasoning: `${reason}: ${action.tool}("${pattern}"${searchPath ? `, "${searchPath}"` : ''})`,
+          allowed: true,
+          warnings: [reason],
+          backend: 'rules',
+        };
+      }
+      this.cacheStats.ruleCalls++;
+      return { riskScore: 1, category: 'safe', reasoning: `Search tool: ${action.tool}`, allowed: true, warnings: [], backend: 'rules' };
+    }
+
+    // Agent spawn: always flag — sub-agents run with full permissions
+    if (action.tool === 'agent_spawn') {
+      this.cacheStats.ruleCalls++;
+      const task = action.command || action.summary || '';
+      // Check for dangerous task descriptions
+      const DANGEROUS_AGENT_TASKS = [
+        { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation' },
+        { re: /ssh|credential|secret|password|token|key/i, reason: 'Agent tasked with credential access' },
+        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations' },
+      ];
+      const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re }) => re.test(task));
+      return {
+        riskScore: dangerousTask ? 7 : 4,
+        category: 'agent-spawn',
+        reasoning: dangerousTask ? `${dangerousTask.reason}: ${task.slice(0, 100)}` : `Sub-agent spawned: ${task.slice(0, 100)}`,
+        allowed: true,
+        warnings: dangerousTask ? [dangerousTask.reason] : ['Sub-agent runs with full tool permissions'],
+        backend: 'rules',
+      };
+    }
+
+    // Skill: potentially arbitrary code execution
+    if (action.tool === 'skill') {
+      this.cacheStats.ruleCalls++;
+      return {
+        riskScore: 5,
+        category: 'skill-execution',
+        reasoning: `Skill execution: ${action.command || action.summary || 'unknown'}`,
+        allowed: true,
+        warnings: ['Skill may execute arbitrary agent logic'],
+        backend: 'rules',
+      };
+    }
+
+    // Worktree: flag if sandbox disabled
+    if (action.tool === 'worktree') {
+      this.cacheStats.ruleCalls++;
+      const sandboxDisabled = action.dangerouslyDisableSandbox || action.parsedInput?.dangerouslyDisableSandbox;
+      return {
+        riskScore: sandboxDisabled ? 8 : 3,
+        category: 'worktree',
+        reasoning: sandboxDisabled ? 'Worktree with sandbox DISABLED — full system access' : 'Worktree created (sandboxed)',
+        allowed: !sandboxDisabled,
+        warnings: sandboxDisabled ? ['dangerouslyDisableSandbox=true — no isolation'] : [],
+        backend: 'rules',
+      };
+    }
+
+    // Safe CC tools that need no analysis
+    if (action.tool === 'plan_mode' || action.tool === 'task' || action.tool === 'ask_user') {
+      this.cacheStats.ruleCalls++;
+      return { riskScore: 1, category: 'safe', reasoning: `Safe CC tool: ${action.tool}`, allowed: true, warnings: [], backend: 'rules' };
     }
 
     // canvas: only eval is risky; present/hide/navigate/snapshot are safe
@@ -788,11 +929,13 @@ Respond ONLY with valid JSON, no markdown formatting.`;
   // this prevents prompt injection via malicious content in tool outputs.
   buildChainContextSection(history) {
     if (!history || history.length === 0) return '';
+    // Escape XML-like tags in tool output to prevent injection that breaks out of <chain_history>
+    const escapeXml = (str) => str.replace(/</g, '＜').replace(/>/g, '＞');
     const lines = history.map(h => {
       const ago = Math.round((Date.now() - h.timestamp) / 1000);
       const agoStr = ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)}m ago`;
-      let line = `[${agoStr}] ${h.toolName}: ${JSON.stringify(h.params).substring(0, 120)}`;
-      if (h.resultSnippet) line += `\n  → output: ${h.resultSnippet.substring(0, 200)}`;
+      let line = `[${agoStr}] ${h.toolName}: ${escapeXml(JSON.stringify(h.params).substring(0, 120))}`;
+      if (h.resultSnippet) line += `\n  → output: ${escapeXml(h.resultSnippet.substring(0, 200))}`;
       return line;
     });
     return `

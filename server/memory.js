@@ -395,6 +395,29 @@ export class MemoryStore {
     };
   }
 
+  /**
+   * Remove old decisions and stale patterns.
+   * @param {number} retentionDays — delete decisions older than this (default 90)
+   * @returns {{ deletedDecisions: number, deletedPatterns: number }}
+   */
+  cleanup(retentionDays = 90) {
+    const cutoff = Date.now() - retentionDays * 86400000;
+
+    const decResult = this.db.prepare('DELETE FROM decisions WHERE timestamp < ?').run(cutoff);
+    // Remove patterns with no recent activity and no remaining decisions
+    const patResult = this.db.prepare(
+      `DELETE FROM patterns WHERE lastSeen < ? AND pattern NOT IN (
+        SELECT DISTINCT commandPattern FROM decisions
+      )`
+    ).run(cutoff);
+
+    const deleted = { deletedDecisions: decResult.changes, deletedPatterns: patResult.changes };
+    if (deleted.deletedDecisions > 0 || deleted.deletedPatterns > 0) {
+      console.log(`[Memory] 🧹 Cleanup: ${deleted.deletedDecisions} old decisions, ${deleted.deletedPatterns} stale patterns removed`);
+    }
+    return deleted;
+  }
+
   reset() {
     this.db.exec('DELETE FROM decisions');
     this.db.exec('DELETE FROM patterns');

@@ -59,6 +59,33 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('client/dist', { maxAge: 0, etag: false }));
 
+// ─── Lightweight in-memory rate limiter (no external dependency) ──────────────
+const rateLimitBuckets = new Map(); // key → { count, resetAt }
+function rateLimit(windowMs, maxRequests) {
+  return (req, res, next) => {
+    const key = `${req.path}:${req.ip}`;
+    const now = Date.now();
+    let bucket = rateLimitBuckets.get(key);
+    if (!bucket || now > bucket.resetAt) {
+      bucket = { count: 0, resetAt: now + windowMs };
+      rateLimitBuckets.set(key, bucket);
+    }
+    bucket.count++;
+    if (bucket.count > maxRequests) {
+      console.log(`[GuardClaw] ⚠️ Rate limit exceeded: ${req.path} from ${req.ip} (${bucket.count}/${maxRequests} in ${windowMs / 1000}s)`);
+      return res.status(429).json({ error: 'Rate limit exceeded. Please slow down.' });
+    }
+    next();
+  };
+}
+// Clean up expired buckets every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (now > bucket.resetAt) rateLimitBuckets.delete(key);
+  }
+}, 120_000);
+
 // Services
 const safeguardService = new SafeguardService(
   process.env.ANTHROPIC_API_KEY,
@@ -86,6 +113,8 @@ const MAX_TOOL_HISTORY = 10;
 const evaluationCache = new Map(); // key → { result, expiresAt }
 const lastCCPromptId = new Map();    // sessionKey → promptEventId (for prompt→reply linking)
 const lastCCPromptTime = new Map(); // sessionKey → epoch ms when UserPromptSubmit fired
+const ccTranscriptPaths = new Map(); // session_id → transcript_path (cached from Stop hook)
+const ccLastReadLine = new Map();    // session_id → last line number processed for intermediate text
 const EVAL_CACHE_TTL_MS = 60_000;
 
 function evalCacheKey(sessionKey, toolName, params) {
@@ -255,7 +284,13 @@ app.get('/api/events', (req, res) => {
 
   eventStore.addListener(listener);
 
+  // Send keepalive every 30s to prevent idle connection timeout
+  const keepalive = setInterval(() => {
+    try { res.write(': keepalive\n\n'); } catch { /* connection gone */ }
+  }, 30000);
+
   req.on('close', () => {
+    clearInterval(keepalive);
     eventStore.removeListener(listener);
   });
 });
@@ -875,23 +910,81 @@ let approvalIdCounter = 0;
 
 // Tool name mapping: Claude Code → GuardClaw
 function mapClaudeCodeTool(toolName) {
-  const map = { Bash: 'exec', Edit: 'edit', Write: 'write', Read: 'read', Glob: 'read', Grep: 'read' };
+  const map = {
+    Bash: 'exec',
+    Edit: 'edit',
+    Write: 'write',
+    Read: 'read',
+    Glob: 'glob',          // separate from read — can search for credential files
+    Grep: 'grep',          // separate from read — can search file contents for secrets
+    Agent: 'agent_spawn',  // spawns sub-agent with full permissions
+    WebFetch: 'web_fetch',
+    WebSearch: 'web_search',
+    NotebookEdit: 'write', // modifies files, treat like write
+    Skill: 'skill',        // executes arbitrary agent skills
+    EnterWorktree: 'worktree',
+    EnterPlanMode: 'plan_mode',
+    ExitPlanMode: 'plan_mode',
+    TaskCreate: 'task',
+    TaskUpdate: 'task',
+    AskUserQuestion: 'ask_user',
+  };
   return map[toolName] || toolName.toLowerCase();
 }
 
 // Map Claude Code tool_input → GuardClaw params
 function mapClaudeCodeParams(toolName, toolInput) {
-  if (!toolInput) return {};
+  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return {};
   switch (toolName) {
     case 'Bash': return { command: toolInput.command || '' };
     case 'Edit': return { file_path: toolInput.file_path, new_string: toolInput.new_string, old_string: toolInput.old_string };
     case 'Write': return { file_path: toolInput.file_path, content: toolInput.content };
     case 'Read': return { file_path: toolInput.file_path };
+    case 'Glob': return { command: `glob ${toolInput.pattern || ''}`, pattern: toolInput.pattern, path: toolInput.path };
+    case 'Grep': return { command: `grep ${toolInput.pattern || ''} ${toolInput.path || ''}`, pattern: toolInput.pattern, path: toolInput.path };
+    case 'Agent': return { command: `agent_spawn [${toolInput.subagent_type || 'general'}] ${(toolInput.prompt || toolInput.description || '').slice(0, 200)}` };
+    case 'WebFetch': return { command: `web_fetch ${toolInput.url || ''}`, url: toolInput.url };
+    case 'WebSearch': return { command: `web_search ${toolInput.query || ''}`, query: toolInput.query };
+    case 'NotebookEdit': return { file_path: toolInput.notebook_path, content: toolInput.new_source };
+    case 'Skill': return { command: `skill ${toolInput.skill || ''} ${toolInput.args || ''}` };
+    case 'EnterWorktree': return { command: `worktree ${toolInput.name || ''}`, dangerouslyDisableSandbox: toolInput.dangerouslyDisableSandbox };
     default: return toolInput;
   }
 }
 
-app.post('/api/hooks/pre-tool-use', async (req, res) => {
+// Emit any new assistant text blocks from the Claude Code transcript as claude-code-text events.
+// Called in PreToolUse (captures text before each tool call) and Stop (captures remaining text).
+function emitIntermediateText(session_id) {
+  const transcriptPath = ccTranscriptPaths.get(session_id);
+  if (!transcriptPath) return;
+  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  try {
+    const content = fs.readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    const lastPos = ccLastReadLine.get(session_id) || 0;
+    for (let i = lastPos; i < lines.length; i++) {
+      try {
+        const entry = JSON.parse(lines[i]);
+        if (entry.type !== 'assistant') continue;
+        const msgContent = entry.message?.content || entry.content;
+        if (!Array.isArray(msgContent)) continue;
+        for (const block of msgContent) {
+          if (block.type === 'text' && block.text?.trim()) {
+            eventStore.addEvent({
+              type: 'claude-code-text',
+              sessionKey,
+              text: block.text,
+              timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+            });
+          }
+        }
+      } catch {}
+    }
+    ccLastReadLine.set(session_id, lines.length);
+  } catch {}
+}
+
+app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
   console.log(`[GuardClaw] 🔔 pre-tool-use received:`, JSON.stringify(req.body).slice(0, 500));
   const { tool_name, tool_input, session_id } = req.body;
   if (!tool_name) return res.json({});
@@ -899,6 +992,9 @@ app.post('/api/hooks/pre-tool-use', async (req, res) => {
   const gcToolName = mapClaudeCodeTool(tool_name);
   const gcParams = mapClaudeCodeParams(tool_name, tool_input);
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+
+  // Capture any assistant text output before this tool call
+  if (session_id) emitIntermediateText(session_id);
 
   try {
     // Get chain history
@@ -1053,7 +1149,17 @@ app.post('/api/hooks/pre-tool-use', async (req, res) => {
 
   } catch (error) {
     console.error('[GuardClaw] Claude Code hook error:', error.message);
-    return res.json({}); // fail-open
+    if (failClosedEnabled) {
+      console.error('[GuardClaw] ⛔ Fail-closed: denying tool due to analysis error');
+      return res.json({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `GuardClaw error (fail-closed): ${error.message}. Safety analysis could not complete.`,
+        },
+      });
+    }
+    return res.json({}); // fail-open (legacy default)
   }
 });
 
@@ -1097,8 +1203,23 @@ app.post('/api/approvals/:id/deny', (req, res) => {
   res.json({ ok: true });
 });
 
-// Post-tool-use: store results for chain analysis
-app.post('/api/hooks/post-tool-use', (req, res) => {
+// Credential patterns for scanning tool output (Read + Bash)
+const CONTENT_CREDENTIAL_ALERTS = [
+  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, reason: 'Private key detected' },
+  { re: /sk-[a-zA-Z0-9]{32,}/, reason: 'OpenAI API key detected' },
+  { re: /sk-ant-[a-zA-Z0-9\-]{20,}/, reason: 'Anthropic API key detected' },
+  { re: /AKIA[A-Z0-9]{16}/, reason: 'AWS access key ID detected' },
+  { re: /ghp_[a-zA-Z0-9]{36}/, reason: 'GitHub personal access token detected' },
+  { re: /github_pat_[a-zA-Z0-9_]{82}/, reason: 'GitHub fine-grained token detected' },
+  { re: /xox[baprs]-[a-zA-Z0-9\-]{10,}/, reason: 'Slack token detected' },
+  { re: /sk_live_[a-zA-Z0-9]{24,}/, reason: 'Stripe live secret key detected' },
+  { re: /AIza[a-zA-Z0-9_\-]{35}/, reason: 'Google API key detected' },
+  { re: /eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+/, reason: 'JWT token detected' },
+  { re: /-----BEGIN CERTIFICATE-----/, reason: 'Certificate detected' },
+];
+
+// Post-tool-use: store results for chain analysis + scan Read content
+app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
   const { tool_name, tool_input, tool_output, session_id } = req.body;
   if (!tool_name) return res.json({});
 
@@ -1112,21 +1233,93 @@ app.post('/api/hooks/post-tool-use', (req, res) => {
     : JSON.stringify(tool_output || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
 
+  // Scan Read + Bash output for credentials / secrets
+  if ((gcToolName === 'read' || gcToolName === 'exec') && tool_output) {
+    const content = typeof tool_output === 'string' ? tool_output : JSON.stringify(tool_output);
+    const scanSlice = content.slice(0, 10000); // check first 10KB
+    const alerts = [];
+    for (const { re, reason } of CONTENT_CREDENTIAL_ALERTS) {
+      if (re.test(scanSlice)) alerts.push(reason);
+    }
+    if (alerts.length > 0) {
+      const source = gcToolName === 'exec'
+        ? `bash: ${(gcParams.command || '').slice(0, 80)}`
+        : (tool_input?.file_path || '(unknown)');
+      console.log(`[GuardClaw] 🚨 Sensitive content in ${gcToolName} output: ${source} — ${alerts.join(', ')}`);
+      eventStore.addEvent({
+        type: 'claude-code-tool',
+        tool: gcToolName,
+        subType: 'content-alert',
+        description: `🚨 ${source}`,
+        sessionKey,
+        riskScore: 8,
+        safeguard: {
+          riskScore: 8,
+          category: 'credential-leak',
+          reasoning: `Output contains sensitive data: ${alerts.join('; ')}`,
+          allowed: true, // already executed, can't block — flag for chain analysis
+          warnings: alerts,
+          backend: 'rules',
+        },
+        timestamp: Date.now(),
+      });
+    }
+  }
+
   res.json({});
 });
 
 // ─── Claude Code conversation hooks ──────────────────────────────────────────
 
-app.post('/api/hooks/user-prompt', (req, res) => {
+// Prompt injection detection patterns
+const PROMPT_INJECTION_PATTERNS = [
+  { re: /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?/i, reason: 'Instruction override attempt' },
+  { re: /disregard\s+(?:the\s+)?(?:system|previous|above)\s+(?:prompt|instructions?|rules?)/i, reason: 'System prompt bypass' },
+  { re: /you\s+are\s+now\s+(?:a\s+)?(?:different|new|unrestricted|jailbroken)/i, reason: 'Identity override attempt' },
+  { re: /(?:system|admin|debug|developer|root)\s+(?:mode|override|access)\s*[:=]/i, reason: 'Privilege escalation prompt' },
+  { re: /pretend\s+(?:you(?:'re|\s+are)\s+)?(?:a\s+)?(?:different|unrestricted|evil)/i, reason: 'Jailbreak roleplay attempt' },
+  { re: /\bDAN\b.*\bdo\s+anything\s+now\b/i, reason: 'DAN jailbreak pattern' },
+  { re: /<\/?(?:system|instruction|prompt|context|rules?)>/i, reason: 'XML tag injection (fake system tags)' },
+  { re: /\[SYSTEM\]|\[INST\]|\[\/INST\]/i, reason: 'Chat template injection' },
+];
+
+app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
   const { session_id, prompt } = req.body;
   if (!prompt) return res.json({});
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+
+  // Detect prompt injection attempts
+  let injectionDetected = false;
+  for (const { re, reason } of PROMPT_INJECTION_PATTERNS) {
+    if (re.test(promptText)) {
+      injectionDetected = true;
+      console.log(`[GuardClaw] ⚠️  Prompt injection detected: ${reason} — "${promptText.slice(0, 100)}"`);
+      eventStore.addEvent({
+        type: 'security-alert',
+        subType: 'prompt-injection',
+        sessionKey,
+        description: `⚠️ ${reason}`,
+        text: promptText.slice(0, 500),
+        safeguard: {
+          riskScore: 7,
+          category: 'prompt-injection',
+          reasoning: reason,
+          backend: 'rules',
+        },
+        timestamp: Date.now(),
+      });
+      break; // one alert per prompt is enough
+    }
+  }
+
   const promptId = `cc-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   eventStore.addEvent({
     id: promptId,
     type: 'claude-code-prompt',
     sessionKey,
-    text: typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
+    text: promptText,
+    injectionDetected,
     timestamp: Date.now(),
   });
   lastCCPromptId.set(sessionKey, promptId);   // track for stop-hook reply linking
@@ -1134,42 +1327,48 @@ app.post('/api/hooks/user-prompt', (req, res) => {
   res.json({});
 });
 
-app.post('/api/hooks/stop', async (req, res) => {
+app.post('/api/hooks/stop', rateLimit(60_000, 30), async (req, res) => {
   const { session_id, transcript_path } = req.body;
   // Respond immediately — don't block CC from continuing
   res.json({});
   if (!transcript_path) return;
 
-  const stoppedAt = Date.now(); // timestamp when CC actually stopped
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
-  // Grab and clear the promptId/time before any async work to avoid race conditions
+
+  // Cache transcript path so PreToolUse can read intermediate text on future turns
+  if (session_id) ccTranscriptPaths.set(session_id, transcript_path);
+
+  // Grab and clear the promptId before any async work to avoid race conditions
   const promptId = lastCCPromptId.get(sessionKey);
   lastCCPromptId.delete(sessionKey);
-  // promptTime: when the user submitted this turn's prompt (used to filter old assistant entries)
-  const promptTime = lastCCPromptTime.get(sessionKey) || (stoppedAt - 60_000);
   lastCCPromptTime.delete(sessionKey);
 
-  // Poll the transcript until an assistant entry timestamped AFTER the user's
-  // prompt appears. CC flushes the reply shortly after firing Stop, so we
-  // poll every 200ms for up to 5s instead of a fixed one-shot delay.
+  // Poll transcript for any remaining assistant text after the last tool call.
+  // CC flushes the reply shortly after firing Stop, so poll every 200ms for up to 5s.
+  if (!session_id) return;
   try {
-    const { readFileSync } = await import('fs');
-    let lastText = null;
     const maxWait = 5000;
     const pollMs = 200;
     const waitStart = Date.now();
+    let emitted = false;
 
     while (Date.now() - waitStart < maxWait) {
       await new Promise(resolve => setTimeout(resolve, pollMs));
+      const prevPos = ccLastReadLine.get(session_id) || 0;
+      emitIntermediateText(session_id);
+      const newPos = ccLastReadLine.get(session_id) || 0;
+      if (newPos > prevPos) { emitted = true; break; }
+    }
+
+    // If no new text was found via emitIntermediateText, fall back to scanning
+    // the last assistant entry for backward compat (emits as claude-code-reply)
+    if (!emitted) {
       try {
-        const lines = readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
+        const lines = fs.readFileSync(transcript_path, 'utf8').trim().split('\n').filter(Boolean);
         for (let i = lines.length - 1; i >= 0; i--) {
           try {
             const entry = JSON.parse(lines[i]);
             if (entry.type !== 'assistant') continue;
-            // Only accept entries written after the user's prompt (avoids previous-turn lag)
-            const entryTs = entry.timestamp ? new Date(entry.timestamp).getTime() : 0;
-            if (entryTs < promptTime) break; // entries are chronological; older ones follow
             const content = entry.message?.content || entry.content;
             let text = null;
             if (Array.isArray(content)) {
@@ -1178,21 +1377,19 @@ app.post('/api/hooks/stop', async (req, res) => {
             } else if (typeof content === 'string' && content.trim()) {
               text = content;
             }
-            if (text) { lastText = text; break; }
+            if (text) {
+              eventStore.addEvent({
+                type: 'claude-code-reply',
+                sessionKey,
+                text,
+                timestamp: Date.now(),
+                promptId,
+              });
+              break;
+            }
           } catch {}
         }
       } catch {}
-      if (lastText) break;
-    }
-
-    if (lastText) {
-      eventStore.addEvent({
-        type: 'claude-code-reply',
-        sessionKey,
-        text: lastText,
-        timestamp: stoppedAt, // use CC-stop timestamp, not post-file-read timestamp
-        promptId,             // explicit link: this reply belongs to that prompt
-      });
     }
   } catch {}
 });
@@ -2193,10 +2390,34 @@ app.listen(PORT, () => {
           }
         }
 
-        if (evicted || histEvicted) {
-          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted} sessions evicted`);
+        // 4. Clean up stale CC transcript caches (>2 hours)
+        // ccTranscriptPaths and ccLastReadLine track intermediate text extraction
+        // Keys are raw session_id; toolHistoryStore uses `claude-code:${session_id}`
+        let ccEvicted = 0;
+        for (const sessionId of ccTranscriptPaths.keys()) {
+          const histKey = `claude-code:${sessionId}`;
+          if (!toolHistoryStore.has(histKey)) {
+            ccTranscriptPaths.delete(sessionId);
+            ccLastReadLine.delete(sessionId);
+            ccEvicted++;
+          }
+        }
+        // Also clean orphan ccLastReadLine entries
+        for (const sessionId of ccLastReadLine.keys()) {
+          if (!ccTranscriptPaths.has(sessionId)) {
+            ccLastReadLine.delete(sessionId);
+          }
+        }
+
+        if (evicted || histEvicted || ccEvicted) {
+          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted}, ccTranscript=${ccEvicted} sessions evicted`);
         }
       }, 300_000);
+
+      // ─── Memory DB cleanup (every hour — heavier than in-memory cleanup) ───
+      setInterval(() => {
+        try { memoryStore.cleanup(90); } catch (e) { console.error('[GuardClaw] Memory cleanup error:', e.message); }
+      }, 3600_000);
     });
   } else {
     console.log('⏸️  Auto-connect disabled (AUTO_CONNECT=false)');

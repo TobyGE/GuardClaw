@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import GuardClawLogo from './GuardClawLogo';
 
 function ApprovalItem({ item, onApprove, onDeny }) {
@@ -97,7 +97,7 @@ function ApprovalItem({ item, onApprove, onDeny }) {
   );
 }
 
-export default function ApprovalBanner() {
+export default function ApprovalBanner({ onApprovalEvent }) {
   const [pending, setPending] = useState([]);
 
   const fetchPending = () =>
@@ -112,16 +112,15 @@ export default function ApprovalBanner() {
     return () => clearInterval(interval);
   }, []);
 
+  // Listen for approval events forwarded from App.jsx SSE (avoids duplicate EventSource)
+  const fetchPendingRef = useRef(fetchPending);
+  fetchPendingRef.current = fetchPending;
   useEffect(() => {
-    const evtSource = new EventSource('/api/events');
-    evtSource.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data);
-        if (event.type === 'approval-pending' || event.type === 'approval-resolved') fetchPending();
-      } catch {}
-    };
-    return () => evtSource.close();
-  }, []);
+    if (!onApprovalEvent) return;
+    const handler = () => fetchPendingRef.current();
+    onApprovalEvent.current = handler;
+    return () => { if (onApprovalEvent.current === handler) onApprovalEvent.current = null; };
+  }, [onApprovalEvent]);
 
   const handleApprove = async (id, alwaysApprove = false) => {
     await fetch(`/api/approvals/${id}/approve`, {

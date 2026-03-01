@@ -20,27 +20,53 @@ function groupEventsIntoTurns(events) {
   const chronological = [...events].reverse();
 
   const turns = [];
-  let pendingToolCalls = [];
-  let pendingReplies = []; // CC intermediate + final reply segments
-  let pendingPrompt = null; // user's message that started this CC turn
+  // Separate pending buffers for OC and CC to avoid cross-contamination in "All" mode
+  let pendingOCTools = [];    // OC tool-call events
+  let pendingCCTools = [];    // CC claude-code-tool / claude-code-text events
+  let pendingReplies = [];    // CC reply segments
+  let pendingPrompt = null;   // CC user prompt
+
+  // Flush helpers
+  const flushOC = () => {
+    if (pendingOCTools.length > 0) {
+      turns.push({ parent: null, toolCalls: pendingOCTools, id: `oc-orphan-${pendingOCTools[0].timestamp}` });
+      pendingOCTools = [];
+    }
+  };
+  const flushCC = () => {
+    if (pendingCCTools.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
+      turns.push({
+        parent: pendingReplies[pendingReplies.length - 1] || null,
+        userPrompt: pendingPrompt,
+        toolCalls: [...pendingCCTools],
+        replies: [...pendingReplies],
+        isCCTurn: true,
+        id: pendingPrompt?.id || `cc-orphan-${Date.now()}`,
+      });
+      pendingCCTools = [];
+      pendingReplies = [];
+      pendingPrompt = null;
+    }
+  };
 
   for (const event of chronological) {
     const type = event.type || '';
 
-    // ── OpenClaw: chat reply closes the current tool-call group ──
+    // ── OpenClaw: chat reply closes the current OC tool-call group ──
     const isOCChat = type === 'chat-update' || type === 'chat-message';
-    // ── Claude Code: reply closes the CC tool-call group ──
+    // ── Claude Code event types ──
     const isCCReply = type === 'claude-code-reply';
-    // ── Claude Code: tool call ──
     const isCCTool = type === 'claude-code-tool';
-    // ── Claude Code: user prompt starts a new turn ──
+    const isCCText = type === 'claude-code-text';
     const isCCPrompt = type === 'claude-code-prompt';
     const isContext = event.safeguard?.isContext;
 
     if (isOCChat) {
-      if (pendingToolCalls.length > 0) {
-        turns.push({ parent: event, toolCalls: pendingToolCalls, id: event.id || `turn-${event.timestamp}` });
-        pendingToolCalls = [];
+      // OC chat event — flush any pending CC turn first (interleaved backends)
+      flushCC();
+      if (pendingOCTools.length > 0) {
+        turns.push({ parent: event, toolCalls: pendingOCTools, id: event.id || `turn-${event.timestamp}` });
+        pendingOCTools = [];
       } else {
         const last = turns[turns.length - 1];
         if (last && last.toolCalls.length > 0 && !last.reply && isContext) {
@@ -50,32 +76,20 @@ function groupEventsIntoTurns(events) {
         }
       }
     } else if (type === 'tool-call') {
-      pendingToolCalls.push(event);
+      pendingOCTools.push(event);
     } else if (isCCPrompt) {
-      // New user prompt → flush current CC turn first
-      if (pendingToolCalls.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
-        turns.push({
-          parent: pendingReplies[pendingReplies.length - 1] || null,
-          userPrompt: pendingPrompt,
-          toolCalls: [...pendingToolCalls],
-          replies: [...pendingReplies],
-          isCCTurn: true,
-          id: pendingPrompt?.id || `cc-turn-${Date.now()}`,
-        });
-        pendingToolCalls = [];
-        pendingReplies = [];
-      }
+      // New CC user prompt → flush both buffers
+      flushOC();
+      flushCC();
       pendingPrompt = event;
-    } else if (isCCTool) {
-      pendingToolCalls.push(event);
+    } else if (isCCTool || isCCText) {
+      pendingCCTools.push(event);
     } else if (isCCReply) {
       const promptId = event.promptId;
       if (!promptId || promptId === pendingPrompt?.id) {
-        // Reply belongs to current pending turn (normal case)
         pendingReplies.push(event);
       } else {
-        // promptId mismatch: reply arrived after user sent next prompt (race condition).
-        // Retroactively attach to the correct already-flushed CC turn.
+        // Retroactively attach to the correct already-flushed CC turn
         let matched = false;
         for (let i = turns.length - 1; i >= 0; i--) {
           if (turns[i].isCCTurn && turns[i].userPrompt?.id === promptId) {
@@ -85,37 +99,33 @@ function groupEventsIntoTurns(events) {
             break;
           }
         }
-        if (!matched) pendingReplies.push(event); // fallback
+        if (!matched) pendingReplies.push(event);
       }
     } else {
-      // Other event types — flush any pending CC turn, then show standalone
-      if (pendingToolCalls.length > 0 || pendingReplies.length > 0) {
-        turns.push({
-          parent: pendingReplies[pendingReplies.length - 1] || null,
-          userPrompt: pendingPrompt,
-          toolCalls: [...pendingToolCalls],
-          replies: [...pendingReplies],
-          isCCTurn: true,
-          id: pendingPrompt?.id || `cc-orphan-${Date.now()}`,
-        });
-        pendingToolCalls = [];
-        pendingReplies = [];
-        pendingPrompt = null;
-      }
+      // Unknown event type — flush both, show standalone
+      flushOC();
+      flushCC();
       turns.push({ parent: event, toolCalls: [], id: event.id || `standalone-${event.timestamp}` });
     }
   }
 
-  // Remaining in-progress turn (OC orphan or CC in-progress)
-  if (pendingToolCalls.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
+  // Remaining in-progress turns
+  if (pendingOCTools.length > 0) {
+    turns.push({
+      parent: null,
+      toolCalls: pendingOCTools,
+      isCCTurn: false,
+      id: `oc-inprogress-${Date.now()}`,
+    });
+  }
+  if (pendingCCTools.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
     turns.push({
       parent: pendingReplies[pendingReplies.length - 1] || null,
       userPrompt: pendingPrompt,
-      toolCalls: pendingToolCalls,
+      toolCalls: pendingCCTools,
       replies: pendingReplies,
-      // isCCTurn only if there's a pending CC prompt — OC orphans have no pendingPrompt
       isCCTurn: !!pendingPrompt,
-      id: pendingPrompt?.id || `inprogress-${Date.now()}`,
+      id: pendingPrompt?.id || `cc-inprogress-${Date.now()}`,
     });
   }
 

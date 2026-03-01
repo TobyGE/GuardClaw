@@ -327,8 +327,8 @@ function ToolCallRow({ event }) {
 /* ---------- ReplyText: 2-line preview with expand ---------- */
 function ReplyText({ text, expanded, onToggle }) {
   if (!text) return null;
-  // Heuristic: more than 2 newlines OR long enough to wrap past 2 lines
-  const hasMore = text.includes('\n') ? text.split('\n').filter(l => l.trim()).length > 2 : text.length > 160;
+  // Collapse if >2 non-empty lines OR >100 chars (catches long single-line text on narrow screens)
+  const hasMore = text.includes('\n') ? text.split('\n').filter(l => l.trim()).length > 2 : text.length > 100;
   return (
     <div
       className={`text-sm text-gc-text bg-gc-bg px-3 py-2 rounded break-words whitespace-pre-wrap ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
@@ -340,6 +340,30 @@ function ReplyText({ text, expanded, onToggle }) {
       )}
       {hasMore && expanded && (
         <span className="text-blue-400 text-xs mt-1 block select-none">show less ▲</span>
+      )}
+    </div>
+  );
+}
+
+/* ---------- IntermediateText: assistant text shown inline in tool call list ---------- */
+function IntermediateText({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  const hasMore = text.includes('\n') ? text.split('\n').filter(l => l.trim()).length > 2 : text.length > 160;
+  return (
+    <div
+      className={`text-xs text-gc-text bg-purple-500/10 border border-purple-400/20 rounded-lg px-3 py-2 ${hasMore ? 'cursor-pointer' : ''}`}
+      onClick={() => hasMore && setExpanded(v => !v)}
+    >
+      <span className="text-purple-400 text-[10px] font-semibold mr-1.5">ASSISTANT</span>
+      <span className={`whitespace-pre-wrap break-words ${!expanded && hasMore ? 'line-clamp-2 inline' : ''}`}>
+        {text}
+      </span>
+      {hasMore && !expanded && (
+        <span className="text-blue-400 text-[10px] mt-1 block select-none">show more ▼</span>
+      )}
+      {hasMore && expanded && (
+        <span className="text-blue-400 text-[10px] mt-1 block select-none">show less ▲</span>
       )}
     </div>
   );
@@ -375,7 +399,9 @@ function AgentTurnItem({ turn }) {
     if (text) agentReplies = [{ text, isFinal: true, id: turn.parent.id }];
   }
 
-  const isInProgress = agentReplies.length === 0;
+  // A turn is "in progress" only if it has NO replies AND no intermediate text messages yet
+  const hasTextMessages = toolCalls.some(tc => tc.type === 'claude-code-text');
+  const isInProgress = agentReplies.length === 0 && !hasTextMessages;
 
   // ── Timestamp ──
   const ts = isCCTurn
@@ -400,8 +426,12 @@ function AgentTurnItem({ turn }) {
 
   const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [expandedPrompt, setExpandedPrompt] = useState(false);
   const [expandedReplies, setExpandedReplies] = useState({});
   const toggleReply = (i) => setExpandedReplies(v => ({ ...v, [i]: !v[i] }));
+
+  const promptText = turn.userPrompt?.text || '';
+  const hasMorePrompt = promptText.includes('\n') ? promptText.split('\n').filter(l => l.trim()).length > 2 : promptText.length > 160;
 
   return (
     <div className="px-6 py-4 hover:bg-gc-border/10 transition-colors">
@@ -416,11 +446,16 @@ function AgentTurnItem({ turn }) {
           <span className={`text-xs font-semibold rounded-full px-2 py-0.5 border ${pill}`}>
             {pillLabel}
           </span>
-          {toolCalls.length > 0 && (
-            <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
-              {summarizeToolCalls(toolCalls)}
-            </span>
-          )}
+          {toolCalls.length > 0 && (() => {
+            const tools = toolCalls.filter(tc => tc.type !== 'claude-code-text');
+            const texts = toolCalls.length - tools.length;
+            const parts = [summarizeToolCalls(tools), texts > 0 ? `${texts} message${texts !== 1 ? 's' : ''}` : ''].filter(Boolean);
+            return parts.length > 0 ? (
+              <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
+                {parts.join(', ')}
+              </span>
+            ) : null;
+          })()}
           {riskLevel && !isContext && (
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskLevel.color}`}>
               {riskLevel.label}
@@ -434,33 +469,54 @@ function AgentTurnItem({ turn }) {
       </div>
 
       {/* ── User prompt bubble (when available — CC only for now) ── */}
-      {turn.userPrompt?.text && (
+      {promptText && (
         <div className="mb-3 flex justify-end">
-          <div className="max-w-[85%] bg-gc-primary/10 border border-gc-primary/20 rounded-xl rounded-tr-sm px-3 py-2">
-            <p className="text-xs text-gc-text leading-relaxed whitespace-pre-wrap">
-              {turn.userPrompt.text}
+          <div
+            className={`max-w-[85%] bg-gc-primary/10 border border-gc-primary/20 rounded-xl rounded-tr-sm px-3 py-2 ${hasMorePrompt ? 'cursor-pointer' : 'cursor-default'}`}
+            onClick={() => hasMorePrompt && setExpandedPrompt(v => !v)}
+          >
+            <p className={`text-xs text-gc-text leading-relaxed whitespace-pre-wrap ${!expandedPrompt && hasMorePrompt ? 'line-clamp-2' : ''}`}>
+              {promptText}
             </p>
+            {hasMorePrompt && !expandedPrompt && (
+              <span className="text-blue-400 text-[10px] mt-1 block select-none">show more ▼</span>
+            )}
+            {hasMorePrompt && expandedPrompt && (
+              <span className="text-blue-400 text-[10px] mt-1 block select-none">show less ▲</span>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── Tool calls ── */}
-      {toolCalls.length > 0 && (
+      {/* ── Tool calls + intermediate text ── */}
+      {toolCalls.length > 0 && (() => {
+        const actualTools = toolCalls.filter(tc => tc.type !== 'claude-code-text');
+        const textCount = toolCalls.length - actualTools.length;
+        const label = [
+          actualTools.length > 0 ? `${actualTools.length} tool call${actualTools.length !== 1 ? 's' : ''}` : '',
+          textCount > 0 ? `${textCount} message${textCount !== 1 ? 's' : ''}` : '',
+        ].filter(Boolean).join(', ');
+        return (
         <div className="mb-3">
           <button
             onClick={() => setShowDetails(v => !v)}
             className="text-xs text-gc-text-dim hover:text-gc-text transition-colors flex items-center gap-1 mb-2"
           >
             <span>{showDetails ? '▼' : '▶'}</span>
-            <span>{toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}</span>
+            <span>{label}</span>
           </button>
           {showDetails && (
             <div className="space-y-2">
-              {toolCalls.map((tc, i) => <ToolCallRow key={tc.id || i} event={tc} />)}
+              {toolCalls.map((tc, i) =>
+                tc.type === 'claude-code-text'
+                  ? <IntermediateText key={tc.id || i} text={tc.text} />
+                  : <ToolCallRow key={tc.id || i} event={tc} />
+              )}
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Agent replies ── */}
       {agentReplies.map((reply, i) => (
@@ -567,8 +623,7 @@ function ChatContextBubble({ event }) {
   const [expanded, setExpanded] = useState(false);
   const content = event.summary || event.description || '';
   const isFinal = event.subType === 'final' || event.type === 'chat-message';
-  const preview = content.substring(0, 120);
-  const hasMore = content.length > 120;
+  const hasMore = content.includes('\n') ? content.split('\n').filter(l => l.trim()).length > 2 : content.length > 100;
 
   return (
     <div className="px-6 py-3 hover:bg-gc-border/5 transition-colors border-l-2 border-blue-400/30">
@@ -584,15 +639,15 @@ function ChatContextBubble({ event }) {
           </div>
           {content && (
             <div
-              className="text-sm text-gc-text-dim cursor-pointer"
+              className={`text-sm text-gc-text-dim whitespace-pre-wrap break-words ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
               onClick={() => hasMore && setExpanded(!expanded)}
             >
-              {expanded ? content : preview}
+              <p className={!expanded && hasMore ? 'line-clamp-2' : ''}>{content}</p>
               {hasMore && !expanded && (
-                <span className="text-blue-400 ml-1">… show more</span>
+                <span className="text-blue-400 text-xs mt-1 block select-none">show more ▼</span>
               )}
               {hasMore && expanded && (
-                <span className="text-blue-400 ml-1 cursor-pointer" onClick={() => setExpanded(false)}> show less</span>
+                <span className="text-blue-400 text-xs mt-1 block select-none">show less ▲</span>
               )}
             </div>
           )}
@@ -608,10 +663,12 @@ function ChatContextBubble({ event }) {
 /* ---------- StandaloneEvent: a non-tool-call event with no tool children ---------- */
 function StandaloneEvent({ event }) {
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [expandedContent, setExpandedContent] = useState(false);
   const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
   const type = event.type || 'unknown';
   const tool = event.tool || event.subType || '';
   const content = event.command || event.description || event.summary || '';
+  const hasMoreContent = content.includes('\n') ? content.split('\n').filter(l => l.trim()).length > 2 : content.length > 100;
 
   const displayName =
     type === 'tool-call' ? tool :
@@ -639,10 +696,19 @@ function StandaloneEvent({ event }) {
           </div>
 
           {content && (
-            <div className="mb-3">
+            <div
+              className={`mb-3 ${hasMoreContent ? 'cursor-pointer' : 'cursor-default'}`}
+              onClick={() => hasMoreContent && setExpandedContent(v => !v)}
+            >
               <code className="text-sm text-gc-text-dim bg-gc-bg px-2 py-1 rounded inline-block max-w-full break-words whitespace-pre-wrap">
-                {content.substring(0, 200)}{content.length > 200 ? '…' : ''}
+                <span className={!expandedContent && hasMoreContent ? 'line-clamp-2 block' : ''}>{content}</span>
               </code>
+              {hasMoreContent && !expandedContent && (
+                <span className="text-blue-400 text-xs mt-1 block select-none">show more ▼</span>
+              )}
+              {hasMoreContent && expandedContent && (
+                <span className="text-blue-400 text-xs mt-1 block select-none">show less ▲</span>
+              )}
             </div>
           )}
 
