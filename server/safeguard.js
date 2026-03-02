@@ -581,13 +581,20 @@ export class SafeguardService {
     if (action.tool === 'agent_spawn') {
       this.cacheStats.ruleCalls++;
       const task = action.command || action.summary || '';
-      // Check for dangerous task descriptions
+      const userPrompt = taskContext?.userPrompt || '';
+      // Check for dangerous task descriptions — but only flag destructive keywords if the
+      // user's own request doesn't also contain them (user-authorized destruction is expected).
       const DANGEROUS_AGENT_TASKS = [
-        { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation' },
-        { re: /ssh|credential|secret|password|token|key/i, reason: 'Agent tasked with credential access' },
-        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations' },
+        { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation', userOverridable: true },
+        { re: /ssh|credential|secret|password|token|key/i, reason: 'Agent tasked with credential access', userOverridable: false },
+        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations', userOverridable: false },
       ];
-      const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re }) => re.test(task));
+      const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re, userOverridable }) => {
+        if (!re.test(task)) return false;
+        // If overridable and the user's prompt contains the same keyword, treat as authorized
+        if (userOverridable && userPrompt && re.test(userPrompt)) return false;
+        return true;
+      });
       return {
         riskScore: dangerousTask ? 8 : 4,
         category: 'agent-spawn',
@@ -791,18 +798,21 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
 
 RULES (check in order, use FIRST match):
 
-BLOCK — dangerous file write:
-- Path is shell config (~/.bashrc, ~/.zshrc, ~/.profile), SSH (~/.ssh/), or system (/etc, /usr, /System)
-- Content contains API keys (sk-..., AKIA..., ghp_...), private keys (BEGIN PRIVATE KEY), or passwords
+BLOCK — dangerous file write (applies even if user authorized it):
+- Path is shell startup config (~/.bashrc, ~/.zshrc, ~/.profile), SSH (~/.ssh/), or system (/etc, /usr, /System)
+- Content contains literal API keys (sk-..., AKIA..., ghp_...), private keys (BEGIN PRIVATE KEY), or passwords
 - Writing to crontab, LaunchAgents, or git hooks
 
 SAFE — normal project file:
 - Path is in ~/guardclaw, ~/openclaw, ~/.openclaw/workspace, ~/projects, ~/Desktop, or /tmp
 - Content is source code, config, documentation, markdown, JSON, or text
+- TASK CONTEXT shows the user explicitly requested this write/edit (e.g., "create file X", "update Y", "modify Z") and path does not match BLOCK rules
 
 WARNING — everything else:
 - Unknown path or ambiguous content
-- Writing to home dir root (~/filename) with unclear purpose
+- Writing to home dir root (~/filename) with unclear purpose and no user intent visible
+
+IMPORTANT: If TASK CONTEXT shows the user explicitly asked the agent to write or edit this file, prefer SAFE or WARNING over BLOCK (unless the path or content hits a BLOCK rule above).
 
 Output ONLY ONE JSON object:
 {"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the command does, then why it is safe/warning/block"}`;
@@ -1126,7 +1136,11 @@ Use this to calibrate your judgment — if the user consistently marks a pattern
 
 TASK CONTEXT (what the user asked the agent to do):
 ${parts.join('\n')}
-Use this context to judge whether the tool call is expected given the user's request. A tool call that directly serves the user's stated goal is more likely safe.`;
+
+AUTHORIZATION RULE (highest priority):
+If the current tool call directly fulfills the user's stated request — e.g., the user said "delete X / remove Y / clean up Z / overwrite file" and the tool is doing exactly that — the action is USER-AUTHORIZED and must be at most WARNING, never BLOCK, UNLESS it also touches a truly unrecoverable system target (shell startup files like ~/.bashrc/~/.zshrc, SSH keys, /etc, /usr, /System, credential stores, or pipes output to a remote server).
+User intent is the primary context. Mechanical pattern-matching on words like "delete" or "remove" must be overridden when the user explicitly requested that action.
+If the tool call makes NO sense given the user's request (e.g., user said "write tests" but the agent is reading ~/.ssh/), that increases suspicion.`;
   }
 
   createToolAnalysisPrompt(action, chainHistory = null, memoryContext = null, taskContext = null) {
@@ -1151,27 +1165,28 @@ PARAMS: ${action.summary}${canvasEvalSection}${taskSection}${chainSection}${memo
 
 RULES (check in order, use FIRST match):
 
-BLOCK — action exfiltrates private data or modifies system/sensitive files:
-- write/edit to shell config (~/.bashrc, ~/.zshrc, ~/.profile), SSH keys (~/.ssh/), system paths (/etc, /usr, /System, /Library/LaunchAgents)
-- write/edit containing API keys (sk-..., AKIA..., ghp_...), passwords, or private keys
-- message/sessions_send leaking PII (SSN, credit card, passwords) without explicit user request
+BLOCK — truly unrecoverable or exfiltrating actions (applies even if user authorized it):
+- write/edit to shell startup config (~/.bashrc, ~/.zshrc, ~/.profile), SSH keys (~/.ssh/), system paths (/etc, /usr, /System, /Library/LaunchAgents)
+- write/edit containing literal API keys (sk-..., AKIA..., ghp_...), passwords, or private keys
+- message/sessions_send leaking PII (SSN, credit card, passwords) NOT explicitly requested by user
 - canvas eval with fetch to external URLs, require(), or child_process
 - browser interacting with payment/banking pages
 
 SAFE — no dangerous side effects:
 - web_search, image, tts, session_status, sessions_list, sessions_history
 - read to non-sensitive project files (NOT ~/.ssh, ~/.aws, .env, credentials, key files)
-- web_fetch to well-known domains with no secrets in URL (NOT with embedded API keys, tokens, or data from prior reads)
+- web_fetch to well-known domains with no secrets in URL
 - process (OpenClaw internal process manager — not Unix kill)
 - write/edit to project dirs (~/guardclaw, ~/openclaw, ~/.openclaw/workspace, ~/projects, ~/Desktop, /tmp)
 - browser: snapshot, screenshot, navigate to URLs
 - canvas: present, navigate, snapshot (not eval)
 - nodes: status, describe, location
+- Any action that directly fulfills the user's stated request and does NOT hit a BLOCK rule above
 
 WARNING — has side effects but is normal agent work:
 - message (sending messages externally)
 - sessions_spawn, sessions_send
-- write/edit to unknown or ambiguous paths
+- write/edit to unknown or ambiguous paths (when user intent is unclear)
 - browser form interactions, clicking buttons
 - canvas eval (display code without external fetch)
 - nodes: camera, screen recording, notifications
@@ -1224,10 +1239,10 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the comman
 You are a security judge for an AI agent sandbox. Your job: classify tool actions as SAFE, WARNING, or BLOCK.
 
 CRITICAL RULES:
-- BLOCK = data exfiltration, system file modification, credential theft, destructive operations
-- SAFE = read-only, project-scoped writes, informational tools
+- BLOCK = data exfiltration, system file modification (shell config, SSH keys, /etc), credential theft, remote code execution — regardless of user intent
+- SAFE = read-only, project-scoped writes, informational tools, OR any action the user explicitly requested that does not hit a BLOCK rule
 - WARNING = side effects leaving the sandbox: messaging externally, spawning sub-agents, running containers, browser form interactions, unknown write paths
-- Any tool that sends data outside or modifies runtime environment = at minimum WARNING
+- USER INTENT MATTERS: if TASK CONTEXT shows the user asked for a "delete", "remove", "clean up", or "overwrite" action and it targets a project path (not system files), that is authorized — use SAFE or WARNING, not BLOCK.
 
 Output ONLY valid JSON. No thinking, no explanation, no markdown fences.
 Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: state what the command/action does, then why it is safe/warning/block"}`
@@ -1705,7 +1720,7 @@ COMMAND: ${command}
 
 RULES (check in order, use FIRST match):
 
-BLOCK — truly dangerous:
+BLOCK — truly dangerous regardless of user intent:
 - rm -rf targeting / or ~ or system paths (/etc, /usr, /System, /Library, /var)
 - sudo anything
 - Piping to bash/sh/zsh for execution (curl|bash, wget|sh, base64 -d|bash)
@@ -1722,13 +1737,16 @@ SAFE — normal development work:
 - File ops: cd, mkdir, touch, cp, mv
 - System info: echo, printf, env, which, whoami, date, uname
 - Local service tools: openclaw, guardclaw
+- rm / rm -rf on project-local paths when TASK CONTEXT shows user explicitly requested cleanup/removal
 
 WARNING — has side effects but not destructive:
 - kill, pkill, killall (process management)
-- rm, rm -rf on project directories (node_modules, dist, build, .next, /tmp)
+- rm, rm -rf on project directories (node_modules, dist, build, .next, /tmp) when user intent is unclear
 - chmod, chown on user files
 - curl POST/PUT/DELETE requests
 - Anything not matching SAFE or BLOCK
+
+IMPORTANT: If TASK CONTEXT is present and shows the user explicitly requested this action (e.g., "delete X", "remove Y", "clean up Z"), the verdict must be SAFE or WARNING — not BLOCK — unless the command hits a BLOCK rule above.
 
 Output ONLY ONE JSON object (pick exactly one verdict):
 {"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the action does, then why it is safe/warning/block"}`;
