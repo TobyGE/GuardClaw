@@ -39,6 +39,7 @@ function App() {
   const [blockingStatus, setBlockingStatus] = useState(null);
   const [failClosed, setFailClosed] = useState(true);
   const [showFailClosedModal, setShowFailClosedModal] = useState(false);
+  const [systemWarnings, setSystemWarnings] = useState([]);
   // Keep refs in sync synchronously during render (not via useEffect)
   // so the SSE event handler always sees the latest values without stale-closure issues
   const backendFilterRef = useRef(backendFilter);
@@ -87,6 +88,7 @@ function App() {
           setLlmConfig(data.llmConfig || null);
           setBlockingStatus(data.blocking || null);
           if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
+          setSystemWarnings(data.warnings || []);
           fetchEvents(null, backendFilterRef.current);
           fetchSessions();
           fetch('/api/memory/stats').then(r => r.json()).then(setMemoryStats).catch(() => {});
@@ -527,6 +529,24 @@ function App() {
             </nav>
           </div>
           <div className="flex items-center space-x-2">
+            {/* LLM Status */}
+            {llmStatus && (
+              <button
+                onClick={() => setShowLlmModal(true)}
+                title={llmStatus.message}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  llmStatus.connected
+                    ? 'border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                    : 'border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  llmStatus.connected ? 'bg-green-400' : 'bg-red-400 animate-pulse'
+                }`} />
+                <BrainIcon size={15} />
+                <span className="text-xs">{llmStatus.backend?.toUpperCase() || 'LLM'}</span>
+              </button>
+            )}
             {/* Fail-Closed Toggle */}
             <button
               onClick={() => setShowFailClosedModal(true)}
@@ -588,6 +608,26 @@ function App() {
           <MemoryPage />
         ) : (
           <>
+            {/* System Warnings */}
+            {systemWarnings.length > 0 && (
+              <div className="mb-6 space-y-2">
+                {systemWarnings.map((w, i) => (
+                  <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-lg border text-sm ${
+                    w.level === 'error'
+                      ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                      : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                  }`}>
+                    <span className="font-bold mt-0.5">{w.level === 'error' ? '✕' : '⚠'}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium">{w.message}</span>
+                      {w.suggestion && (
+                        <span className="ml-2 text-xs opacity-70">{w.suggestion}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
               <StatCard
@@ -639,8 +679,8 @@ function App() {
                     <span>All</span>
                   </button>
                   {backends && [
-                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); if (!backends.openclaw?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
-                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); if (!backends.nanobot?.connected) { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); if (backends.openclaw?.connected) { setShowGatewayModal(true); } else { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); if (backends.nanobot?.connected) { setShowGatewayModal(true); } else { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                   ]
                     .filter(b => backends[b.key])
