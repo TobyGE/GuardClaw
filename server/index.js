@@ -1101,7 +1101,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       }
     };
     const displayInput = formatDisplayInput(gcToolName, gcParams);
-    const verdict = analysis.riskScore >= 8 ? 'pass-through' : 'auto-approved';
+    const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'ask' : 'pass-through') : 'auto-approved';
     eventStore.addEvent({
       type: 'claude-code-tool',
       tool: gcToolName,
@@ -1150,9 +1150,20 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       });
     }
 
-    // High risk → pass-through to CC's normal permission prompt
-    console.log(`[GuardClaw] ⛨ Claude Code pass-through: ${tool_name} (score ${analysis.riskScore}) — user will decide`);
+    // High risk → ask user in terminal if blocking enabled, otherwise pass-through
+    if (blockingEnabled) {
+      const askMsg = `⛨ GuardClaw: high-risk action detected (score: ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
+      console.log(`[GuardClaw] ❓ Claude Code asking user: ${tool_name} (score ${analysis.riskScore})`);
+      return res.json({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'ask',
+          permissionDecisionReason: askMsg,
+        },
+      });
+    }
 
+    console.log(`[GuardClaw] ⛨ Claude Code pass-through: ${tool_name} (score ${analysis.riskScore}) — user will decide`);
     return res.json({});
 
   } catch (error) {
