@@ -689,9 +689,9 @@ export class SafeguardService {
   // Judges both the file path and the content being written.
   async analyzeWriteAction(action, taskContext = null) {
     const input = action.parsedInput || {};
-    const filePath = input.file_path || input.path || '';
-    const content = input.content || input.new_string || '';
-    const oldStr = input.old_string || '';
+    const filePath = input.file_path || input.path || action.file_path || action.path || '';
+    const content = input.content || input.new_string || action.content || action.new_string || '';
+    const oldStr = input.old_string || action.old_string || '';
 
     // Fast-path: writing to clearly safe project/home paths with no suspicious content
     const SAFE_PATH_PREFIXES = [
