@@ -101,7 +101,6 @@ function App() {
       } catch (error) {
         console.error('Failed to connect:', error);
         setConnected(false);
-        setLlmStatus(null);
       }
     };
 

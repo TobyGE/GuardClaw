@@ -1253,18 +1253,26 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
   }
 });
 
-// Approval management endpoints
+// Approval management endpoints (unified: CC pendingApprovals + OC approvalHandler)
 app.get('/api/approvals/pending', (req, res) => {
   const pending = [];
+  // CC approvals
   for (const [id, entry] of pendingApprovals) {
     pending.push({
       id, toolName: entry.toolName, originalToolName: entry.originalToolName,
       displayInput: entry.displayInput, riskScore: entry.riskScore,
       reason: entry.reason, createdAt: entry.createdAt,
       elapsed: Math.round((Date.now() - entry.createdAt) / 1000),
+      backend: 'claude-code',
     });
   }
-  res.json({ pending });
+  // OC approvals
+  if (approvalHandler) {
+    for (const item of approvalHandler.getPendingApprovals()) {
+      pending.push({ ...item, backend: 'openclaw' });
+    }
+  }
+  res.json({ pending, count: pending.length });
 });
 
 app.post('/api/approvals/:id/approve', (req, res) => {
@@ -1579,15 +1587,7 @@ const routeDeps = {
 app.use(configRoutes(routeDeps));
 app.use(benchmarkRoutes(routeDeps));
 
-// ─── Approval APIs ───────────────────────────────────────────────────────────
-
-app.get('/api/approvals/pending', (req, res) => {
-  if (!approvalHandler) {
-    return res.status(503).json({ error: 'Approval handler not available' });
-  }
-  const pending = approvalHandler.getPendingApprovals();
-  res.json({ pending, count: pending.length });
-});
+// ─── Approval APIs (OC-specific) ────────────────────────────────────────────
 
 app.get('/api/approvals/stats', (req, res) => {
   if (!approvalHandler) {
