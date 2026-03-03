@@ -613,8 +613,8 @@ app.get('/api/sessions', (req, res) => {
     const idleMs = now - s.lastEventTime;
     if (s.key.startsWith('claude-code:')) {
       if (s.isSubagent) {
-        // CC sub-agents: same lifecycle as OC sub-agents
-        if (idleMs > 24 * 60 * 60 * 1000) {
+        // CC sub-agents: hidden after 1h (they're numerous and unique), inactive after 2min
+        if (idleMs > 60 * 60 * 1000) {
           hiddenKeys.push(s.key);
         } else if (idleMs > 2 * 60 * 1000) {
           s.active = false;
