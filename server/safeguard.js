@@ -583,12 +583,22 @@ export class SafeguardService {
       const task = action.command || action.summary || '';
       // Check for dangerous task descriptions — all destructive agent spawns go through approval.
       // No keyword-based user override: semantic intent alignment is handled by the LLM judge.
+      // Safe context patterns: if task matches these, skip the credential/network check.
+      // This avoids false positives like "LLM token tracking" or "key features".
+      const SAFE_CONTEXT = /\btokens?[\s_.-]?(?:usage|tracking|count|limits?|consumption|budget|costs?|monitor|meters?|bar)\b|\bkeys?[\s_.-]?(?:features?|points?|takeaways?|findings?|concepts?|words?|boards?|strokes?|frames?|notes?|values?|pairs?)\b/i;
+      const hasSafeContext = SAFE_CONTEXT.test(task);
+
       const DANGEROUS_AGENT_TASKS = [
         { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation' },
-        { re: /credential|secret|password|(?:api|auth|access|bearer|session)[\s_.-]?tokens?|(?:api|private|secret|ssh)[\s_.-]?keys?|\bssh\b/i, reason: 'Agent tasked with credential access' },
-        { re: /curl|wget|(?:fetch|upload|send|post)\b.*\b(?:http|url|endpoint|server|api)/i, reason: 'Agent tasked with network operations' },
+        { re: /\bssh\b|credential|secret|password|\btokens?\b|\bkeys?\b/i, reason: 'Agent tasked with credential access', skipIfSafe: true },
+        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations' },
       ];
-      const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re }) => re.test(task));
+      const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re, skipIfSafe }) => {
+        if (!re.test(task)) return false;
+        // If the match is in a known-safe context (e.g., "token usage"), skip it
+        if (skipIfSafe && hasSafeContext) return false;
+        return true;
+      });
       return {
         riskScore: dangerousTask ? 8 : 4,
         category: 'agent-spawn',
