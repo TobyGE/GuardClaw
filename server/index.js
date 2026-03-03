@@ -112,7 +112,6 @@ const MAX_TOOL_HISTORY = 10;
 // Key: `${sessionKey}:${toolName}:${stableParamsJson}`, TTL: 60s
 const evaluationCache = new Map(); // key → { result, expiresAt }
 const lastCCPromptId = new Map();    // sessionKey → promptEventId (for prompt→reply linking)
-const lastCCPromptTime = new Map(); // sessionKey → epoch ms when UserPromptSubmit fired
 const lastCCPromptText = new Map();  // sessionKey → last user prompt text (for LLM context)
 const ccTranscriptPaths = new Map(); // session_id → transcript_path (cached from Stop hook)
 const ccLastReadLine = new Map();    // session_id → last line number processed for intermediate text
@@ -120,6 +119,27 @@ const ccLastReadLine = new Map();    // session_id → last line number processe
 // When a sub-agent is active, tool calls from that session_id are attributed to it.
 const ccActiveSubagents = new Map();
 const EVAL_CACHE_TTL_MS = 60_000;
+
+function generateId(prefix = 'evt') {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Map raw streaming steps to a compact analyzed format for storage/display. */
+function buildAnalyzedSteps(steps) {
+  return steps
+    .map(step => ({
+      id: step.id,
+      type: step.type,
+      timestamp: step.timestamp,
+      duration: step.duration,
+      content: step.content?.substring(0, 200) || '',
+      toolName: step.toolName,
+      command: step.command || (typeof formatStepCommand === 'function' ? formatStepCommand(step) : null),
+      metadata: step.metadata,
+      safeguard: step.safeguard || null,
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
 
 function evalCacheKey(sessionKey, toolName, params) {
   // Sort keys for stable JSON regardless of insertion order
@@ -1414,7 +1434,7 @@ app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
     }
   }
 
-  const promptId = `cc-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const promptId = generateId('cc-prompt');
   eventStore.addEvent({
     id: promptId,
     type: 'claude-code-prompt',
@@ -1424,7 +1444,6 @@ app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
     timestamp: Date.now(),
   });
   lastCCPromptId.set(sessionKey, promptId);   // track for stop-hook reply linking
-  lastCCPromptTime.set(sessionKey, Date.now()); // timestamp when prompt was submitted
   lastCCPromptText.set(sessionKey, promptText.slice(0, 500)); // cache for LLM context in pre-tool-use
   res.json({});
 });
@@ -1443,7 +1462,6 @@ app.post('/api/hooks/stop', rateLimit(60_000, 30), async (req, res) => {
   // Grab and clear the promptId before any async work to avoid race conditions
   const promptId = lastCCPromptId.get(sessionKey);
   lastCCPromptId.delete(sessionKey);
-  lastCCPromptTime.delete(sessionKey);
 
   // Poll transcript for any remaining assistant text after the last tool call.
   // CC flushes the reply shortly after firing Stop, so poll every 200ms for up to 5s.
@@ -1562,7 +1580,7 @@ app.post('/api/chat-inject', async (req, res) => {
     return res.status(503).json({ error: 'OpenClaw not connected' });
   }
   try {
-    const idempotencyKey = `guardclaw-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const idempotencyKey = generateId('guardclaw-retry');
     await openclawClient.request('chat.send', {
       sessionKey,
       message,
@@ -1893,7 +1911,7 @@ async function handleAgentEvent(event) {
   }
 
   const storedEvent = {
-    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: generateId('oc'),
     timestamp: Date.now(),
     rawEvent: event,
     type: eventDetails.type,
@@ -1957,32 +1975,20 @@ async function handleAgentEvent(event) {
       }
     }
     
-    // Include all steps except text (analyzed or not) with full metadata
-    analyzedSteps.push({
-      id: step.id,
-      type: step.type,
-      timestamp: step.timestamp,
-      duration: step.duration,
-      content: step.content?.substring(0, 200) || '', // Truncate for display
-      toolName: step.toolName,
-      command: step.command || formatStepCommand(step),
-      metadata: step.metadata, // Include full metadata for frontend
-      safeguard: step.safeguard || null
-    });
+    analyzedSteps.push(step);
   }
-  
-  // Sort by timestamp (oldest first) for chronological display
-  analyzedSteps.sort((a, b) => a.timestamp - b.timestamp);
+
+  const analyzedStepsMapped = buildAnalyzedSteps(analyzedSteps);
   
   console.log(`[GuardClaw] DEBUG: storedEvent type=${storedEvent.type}, eventDetails.type=${eventDetails.type}, recentSteps=${recentSteps.length}`);
 
   // Generate summary and include steps for events with tool calls
   const isLifecycleEnd = eventType === 'agent' && event.payload?.stream === 'lifecycle' && event.payload?.data?.phase === 'end';
   const isChatUpdate = eventDetails.type === 'chat-update' || eventDetails.type === 'agent-message';
-  const toolSteps = analyzedSteps.filter(s => s.type === 'tool_use' && s.toolName);
-  
+  const toolSteps = analyzedStepsMapped.filter(s => s.type === 'tool_use' && s.toolName);
+
   // Always include streaming steps if available (no duplication since we filter by runId)
-  storedEvent.streamingSteps = analyzedSteps;
+  storedEvent.streamingSteps = analyzedStepsMapped;
   
   // Generate summary for lifecycle:end or chat-update with tools
   const shouldGenerateSummary = (isLifecycleEnd || isChatUpdate) && toolSteps.length > 0;
@@ -1996,7 +2002,7 @@ async function handleAgentEvent(event) {
     
     // Generate AI summary asynchronously (slow, don't block)
     const eventId = storedEvent.id;
-    generateEventSummary(analyzedSteps)
+    generateEventSummary(analyzedStepsMapped)
       .then(aiSummary => {
         console.log(`[GuardClaw] ✅ AI summary generated: ${aiSummary.substring(0, 100)}...`);
         eventStore.updateEvent(eventId, { 
@@ -2039,21 +2045,10 @@ async function handleAgentEvent(event) {
     
     if (recentSteps.length > 0 && session.lastSummary) {
       // Create a chat-message event with the summary
-      const analyzedSteps = recentSteps.map(step => ({
-        id: step.id,
-        type: step.type,
-        timestamp: step.timestamp,
-        duration: step.duration,
-        content: step.content?.substring(0, 200) || '',
-        toolName: step.toolName,
-        command: step.command,
-        metadata: step.metadata,
-        safeguard: step.safeguard || null
-      }));
-      analyzedSteps.sort((a, b) => a.timestamp - b.timestamp);
+      const analyzedSteps = buildAnalyzedSteps(recentSteps);
       
       const summaryEvent = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: generateId('oc-summary'),
         timestamp: Date.now(),
         rawEvent: event,
         type: 'chat-message',
