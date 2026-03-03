@@ -281,7 +281,7 @@ export class ApprovalHandler {
     
     // Create a notification event that will be displayed in GuardClaw dashboard
     const notificationEvent = {
-      id: `notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `notification-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       timestamp: Date.now(),
       type: 'guardclaw-notification',
       subType: action,
@@ -304,15 +304,15 @@ export class ApprovalHandler {
   formatNotificationMessage(action, command, analysis, reason, approvalId) {
     let msg = '';
     if (action === 'blocked') {
-      msg = `🛡️ Blocked command \`${command}\` (Risk: ${analysis.riskScore}/10) - ${analysis.reasoning}`;
+      msg = `⛨ GuardClaw: blocked \`${command}\` (risk: ${analysis.riskScore}/10) — ${analysis.reasoning}`;
     } else if (action === 'pending') {
-      msg = `⏸️ Approval required for \`${command}\` (Risk: ${analysis.riskScore}/10) - ID: ${approvalId}`;
+      msg = `⛨ GuardClaw: approval required for \`${command}\` (risk: ${analysis.riskScore}/10) — ID: ${approvalId}`;
     } else if (action === 'user-denied') {
-      msg = `❌ You denied \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+      msg = `⛨ GuardClaw: denied \`${command}\` (risk: ${analysis.riskScore}/10)`;
     } else if (action === 'user-approved') {
-      msg = `✅ You approved \`${command}\` (Risk: ${analysis.riskScore}/10)`;
+      msg = `⛨ GuardClaw: approved \`${command}\` (risk: ${analysis.riskScore}/10)`;
     } else {
-      msg = `Command: ${command}`;
+      msg = `⛨ GuardClaw: ${command}`;
     }
 
     // Append memory hint if available
