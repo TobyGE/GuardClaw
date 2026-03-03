@@ -94,11 +94,14 @@ function ToolIcon({ name, size = 14, className = '' }) {
   return <Icon size={size} className={className} />;
 }
 
-function getRiskLevel(score, pending) {
+function getRiskLevel(score, pending, verdict) {
   if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse', dot: 'bg-blue-400 animate-pulse' };
   if (score === undefined || score === null) return null;
   if (score <= 3) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20', dot: 'bg-gc-safe' };
   if (score <= 7) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20', dot: 'bg-gc-warning' };
+  // High risk: show BLOCKED only if blocking was active (verdict='ask'/'denied'),
+  // otherwise show FLAGGED (monitor-only mode, verdict='pass-through')
+  if (verdict === 'pass-through') return { label: 'FLAGGED', color: 'text-gc-danger bg-gc-danger/20', dot: 'bg-gc-danger' };
   return { label: 'BLOCKED', color: 'text-gc-danger bg-gc-danger/20', dot: 'bg-gc-danger' };
 }
 
@@ -199,7 +202,7 @@ function MemoryFeedback({ event }) {
 /* ---------- ToolCallRow: one collapsed/expanded tool call ---------- */
 function ToolCallRow({ event }) {
   const [open, setOpen] = useState(false);
-  const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
+  const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending, event.safeguard?.verdict);
   const name = event.tool || event.subType || 'tool';
   // Try multiple locations for tool input args
   const rawContent = event.rawEvent?.content;
@@ -414,7 +417,7 @@ function AgentTurnItem({ turn }) {
   // ── Risk (OpenClaw only — from parent event's safeguard) ──
   const parentSafeguard = isCCTurn ? null : (turn.parent?.safeguard || null);
   const isContext = parentSafeguard?.isContext;
-  const riskLevel = getRiskLevel(parentSafeguard?.riskScore, parentSafeguard?.pending);
+  const riskLevel = getRiskLevel(parentSafeguard?.riskScore, parentSafeguard?.pending, parentSafeguard?.verdict);
 
   // ── Visual identity ──
   const pill = isCCTurn
@@ -558,7 +561,8 @@ function AgentTurnItem({ turn }) {
                 <span className="text-gc-text-dim">Verdict: </span>
                 <span className="font-medium">
                   {parentSafeguard.riskScore <= 3 ? 'SAFE'
-                    : parentSafeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}
+                    : parentSafeguard.riskScore <= 7 ? 'WARNING'
+                    : parentSafeguard.verdict === 'pass-through' ? 'FLAGGED' : 'BLOCKED'}
                 </span>
               </div>
               {parentSafeguard.category && (
@@ -665,7 +669,7 @@ function ChatContextBubble({ event }) {
 function StandaloneEvent({ event }) {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [expandedContent, setExpandedContent] = useState(false);
-  const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending);
+  const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending, event.safeguard?.verdict);
   const type = event.type || 'unknown';
   const tool = event.tool || event.subType || '';
   const content = event.command || event.description || event.summary || '';
@@ -729,7 +733,7 @@ function StandaloneEvent({ event }) {
                 <GuardClawLogo size={16} />
                 <span className="text-gc-primary font-semibold">Security Analysis</span>
               </div>
-              <div><span className="text-gc-text-dim">Verdict:</span><span className="ml-2 font-medium">{event.safeguard.riskScore <= 3 ? 'SAFE' : event.safeguard.riskScore <= 7 ? 'WARNING' : 'BLOCKED'}</span></div>
+              <div><span className="text-gc-text-dim">Verdict:</span><span className="ml-2 font-medium">{event.safeguard.riskScore <= 3 ? 'SAFE' : event.safeguard.riskScore <= 7 ? 'WARNING' : event.safeguard.verdict === 'pass-through' ? 'FLAGGED' : 'BLOCKED'}</span></div>
               {event.safeguard.reasoning && <p className="bg-gc-bg/50 p-2 rounded text-sm">{event.safeguard.reasoning}</p>}
             </div>
           )}

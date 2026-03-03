@@ -8,10 +8,11 @@ function EventItem({ event }) {
   const [showFullContent, setShowFullContent] = useState(false);
   const CONTENT_PREVIEW_LINES = 5;
 
-  const getRiskLevel = (score, pending) => {
+  const getRiskLevel = (score, pending, verdict) => {
     if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse' };
     if (score <= 3) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20' };
     if (score <= 7) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20' };
+    if (verdict === 'pass-through') return { label: 'FLAGGED', color: 'text-gc-danger bg-gc-danger/20' };
     return { label: 'BLOCKED', color: 'text-gc-danger bg-gc-danger/20' };
   };
 
@@ -42,8 +43,8 @@ function EventItem({ event }) {
     }
   };
 
-  const riskLevel = event.safeguard?.riskScore !== undefined 
-    ? getRiskLevel(event.safeguard.riskScore)
+  const riskLevel = event.safeguard?.riskScore !== undefined
+    ? getRiskLevel(event.safeguard.riskScore, event.safeguard?.pending, event.safeguard?.verdict)
     : null;
 
   const eventType = event.type || event.tool || 'unknown';
@@ -176,7 +177,7 @@ function EventItem({ event }) {
               </div>
               <div className="space-y-2">
                 {event.streamingSteps.map((step, idx) => {
-                  const stepRisk = step.safeguard ? getRiskLevel(step.safeguard.riskScore) : null;
+                  const stepRisk = step.safeguard ? getRiskLevel(step.safeguard.riskScore, step.safeguard?.pending, step.safeguard?.verdict) : null;
                   const stepIcon = step.type === 'thinking' ? '💭' :
                                    step.type === 'tool_use' ? <WrenchIcon size={12} className='inline' /> :
                                    step.type === 'exec' ? <TerminalIcon size={12} className='inline' /> :
@@ -295,7 +296,7 @@ function EventItem({ event }) {
               </div>
               <div>
                 <span className="text-gc-text-dim">Risk Score:</span>
-                <span className="ml-2 text-gc-text font-medium">{event.safeguard.riskScore <= 3 ? "SAFE" : event.safeguard.riskScore <= 7 ? "WARNING" : "BLOCKED"}</span>
+                <span className="ml-2 text-gc-text font-medium">{event.safeguard.riskScore <= 3 ? "SAFE" : event.safeguard.riskScore <= 7 ? "WARNING" : event.safeguard.verdict === 'pass-through' ? "FLAGGED" : "BLOCKED"}</span>
               </div>
               {event.safeguard.category && (
                 <div>

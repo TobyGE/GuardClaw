@@ -554,7 +554,7 @@ function App() {
                 active={eventFilter === 'warning'}
               />
               <StatCard
-                title="BLOCKED"
+                title={blockingStatus?.active ? "BLOCKED" : "FLAGGED"}
                 value={stats.blocked}
                 color="text-gc-danger"
                 onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
