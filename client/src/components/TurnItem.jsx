@@ -349,14 +349,15 @@ function ReplyText({ text, expanded, onToggle }) {
 function IntermediateText({ text }) {
   const [expanded, setExpanded] = useState(false);
   if (!text) return null;
-  const hasMore = text.includes('\n') ? text.split('\n').filter(l => l.trim()).length > 2 : text.length > 160;
+  const lineCount = text.split('\n').filter(l => l.trim()).length;
+  const hasMore = lineCount > 2 || text.length > 100;
   return (
     <div
       className={`text-xs text-gc-text bg-purple-500/10 border border-purple-400/20 rounded-lg px-3 py-2 ${hasMore ? 'cursor-pointer' : ''}`}
       onClick={() => hasMore && setExpanded(v => !v)}
     >
       <span className="text-purple-400 text-[10px] font-semibold mr-1.5">ASSISTANT</span>
-      <span className={`whitespace-pre-wrap break-words ${!expanded && hasMore ? 'line-clamp-2 inline' : ''}`}>
+      <span className={`whitespace-pre-wrap break-words ${!expanded && hasMore ? 'line-clamp-2 block' : ''}`}>
         {text}
       </span>
       {hasMore && !expanded && (

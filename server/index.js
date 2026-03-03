@@ -116,6 +116,9 @@ const lastCCPromptTime = new Map(); // sessionKey → epoch ms when UserPromptSu
 const lastCCPromptText = new Map();  // sessionKey → last user prompt text (for LLM context)
 const ccTranscriptPaths = new Map(); // session_id → transcript_path (cached from Stop hook)
 const ccLastReadLine = new Map();    // session_id → last line number processed for intermediate text
+// Active CC sub-agents: session_id → { agent_id, agent_type, startTime }
+// When a sub-agent is active, tool calls from that session_id are attributed to it.
+const ccActiveSubagents = new Map();
 const EVAL_CACHE_TTL_MS = 60_000;
 
 function evalCacheKey(sessionKey, toolName, params) {
@@ -465,7 +468,7 @@ app.get('/api/sessions', (req, res) => {
     if (!key) continue;
 
     const isCCSession = key.startsWith('claude-code:');
-    const isSubagent = !isCCSession && key.includes(':subagent:');
+    const isSubagent = key.includes(':subagent:');
 
     // For non-sub-agent OC sessions, merge by channel (e.g. all agent:main:cron:* → one "Cron" entry)
     let mapKey = key;
@@ -480,12 +483,23 @@ app.get('/api/sessions', (req, res) => {
       existing.lastEventTime = Math.max(existing.lastEventTime, event.timestamp || 0);
       if (!existing.keys.includes(key)) existing.keys.push(key);
     } else {
-      // Derive parent and label from session key
-      const parentKey = isSubagent ? key.replace(/:subagent:[^:]+$/, ':main') : null;
+      // Derive parent key and short ID for sub-agents
+      let parentKey = null;
       const shortId = isSubagent ? key.split(':subagent:')[1]?.substring(0, 8) : null;
+      if (isSubagent) {
+        if (isCCSession) {
+          // CC: claude-code:<uuid>:subagent:<id> → claude-code:<uuid>
+          parentKey = key.replace(/:subagent:[^:]+$/, '');
+        } else {
+          // OC: agent:main:subagent:<uuid> → agent:main:main
+          parentKey = key.replace(/:subagent:[^:]+$/, ':main');
+        }
+      }
 
       let label;
-      if (isCCSession) {
+      if (isCCSession && isSubagent) {
+        label = `Sub-agent ${shortId}`;
+      } else if (isCCSession) {
         label = 'Claude Code';
       } else if (isSubagent) {
         label = `Sub-agent ${shortId}`;
@@ -544,10 +558,18 @@ app.get('/api/sessions', (req, res) => {
       }
     }
   }
-  // Label CC sessions that spawned sub-agents as "Main"
+  // Label CC sessions that have sub-agents as "Main"
+  // From timing-based detection:
   for (const spawnerKey of ccSpawnerKeys) {
     const s = sessionMap.get(spawnerKey);
     if (s) s.label = 'Main';
+  }
+  // From sessionKey pattern (claude-code:<uuid>:subagent:<id> → parent is claude-code:<uuid>):
+  for (const s of sessionMap.values()) {
+    if (s.key.startsWith('claude-code:') && s.isSubagent && s.parent) {
+      const parentSession = sessionMap.get(s.parent);
+      if (parentSession && parentSession.label !== 'Main') parentSession.label = 'Main';
+    }
   }
 
   // Mark sessions as inactive/hidden based on idle time
@@ -1009,7 +1031,10 @@ function mapClaudeCodeParams(toolName, toolInput) {
 function emitIntermediateText(session_id) {
   const transcriptPath = ccTranscriptPaths.get(session_id);
   if (!transcriptPath) return;
-  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
+  const sessionKey = session_id
+    ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
+    : 'claude-code:default';
   try {
     const content = fs.readFileSync(transcriptPath, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean);
@@ -1043,7 +1068,11 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
   const gcToolName = mapClaudeCodeTool(tool_name);
   const gcParams = mapClaudeCodeParams(tool_name, tool_input);
-  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  // If a sub-agent is active for this session, attribute tool calls to it
+  const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
+  const sessionKey = session_id
+    ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
+    : 'claude-code:default';
 
   // Capture any assistant text output before this tool call
   if (session_id) emitIntermediateText(session_id);
@@ -1286,7 +1315,10 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
 
   const gcToolName = mapClaudeCodeTool(tool_name);
   const gcParams = mapClaudeCodeParams(tool_name, tool_input);
-  const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
+  const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
+  const sessionKey = session_id
+    ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
+    : 'claude-code:default';
 
   // Store in toolHistoryStore for chain analysis
   const resultSnippet = typeof tool_output === 'string'
@@ -1454,6 +1486,61 @@ app.post('/api/hooks/stop', rateLimit(60_000, 30), async (req, res) => {
       } catch {}
     }
   } catch {}
+});
+
+// ─── SubagentStart / SubagentStop hooks ──────────────────────────────────────
+
+app.post('/api/hooks/subagent-start', (req, res) => {
+  const { session_id, agent_id, agent_type } = req.body;
+  console.log(`[GuardClaw] 🤖 SubagentStart: session=${session_id} agent_id=${agent_id} type=${agent_type}`);
+
+  if (session_id && agent_id) {
+    ccActiveSubagents.set(session_id, { agent_id, agent_type: agent_type || 'unknown', startTime: Date.now() });
+
+    const parentKey = `claude-code:${session_id}`;
+    const subKey = `claude-code:${session_id}:subagent:${agent_id}`;
+    eventStore.addEvent({
+      type: 'claude-code-tool',
+      tool: 'subagent_start',
+      description: `Sub-agent started: ${agent_type || 'unknown'}`,
+      sessionKey: subKey,
+      parentSessionKey: parentKey,
+      agentType: agent_type,
+      agentId: agent_id,
+      timestamp: Date.now(),
+      safeguard: { riskScore: 1, category: 'safe', allowed: true, backend: 'rules' },
+    });
+  }
+
+  res.json({});
+});
+
+app.post('/api/hooks/subagent-stop', (req, res) => {
+  const { session_id, agent_id, agent_type, last_assistant_message } = req.body;
+  console.log(`[GuardClaw] 🤖 SubagentStop: session=${session_id} agent_id=${agent_id} type=${agent_type}`);
+
+  if (session_id && agent_id) {
+    const activeSub = ccActiveSubagents.get(session_id);
+    ccActiveSubagents.delete(session_id);
+
+    const parentKey = `claude-code:${session_id}`;
+    const subKey = `claude-code:${session_id}:subagent:${agent_id}`;
+    eventStore.addEvent({
+      type: 'claude-code-tool',
+      tool: 'subagent_stop',
+      description: `Sub-agent finished: ${agent_type || 'unknown'}`,
+      sessionKey: subKey,
+      parentSessionKey: parentKey,
+      agentType: agent_type,
+      agentId: agent_id,
+      duration: activeSub ? Date.now() - activeSub.startTime : null,
+      resultPreview: typeof last_assistant_message === 'string' ? last_assistant_message.slice(0, 500) : null,
+      timestamp: Date.now(),
+      safeguard: { riskScore: 1, category: 'safe', allowed: true, backend: 'rules' },
+    });
+  }
+
+  res.json({});
 });
 
 // ─── Chat Inject API (used by plugin to trigger agent retry after approval) ──
