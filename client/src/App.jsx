@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import StatCard from './components/StatCard';
 import EventList from './components/EventList';
 import MemoryPage from './components/MemoryPage';
@@ -16,17 +16,25 @@ function App() {
   const [connectionStats, setConnectionStats] = useState(null);
   const [backends, setBackends] = useState(null);
   const [daysSinceInstall, setDaysSinceInstall] = useState(0);
-  const [stats, setStats] = useState({
-    totalEvents: 0,
-    safeCommands: 0,
-    warnings: 0,
-    blocked: 0,
-  });
   const [events, setEvents] = useState([]);
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
-  const [backendFilter, setBackendFilter] = useState('all'); // 'all', 'openclaw', 'nanobot', 'claude-code'
+  const [backendFilter, setBackendFilter] = useState('claude-code'); // 'openclaw', 'nanobot', 'claude-code'
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
+
+  // Stats derived from current events (updates automatically when events/filter changes)
+  const stats = useMemo(() => events.reduce(
+    (acc, event) => {
+      acc.totalEvents++;
+      const score = event.safeguard?.riskScore;
+      if (score != null && score <= 3) acc.safeCommands++;
+      else if (score != null && score <= 7) acc.warnings++;
+      else if (score != null && score > 7) acc.blocked++;
+      return acc;
+    },
+    { totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 }
+  ), [events]);
+
   const [memoryStats, setMemoryStats] = useState(null);
   const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [showLlmModal, setShowLlmModal] = useState(false);
@@ -120,45 +128,13 @@ function App() {
         const response = await fetch(`/api/events/history?limit=9999${filterParam}${backendParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
-          const filteredEvents = backend === 'all' 
-            ? data.events || []
-            : (data.events || []).filter(e => {
-                // Filter events by backend source (assuming events have a 'source' or 'backend' field)
-                // For now, we'll use sessionKey to determine backend
-                const sessionKey = e.sessionKey || e.payload?.sessionKey || '';
-                if (backend === 'openclaw') return sessionKey.includes('agent:');
-                if (backend === 'nanobot') return sessionKey.includes('nanobot');
-                if (backend === 'claude-code') return sessionKey.startsWith('claude-code:');
-                return true;
-              });
-          setEvents(filteredEvents);
-          if (!filter) {
-            // Update stats based on filtered events
-            updateStats(filteredEvents);
-          }
+          setEvents(data.events || []);
         }
       } catch (error) {
         console.error('Failed to fetch events:', error);
       }
     };
 
-    const updateStats = (eventList) => {
-      const stats = eventList.reduce(
-        (acc, event) => {
-          acc.totalEvents++;
-          if (event.safeguard?.riskScore <= 3) {
-            acc.safeCommands++;
-          } else if (event.safeguard?.riskScore <= 7) {
-            acc.warnings++;
-          } else if (event.safeguard?.riskScore > 7) {
-            acc.blocked++;
-          }
-          return acc;
-        },
-        { totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 }
-      );
-      setStats(stats);
-    };
 
     connectToBackend();
 
@@ -179,28 +155,9 @@ function App() {
         if (isUpdate) {
           // Replace existing event in-place (e.g. analysis result arrived)
           setEvents((prev) => prev.map(ev => ev.id === newEvent.id ? newEvent : ev));
-          // Update stats if analysis just completed (was pending → now scored)
-          if (newEvent.safeguard && !newEvent.safeguard.pending && newEvent.safeguard.riskScore != null) {
-            const score = newEvent.safeguard.riskScore;
-            setStats((prev) => ({
-              ...prev,
-              safeCommands: score <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
-              warnings: score > 3 && score <= 7 ? prev.warnings + 1 : prev.warnings,
-              blocked: score > 7 ? prev.blocked + 1 : prev.blocked,
-            }));
-          }
           return;
         }
 
-        // New event — update total count (risk stats update when analysis completes)
-        const score = newEvent.safeguard?.riskScore;
-        const isPending = newEvent.safeguard?.pending;
-        setStats((prev) => ({
-          totalEvents: prev.totalEvents + 1,
-          safeCommands: !isPending && score != null && score <= 3 ? prev.safeCommands + 1 : prev.safeCommands,
-          warnings: !isPending && score != null && score > 3 && score <= 7 ? prev.warnings + 1 : prev.warnings,
-          blocked: !isPending && score != null && score > 7 ? prev.blocked + 1 : prev.blocked,
-        }));
         // Add to events list (apply backend + session filter)
         const eventSessionKey2 = newEvent.sessionKey || newEvent.payload?.sessionKey || '';
         const bf = backendFilterRef.current;
@@ -209,7 +166,9 @@ function App() {
           || (bf === 'openclaw' && eventSessionKey2.includes('agent:'))
           || (bf === 'nanobot' && eventSessionKey2.includes('nanobot'))
           || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'));
-        const matchesSession = !ss || eventSessionKey2 === ss;
+        // Support merged sessions: if selectedSession is a channel prefix (e.g. agent:main:cron),
+        // match all sessionKeys that start with it
+        const matchesSession = !ss || eventSessionKey2 === ss || eventSessionKey2.startsWith(ss + ':');
         if (matchesBackend && matchesSession) {
           setEvents((prev) => [newEvent, ...prev]);
         }
@@ -217,12 +176,13 @@ function App() {
         const eventSessionKey = newEvent.sessionKey;
         if (eventSessionKey) {
           setSessions((prev) => {
-            const exists = prev.some(s => s.key === eventSessionKey);
-            if (!exists) {
+            // Find the session entry that owns this event (exact match or via keys array)
+            const matchIdx = prev.findIndex(s => s.key === eventSessionKey || s.keys?.includes(eventSessionKey));
+            if (matchIdx === -1) {
               fetch('/api/sessions').then(r => r.json()).then(data => setSessions(data.sessions || [])).catch(() => {});
               return prev;
             }
-            return prev.map(s => s.key === eventSessionKey ? { ...s, eventCount: s.eventCount + 1, lastEventTime: Date.now() } : s);
+            return prev.map((s, i) => i === matchIdx ? { ...s, eventCount: s.eventCount + 1, lastEventTime: Date.now() } : s);
           });
         }
         // Forward approval events to ApprovalBanner
@@ -284,20 +244,12 @@ function App() {
     const refetchEvents = async () => {
       try {
         const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
+        const backendParam = backendFilter !== 'all' ? `&backend=${backendFilter}` : '';
         const sessionParam = selectedSession ? `&session=${encodeURIComponent(selectedSession)}` : '';
-        const response = await fetch(`/api/events/history?limit=9999${filterParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=9999${filterParam}${backendParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
-          const filteredEvents = backendFilter === 'all' 
-            ? data.events || []
-            : (data.events || []).filter(e => {
-                const sessionKey = e.sessionKey || e.payload?.sessionKey || '';
-                if (backendFilter === 'openclaw') return sessionKey.includes('agent:');
-                if (backendFilter === 'nanobot') return sessionKey.includes('nanobot');
-                if (backendFilter === 'claude-code') return sessionKey.startsWith('claude-code:');
-                return true;
-              });
-          setEvents(filteredEvents);
+          setEvents(data.events || []);
         }
       } catch (error) {
         console.error('Failed to fetch filtered events:', error);
@@ -534,17 +486,13 @@ function App() {
               <button
                 onClick={() => setShowLlmModal(true)}
                 title={llmStatus.message}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                className={`inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 ${
                   llmStatus.connected
-                    ? 'border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                    : 'border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
+                    : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  llmStatus.connected ? 'bg-green-400' : 'bg-red-400 animate-pulse'
-                }`} />
-                <BrainIcon size={15} />
-                <span className="text-xs">{llmStatus.backend?.toUpperCase() || 'LLM'}</span>
+                <BrainIcon size={20} />
               </button>
             )}
             {/* Fail-Closed Toggle */}
@@ -670,17 +618,9 @@ function App() {
               <div className="flex items-center space-x-3">
                 <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => { setSelectedSession(null); setBackendFilter('all'); }}
-                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      backendFilter === 'all' ? 'bg-gc-primary text-white shadow-md' : 'bg-gc-border text-gc-text hover:bg-gc-border/80'
-                    }`}
-                  >
-                    <span>All</span>
-                  </button>
                   {backends && [
-                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); if (backends.openclaw?.connected) { setShowGatewayModal(true); } else { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
-                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); if (backends.nanobot?.connected) { setShowGatewayModal(true); } else { setSettingsDefaultTab('gateway'); setShowSettingsModal(true); } } },
+                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); } },
+                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                   ]
                     .filter(b => backends[b.key])
@@ -737,13 +677,17 @@ function App() {
 
               {/* Session Tabs — filtered by current backend */}
               {(() => {
+                const isCC = backendFilter === 'claude-code';
                 const visibleSessions = sessions.filter(s => {
                   if (backendFilter === 'openclaw') return s.key.startsWith('agent:');
                   if (backendFilter === 'nanobot') return s.key.startsWith('nanobot');
-                  if (backendFilter === 'claude-code') return s.key.startsWith('claude-code:');
+                  if (isCC) return s.key.startsWith('claude-code:') && s.isSubagent;
+                  // "All" view: exclude CC sessions (they have their own Main/Sub-agent tabs in CC view)
+                  if (backendFilter === 'all' && s.key.startsWith('claude-code:')) return false;
                   return true;
                 });
-                if (visibleSessions.length <= 1) return null;
+                // CC view: always show tab bar (Main + sub-agents); others: only if >1 session
+                if (!isCC && visibleSessions.length <= 1) return null;
                 const getSessionBackend = (key) => {
                   if (key.startsWith('claude-code:')) return { label: 'CC', color: 'bg-purple-500' };
                   if (key.startsWith('nanobot')) return { label: 'NB', color: 'bg-blue-500' };
@@ -759,7 +703,8 @@ function App() {
                           : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
                       }`}
                     >
-                      All Sessions
+                      <BotIcon size={14} />
+                      {isCC ? 'Main' : 'All Sessions'}
                     </button>
                     {visibleSessions.map((s) => {
                       const backend = backendFilter === 'all' ? getSessionBackend(s.key) : null;
@@ -791,7 +736,12 @@ function App() {
               >
                 <EventList events={
                   selectedSession
-                    ? events.filter(e => e.sessionKey === selectedSession)
+                    ? events.filter(e => {
+                        // Support merged sessions (keys array) — match any of the grouped sessionKeys
+                        const sess = sessions.find(s => s.key === selectedSession);
+                        if (sess?.keys) return sess.keys.includes(e.sessionKey);
+                        return e.sessionKey === selectedSession;
+                      })
                     : events
                 } />
               </div>

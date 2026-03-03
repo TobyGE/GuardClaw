@@ -153,9 +153,17 @@ export class EventStore {
     return rows.map(r => JSON.parse(r.data)).reverse();
   }
 
-  getFilteredEvents(limit = 9999, filter = null, session = null) {
+  getFilteredEvents(limit = 9999, filter = null, session = null, backend = null) {
     let sql = 'SELECT data FROM events WHERE 1=1';
     const params = [];
+
+    if (backend === 'openclaw') {
+      sql += " AND sessionKey LIKE 'agent:%'";
+    } else if (backend === 'claude-code') {
+      sql += " AND sessionKey LIKE 'claude-code:%'";
+    } else if (backend === 'nanobot') {
+      sql += " AND sessionKey LIKE 'nanobot%'";
+    }
 
     if (session) {
       sql += ' AND sessionKey = ?';

@@ -390,16 +390,6 @@ function getSystemWarnings(backends, pollerStats, llmStatus, approvalStats) {
     });
   }
 
-  // Per-backend reconnect warnings
-  for (const [name, stats] of Object.entries(backends)) {
-    if (stats.reconnectAttempts > 0) {
-      warnings.push({
-        level: 'warning',
-        message: `${name} connection unstable (${stats.reconnectAttempts} reconnect attempts)`,
-        suggestion: 'Check network connectivity'
-      });
-    }
-  }
 
   if (llmStatus && !llmStatus.connected && llmStatus.backend !== 'fallback') {
     warnings.push({
@@ -467,21 +457,30 @@ app.post('/api/disconnect', (req, res) => {
 app.get('/api/sessions', (req, res) => {
   const allEvents = eventStore.getRecentEvents(10000);
   const sessionMap = new Map(); // sessionKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
+  const ccAgentSpawns = []; // { spawnerKey, timestamp } — tracks when CC sessions spawn sub-agents
 
   for (const event of allEvents) {
     // Normalize legacy session keys to the canonical format
     const key = (!event.sessionKey || event.sessionKey === 'default') ? 'agent:main:main' : event.sessionKey;
     if (!key) continue;
-    const existing = sessionMap.get(key);
+
+    const isCCSession = key.startsWith('claude-code:');
+    const isSubagent = !isCCSession && key.includes(':subagent:');
+
+    // For non-sub-agent OC sessions, merge by channel (e.g. all agent:main:cron:* → one "Cron" entry)
+    let mapKey = key;
+    if (!isCCSession && !isSubagent && key.startsWith('agent:')) {
+      const parts = key.split(':');
+      mapKey = parts.length > 2 ? `agent:main:${parts[2]}` : key;
+    }
+
+    const existing = sessionMap.get(mapKey);
     if (existing) {
       existing.eventCount++;
       existing.lastEventTime = Math.max(existing.lastEventTime, event.timestamp || 0);
+      if (!existing.keys.includes(key)) existing.keys.push(key);
     } else {
       // Derive parent and label from session key
-      // Formats: agent:main:main, agent:main:telegram:direct:123, agent:main:subagent:<uuid>
-      //          claude-code:<session-uuid>
-      const isCCSession = key.startsWith('claude-code:');
-      const isSubagent = !isCCSession && key.includes(':subagent:');
       const parentKey = isSubagent ? key.replace(/:subagent:[^:]+$/, ':main') : null;
       const shortId = isSubagent ? key.split(':subagent:')[1]?.substring(0, 8) : null;
 
@@ -491,7 +490,6 @@ app.get('/api/sessions', (req, res) => {
       } else if (isSubagent) {
         label = `Sub-agent ${shortId}`;
       } else {
-        // Extract channel from key: agent:main:<channel>:... or agent:main:main
         const parts = key.split(':');
         const channel = parts.length > 2 ? parts[2] : 'main';
         const channelLabels = {
@@ -507,8 +505,9 @@ app.get('/api/sessions', (req, res) => {
         label = channelLabels[channel] || `Agent (${channel})`;
       }
 
-      sessionMap.set(key, {
-        key,
+      sessionMap.set(mapKey, {
+        key: mapKey,
+        keys: [key],
         label,
         parent: parentKey,
         isSubagent,
@@ -518,21 +517,72 @@ app.get('/api/sessions', (req, res) => {
         active: true,
       });
     }
+
+    // Track CC agent_spawn events for sub-agent detection
+    if (event.type === 'claude-code-tool' && event.tool === 'agent_spawn' && key.startsWith('claude-code:')) {
+      ccAgentSpawns.push({ spawnerKey: key, timestamp: event.timestamp || 0 });
+    }
+  }
+
+  // Identify CC sub-agents by timing correlation:
+  // If a CC session's first event appeared within 15s after another CC session's agent_spawn,
+  // it's a sub-agent of that session.
+  const CC_SPAWN_WINDOW = 15000;
+  const ccSpawnerKeys = new Set(); // CC sessions that spawned sub-agents
+  for (const s of sessionMap.values()) {
+    if (!s.key.startsWith('claude-code:') || s.isSubagent) continue;
+    for (const spawn of ccAgentSpawns) {
+      if (spawn.spawnerKey === s.key) continue;
+      const timeDiff = s.firstEventTime - spawn.timestamp;
+      if (timeDiff >= 0 && timeDiff <= CC_SPAWN_WINDOW) {
+        s.isSubagent = true;
+        s.parent = spawn.spawnerKey;
+        const shortId = s.key.split(':')[1]?.substring(0, 8) || '?';
+        s.label = `Sub-agent ${shortId}`;
+        ccSpawnerKeys.add(spawn.spawnerKey);
+        break;
+      }
+    }
+  }
+  // Label CC sessions that spawned sub-agents as "Main"
+  for (const spawnerKey of ccSpawnerKeys) {
+    const s = sessionMap.get(spawnerKey);
+    if (s) s.label = 'Main';
   }
 
   // Mark sessions as inactive/hidden based on idle time
-  // Sub-agents: inactive after 2min, hidden after 24h
+  // Sub-agents (OC + CC): inactive after 2min, hidden after 24h
+  // CC sessions: inactive after 10min, hidden after 24h (keep most recent)
   // Non-primary main sessions: inactive after 10min, hidden after 7 days
   const now = Date.now();
   const hiddenKeys = [];
-  const mainSessions = Array.from(sessionMap.values()).filter(s => !s.isSubagent);
+  const mainSessions = Array.from(sessionMap.values()).filter(s => !s.isSubagent && !s.key.startsWith('claude-code:'));
   const primaryMainKey = mainSessions.length > 0
     ? mainSessions.sort((a, b) => b.eventCount - a.eventCount)[0].key
     : null;
 
+  // Find the most recent CC session (by lastEventTime) to keep it visible
+  const ccMainSessions = Array.from(sessionMap.values()).filter(s => s.key.startsWith('claude-code:') && !s.isSubagent);
+  const primaryCCKey = ccMainSessions.length > 0
+    ? ccMainSessions.sort((a, b) => b.lastEventTime - a.lastEventTime)[0].key
+    : null;
+
   for (const s of sessionMap.values()) {
     const idleMs = now - s.lastEventTime;
-    if (s.isSubagent) {
+    if (s.key.startsWith('claude-code:')) {
+      if (s.isSubagent) {
+        // CC sub-agents: same lifecycle as OC sub-agents
+        if (idleMs > 24 * 60 * 60 * 1000) {
+          hiddenKeys.push(s.key);
+        } else if (idleMs > 2 * 60 * 1000) {
+          s.active = false;
+        }
+      } else if (s.key !== primaryCCKey && idleMs > 24 * 60 * 60 * 1000) {
+        hiddenKeys.push(s.key);
+      } else if (idleMs > 10 * 60 * 1000) {
+        s.active = false;
+      }
+    } else if (s.isSubagent) {
       if (idleMs > 24 * 60 * 60 * 1000) {
         hiddenKeys.push(s.key);
       } else if (idleMs > 2 * 60 * 1000) {
@@ -563,9 +613,10 @@ app.get('/api/events/history', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 100, 10000);
   const filter = req.query.filter || null;   // 'safe', 'warning', 'blocked'
   const sessionFilter = req.query.session || null;
+  const backend = req.query.backend || null; // 'openclaw', 'claude-code', 'nanobot'
 
   // Filtering pushed down to SQLite for performance
-  let events = eventStore.getFilteredEvents(limit, filter, sessionFilter);
+  let events = eventStore.getFilteredEvents(limit, filter, sessionFilter, backend);
 
   res.json({
     events: events.reverse(), // Newest first

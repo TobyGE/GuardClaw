@@ -41,7 +41,7 @@ function groupEventsIntoTurns(events) {
         toolCalls: [...pendingCCTools],
         replies: [...pendingReplies],
         isCCTurn: true,
-        id: pendingPrompt?.id || `cc-orphan-${Date.now()}`,
+        id: pendingPrompt?.id || pendingCCTools[0]?.id || pendingReplies[0]?.id || `cc-orphan-${pendingCCTools[0]?.timestamp || pendingReplies[0]?.timestamp || 0}`,
       });
       pendingCCTools = [];
       pendingReplies = [];
@@ -115,7 +115,7 @@ function groupEventsIntoTurns(events) {
       parent: null,
       toolCalls: pendingOCTools,
       isCCTurn: false,
-      id: `oc-inprogress-${Date.now()}`,
+      id: `oc-inprogress-${pendingOCTools[0]?.id || pendingOCTools[0]?.timestamp || 0}`,
     });
   }
   if (pendingCCTools.length > 0 || pendingReplies.length > 0 || pendingPrompt) {
@@ -124,8 +124,8 @@ function groupEventsIntoTurns(events) {
       userPrompt: pendingPrompt,
       toolCalls: pendingCCTools,
       replies: pendingReplies,
-      isCCTurn: !!pendingPrompt,
-      id: pendingPrompt?.id || `cc-inprogress-${Date.now()}`,
+      isCCTurn: true,
+      id: pendingPrompt?.id || pendingCCTools[0]?.id || pendingReplies[0]?.id || `cc-inprogress-${pendingCCTools[0]?.timestamp || pendingReplies[0]?.timestamp || 0}`,
     });
   }
 
