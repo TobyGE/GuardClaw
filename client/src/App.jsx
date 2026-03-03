@@ -568,7 +568,7 @@ function App() {
                 <span className="text-sm font-medium text-gc-text">Backend:</span>
                 <div className="flex items-center space-x-2">
                   {backends && [
-                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('openclaw'); } },
+                    { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('openclaw'); } },
                     { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                   ]
@@ -627,16 +627,17 @@ function App() {
               {/* Session Tabs — filtered by current backend */}
               {(() => {
                 const isCC = backendFilter === 'claude-code';
+                const isOC = backendFilter === 'openclaw';
                 const visibleSessions = sessions.filter(s => {
-                  if (backendFilter === 'openclaw') return s.key.startsWith('agent:');
+                  if (isOC) return s.key.startsWith('agent:') && s.key !== 'agent:main:main';
                   if (backendFilter === 'nanobot') return s.key.startsWith('nanobot');
                   if (isCC) return s.key.startsWith('claude-code:') && s.isSubagent;
                   // "All" view: exclude CC sessions (they have their own Main/Sub-agent tabs in CC view)
                   if (backendFilter === 'all' && s.key.startsWith('claude-code:')) return false;
                   return true;
                 });
-                // CC view: always show tab bar (Main + sub-agents); others: only if >1 session
-                if (!isCC && visibleSessions.length <= 1) return null;
+                // CC/OC view: always show tab bar (Main + sub-sessions); others: only if >1 session
+                if (!isCC && !isOC && visibleSessions.length <= 1) return null;
                 const getSessionBackend = (key) => {
                   if (key.startsWith('claude-code:')) return { label: 'CC', color: 'bg-purple-500' };
                   if (key.startsWith('nanobot')) return { label: 'NB', color: 'bg-blue-500' };
@@ -645,15 +646,15 @@ function App() {
                 return (
                   <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
                     <button
-                      onClick={() => setSelectedSession(null)}
+                      onClick={() => setSelectedSession(isOC ? 'agent:main:main' : null)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                        selectedSession === null
+                        (isOC ? selectedSession === 'agent:main:main' : selectedSession === null)
                           ? 'bg-gc-primary text-white'
                           : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
                       }`}
                     >
                       <BotIcon size={14} />
-                      {isCC ? 'Main' : 'All Sessions'}
+                      {isCC ? 'Main' : isOC ? 'Main Agent' : 'All Sessions'}
                     </button>
                     {visibleSessions.map((s) => {
                       const backend = backendFilter === 'all' ? getSessionBackend(s.key) : null;
