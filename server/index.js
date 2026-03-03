@@ -1022,10 +1022,7 @@ function mapClaudeCodeParams(toolName, toolInput) {
 function emitIntermediateText(session_id) {
   const transcriptPath = ccTranscriptPaths.get(session_id);
   if (!transcriptPath) return;
-  const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
-  const sessionKey = session_id
-    ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
-    : 'claude-code:default';
+  const baseKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
   try {
     const content = fs.readFileSync(transcriptPath, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean);
@@ -1036,6 +1033,16 @@ function emitIntermediateText(session_id) {
         if (entry.type !== 'assistant') continue;
         const msgContent = entry.message?.content || entry.content;
         if (!Array.isArray(msgContent)) continue;
+        // Attribute to sub-agent if the transcript entry has an agentId (sidechain entries),
+        // or if a sub-agent is currently active. This ensures text emitted after SubagentStop
+        // (e.g., task-notification results) is still attributed to the correct sub-agent.
+        let sessionKey = baseKey;
+        if (entry.agentId) {
+          sessionKey = `${baseKey}:subagent:${entry.agentId}`;
+        } else {
+          const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
+          if (activeSub) sessionKey = `${baseKey}:subagent:${activeSub.agent_id}`;
+        }
         for (const block of msgContent) {
           if (block.type === 'text' && block.text?.trim()) {
             eventStore.addEvent({
