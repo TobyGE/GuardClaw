@@ -480,7 +480,7 @@ app.post('/api/disconnect', (req, res) => {
 app.get('/api/sessions', (req, res) => {
   const allEvents = eventStore.getRecentEvents(10000);
   const sessionMap = new Map(); // sessionKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
-  const ccAgentSpawns = []; // { spawnerKey, timestamp } — tracks when CC sessions spawn sub-agents
+  // Sub-agent detection relies on SubagentStart/SubagentStop hooks (sessionKey contains :subagent:)
 
   for (const event of allEvents) {
     // Normalize legacy session keys to the canonical format
@@ -552,39 +552,10 @@ app.get('/api/sessions', (req, res) => {
       });
     }
 
-    // Track CC agent_spawn events for sub-agent detection
-    if (event.type === 'claude-code-tool' && event.tool === 'agent_spawn' && key.startsWith('claude-code:')) {
-      ccAgentSpawns.push({ spawnerKey: key, timestamp: event.timestamp || 0 });
-    }
   }
 
-  // Identify CC sub-agents by timing correlation:
-  // If a CC session's first event appeared within 15s after another CC session's agent_spawn,
-  // it's a sub-agent of that session.
-  const CC_SPAWN_WINDOW = 15000;
-  const ccSpawnerKeys = new Set(); // CC sessions that spawned sub-agents
-  for (const s of sessionMap.values()) {
-    if (!s.key.startsWith('claude-code:') || s.isSubagent) continue;
-    for (const spawn of ccAgentSpawns) {
-      if (spawn.spawnerKey === s.key) continue;
-      const timeDiff = s.firstEventTime - spawn.timestamp;
-      if (timeDiff >= 0 && timeDiff <= CC_SPAWN_WINDOW) {
-        s.isSubagent = true;
-        s.parent = spawn.spawnerKey;
-        const shortId = s.key.split(':')[1]?.substring(0, 8) || '?';
-        s.label = `Sub-agent ${shortId}`;
-        ccSpawnerKeys.add(spawn.spawnerKey);
-        break;
-      }
-    }
-  }
-  // Label CC sessions that have sub-agents as "Main"
-  // From timing-based detection:
-  for (const spawnerKey of ccSpawnerKeys) {
-    const s = sessionMap.get(spawnerKey);
-    if (s) s.label = 'Main';
-  }
-  // From sessionKey pattern (claude-code:<uuid>:subagent:<id> → parent is claude-code:<uuid>):
+  // Label CC sessions that have sub-agents (detected via SubagentStart hook) as "Main"
+  // Sub-agents are identified by sessionKey pattern: claude-code:<uuid>:subagent:<id>
   for (const s of sessionMap.values()) {
     if (s.key.startsWith('claude-code:') && s.isSubagent && s.parent) {
       const parentSession = sessionMap.get(s.parent);
