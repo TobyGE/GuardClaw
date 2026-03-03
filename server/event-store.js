@@ -166,8 +166,9 @@ export class EventStore {
     }
 
     if (session) {
-      sql += ' AND sessionKey = ?';
-      params.push(session);
+      // Support merged sessions: agent:main:telegram matches agent:main:telegram:*
+      sql += ' AND (sessionKey = ? OR sessionKey LIKE ?)';
+      params.push(session, session + ':%');
     }
 
     if (filter === 'safe') {

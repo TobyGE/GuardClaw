@@ -8,11 +8,10 @@ import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
 import ApprovalBanner from './components/ApprovalBanner';
-import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon, BrainIcon } from './components/icons';
+import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon } from './components/icons';
 
 function App() {
   const [connected, setConnected] = useState(false);
-  const [llmStatus, setLlmStatus] = useState(null);
   const [connectionStats, setConnectionStats] = useState(null);
   const [backends, setBackends] = useState(null);
   const [daysSinceInstall, setDaysSinceInstall] = useState(0);
@@ -37,7 +36,6 @@ function App() {
 
   const [memoryStats, setMemoryStats] = useState(null);
   const [showGatewayModal, setShowGatewayModal] = useState(false);
-  const [showLlmModal, setShowLlmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState(null);
   const [showBlockingModal, setShowBlockingModal] = useState(false);
@@ -89,7 +87,6 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           setConnected(data.connected);
-          setLlmStatus(data.llmStatus);
           setConnectionStats(data.connectionStats);
           setBackends(data.backends || null);
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
@@ -269,32 +266,6 @@ function App() {
     ];
   };
 
-  const getLlmDetails = () => {
-    if (!llmStatus) return { details: [], modelList: [] };
-    const details = [
-      { label: 'Backend', value: llmStatus.backend },
-      { label: 'Status', value: llmStatus.connected ? 'Connected' : 'Disconnected' },
-      { label: 'Message', value: llmStatus.message },
-    ];
-    
-    if (llmStatus.url) {
-      details.push({ label: 'URL', value: llmStatus.url });
-    }
-    
-    if (llmStatus.models !== undefined) {
-      details.push({ label: 'Models Loaded', value: llmStatus.models });
-    }
-    
-    if (llmStatus.error) {
-      details.push({ label: 'Error', value: llmStatus.error });
-    }
-    
-    return { 
-      details, 
-      modelList: llmStatus.modelNames || [] 
-    };
-  };
-
   const handleSaveToken = async (newToken) => {
     setCurrentToken(newToken);
     // Trigger reconnect by fetching status again
@@ -335,13 +306,6 @@ function App() {
         onClose={() => setShowGatewayModal(false)}
         title="Gateway Connection"
         details={getGatewayDetails()}
-      />
-      <ConnectionModal
-        isOpen={showLlmModal}
-        onClose={() => setShowLlmModal(false)}
-        title="LLM Backend"
-        details={getLlmDetails().details}
-        modelList={getLlmDetails().modelList}
       />
       <SettingsModal
         isOpen={showSettingsModal}
@@ -481,20 +445,6 @@ function App() {
             </nav>
           </div>
           <div className="flex items-center space-x-2">
-            {/* LLM Status */}
-            {llmStatus && (
-              <button
-                onClick={() => setShowLlmModal(true)}
-                title={llmStatus.message}
-                className={`inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 ${
-                  llmStatus.connected
-                    ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
-                    : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
-                }`}
-              >
-                <BrainIcon size={20} />
-              </button>
-            )}
             {/* Fail-Closed Toggle */}
             <button
               onClick={() => setShowFailClosedModal(true)}
