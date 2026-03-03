@@ -585,8 +585,8 @@ export class SafeguardService {
       // No keyword-based user override: semantic intent alignment is handled by the LLM judge.
       const DANGEROUS_AGENT_TASKS = [
         { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation' },
-        { re: /ssh|credential|secret|password|token|key/i, reason: 'Agent tasked with credential access' },
-        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations' },
+        { re: /credential|secret|password|(?:api|auth|access|bearer|session)[\s_.-]?tokens?|(?:api|private|secret|ssh)[\s_.-]?keys?|\bssh\b/i, reason: 'Agent tasked with credential access' },
+        { re: /curl|wget|(?:fetch|upload|send|post)\b.*\b(?:http|url|endpoint|server|api)/i, reason: 'Agent tasked with network operations' },
       ];
       const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re }) => re.test(task));
       return {
