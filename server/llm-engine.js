@@ -15,6 +15,27 @@ const VENV_DIR = path.join(GUARDCLAW_DIR, 'venv');
 const VENV_PYTHON = path.join(VENV_DIR, 'bin', 'python3');
 const MLX_PORT = 8081;
 
+/**
+ * Check for a bundled Python venv inside the .app bundle (GuardClawBar).
+ * Layout: <app>/Contents/Resources/python-env/bin/python3
+ * The backend runs from <app>/Contents/Resources/backend/, so __dirname is .../backend/server/
+ */
+function findBundledPython() {
+  // __dirname → .../Contents/Resources/backend/server
+  // bundled venv → .../Contents/Resources/python-env
+  const bundled = path.resolve(__dirname, '..', '..', 'python-env', 'bin', 'python3');
+  if (fs.existsSync(bundled)) {
+    try {
+      execFileSync(bundled, ['-c', 'import mlx_lm'], { timeout: 10000 });
+      console.log(`[LLMEngine] Using bundled Python: ${bundled}`);
+      return bundled;
+    } catch {
+      console.log('[LLMEngine] Bundled Python found but mlx-lm not working');
+    }
+  }
+  return null;
+}
+
 /** Find a working Python 3.10+ on the system */
 function findSystemPython() {
   const candidates = [
@@ -36,16 +57,33 @@ function findSystemPython() {
   return null;
 }
 
-/** Ensure venv exists and mlx-lm is installed. Returns true if ready. */
+// Resolved Python path — set once by ensureVenv(), used for all subprocess spawns
+let resolvedPython = null;
+
+/** Ensure a working Python with mlx-lm is available. Returns the python path. */
 function ensureVenv() {
-  // Already set up?
+  // Already resolved?
+  if (resolvedPython) {
+    return resolvedPython;
+  }
+
+  // 1. Check bundled Python (inside .app)
+  const bundled = findBundledPython();
+  if (bundled) {
+    resolvedPython = bundled;
+    return bundled;
+  }
+
+  // 2. Check existing user venv
   if (fs.existsSync(VENV_PYTHON)) {
     try {
       execFileSync(VENV_PYTHON, ['-c', 'import mlx_lm'], { timeout: 10000 });
-      return true;
+      resolvedPython = VENV_PYTHON;
+      return VENV_PYTHON;
     } catch {} // mlx-lm not installed in existing venv, continue
   }
 
+  // 3. Create new venv from system Python
   const sysPython = findSystemPython();
   if (!sysPython) {
     throw new Error('No Python 3.10+ found. Install Python via: brew install python@3.13');
@@ -68,7 +106,8 @@ function ensureVenv() {
   });
 
   console.log('[LLMEngine] Python environment ready');
-  return true;
+  resolvedPython = VENV_PYTHON;
+  return VENV_PYTHON;
 }
 
 const MODEL_CATALOG = [
@@ -183,7 +222,7 @@ path = snapshot_download(
 )
 print(json.dumps({"done": True, "path": path}), flush=True)
 `;
-      const proc = spawn(VENV_PYTHON, ['-u', '-c', pyScript], {
+      const proc = spawn(resolvedPython, ['-u', '-c', pyScript], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -332,7 +371,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       this._statusMessage = 'Starting model server...';
       console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
 
-      this._process = spawn(VENV_PYTHON, [
+      this._process = spawn(resolvedPython, [
         '-m', 'mlx_lm.server',
         '--model', modelPath,
         '--port', String(MLX_PORT),

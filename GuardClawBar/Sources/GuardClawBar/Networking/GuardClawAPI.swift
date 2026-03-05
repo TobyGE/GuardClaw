@@ -49,6 +49,24 @@ actor GuardClawAPI {
         ])
     }
 
+    // MARK: - Models
+
+    func listModels() async throws -> ModelsResponse {
+        try await get("/api/models")
+    }
+
+    func setupModel(id: String) async throws -> SetupResponse {
+        try await post("/api/models/\(id)/setup", body: [:] as [String: String])
+    }
+
+    func cancelDownload(id: String) async throws -> SetupResponse {
+        try await post("/api/models/\(id)/cancel", body: [:] as [String: String])
+    }
+
+    func unloadModel() async throws -> SetupResponse {
+        try await post("/api/models/unload", body: [:] as [String: String])
+    }
+
     // MARK: - Events
 
     func eventHistory(limit: Int = 30, backend: String? = nil) async throws -> EventHistoryResponse {

@@ -53,3 +53,29 @@ struct HealthResponse: Codable, Sendable {
     let ts: Double?
     let failClosed: Bool?
 }
+
+// MARK: - Models
+
+struct ModelsResponse: Codable, Sendable {
+    let models: [BuiltinModel]
+}
+
+struct BuiltinModel: Codable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let description: String
+    let size: String
+    let recommended: Bool?
+    let downloaded: Bool
+    let downloading: Bool
+    let progress: Int
+    let loading: Bool
+    let loaded: Bool
+    let statusMessage: String?
+    let setupError: String?
+}
+
+struct SetupResponse: Codable, Sendable {
+    let status: String
+    let modelId: String?
+}

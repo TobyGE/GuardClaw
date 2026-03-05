@@ -44,6 +44,11 @@ jobs:
           npm ci
           npx vite build
 
+      - name: Setup Python (for bundled mlx-lm)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 

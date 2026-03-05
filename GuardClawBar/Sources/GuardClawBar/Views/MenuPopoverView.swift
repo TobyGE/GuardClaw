@@ -39,27 +39,9 @@ struct MenuPopoverView: View {
 
             Spacer()
 
-            // Per-backend connection dots
-            if appState.isConnected, let backends = appState.serverStatus?.backends {
-                HStack(spacing: 6) {
-                    ForEach(Array(backends.keys.sorted()), id: \.self) { key in
-                        let status = backends[key]
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(status?.connected == true ? Color.green : Color.gray)
-                                .frame(width: 6, height: 6)
-                            Text(status?.label ?? key.uppercased())
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(status?.connected == true ? .secondary : .tertiary)
-                        }
-                    }
-                }
-            } else {
-                // Server unreachable
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 8, height: 8)
-            }
+            Circle()
+                .fill(appState.isConnected ? Color.green : Color.red)
+                .frame(width: 8, height: 8)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

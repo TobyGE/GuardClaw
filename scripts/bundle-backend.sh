@@ -80,7 +80,41 @@ rm -rf "$BACKEND_DIR/node_modules/.package-lock.json"
 find "$BACKEND_DIR/node_modules" -name "test" -type d -maxdepth 3 -exec rm -rf {} + 2>/dev/null || true
 find "$BACKEND_DIR/node_modules" -name "*.md" -maxdepth 3 -delete 2>/dev/null || true
 
+# Step 4: Bundle Python venv with mlx-lm (for built-in LLM engine)
+echo "--- Setting up Python venv with mlx-lm..."
+PYTHON_ENV_DIR="${APP_BUNDLE}/Contents/Resources/python-env"
+
+# Find Python 3.10+
+SYSTEM_PYTHON=""
+for py in python3.13 python3.12 python3.11 python3.10 python3; do
+  if command -v "$py" &>/dev/null; then
+    ver=$("$py" --version 2>&1 | grep -oE '3\.[0-9]+')
+    minor=$(echo "$ver" | cut -d. -f2)
+    if [ "$minor" -ge 10 ] 2>/dev/null; then
+      SYSTEM_PYTHON="$py"
+      break
+    fi
+  fi
+done
+
+if [ -n "$SYSTEM_PYTHON" ]; then
+  echo "    Using Python: $SYSTEM_PYTHON ($($SYSTEM_PYTHON --version))"
+  "$SYSTEM_PYTHON" -m venv "$PYTHON_ENV_DIR"
+  "$PYTHON_ENV_DIR/bin/python3" -m pip install --quiet --no-cache-dir mlx-lm
+  # Clean up pip cache and unnecessary files to reduce size
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/*/pip*
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/*/setuptools*
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/*/__pycache__/pip*
+  find "$PYTHON_ENV_DIR" -name "*.pyc" -delete 2>/dev/null || true
+  find "$PYTHON_ENV_DIR" -name "__pycache__" -empty -delete 2>/dev/null || true
+  VENV_SIZE=$(du -sh "$PYTHON_ENV_DIR" | cut -f1)
+  echo "    Python env bundled: ${VENV_SIZE}"
+else
+  echo "    WARNING: No Python 3.10+ found, skipping mlx-lm bundling"
+fi
+
 # Calculate bundle size
 BUNDLE_SIZE=$(du -sh "$BACKEND_DIR" | cut -f1)
-echo "=== Backend bundle complete: ${BUNDLE_SIZE} ==="
+TOTAL_SIZE=$(du -sh "$APP_BUNDLE" | cut -f1)
+echo "=== Backend bundle complete: ${BUNDLE_SIZE} (total app: ${TOTAL_SIZE}) ==="
 echo "    Location: ${BACKEND_DIR}"
