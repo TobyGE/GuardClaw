@@ -51,8 +51,10 @@ actor GuardClawAPI {
 
     // MARK: - Events
 
-    func eventHistory(limit: Int = 30) async throws -> EventHistoryResponse {
-        try await get("/api/events/history?limit=\(limit)")
+    func eventHistory(limit: Int = 30, backend: String? = nil) async throws -> EventHistoryResponse {
+        var query = "/api/events/history?limit=\(limit)"
+        if let backend { query += "&backend=\(backend)" }
+        return try await get(query)
     }
 
     // MARK: - Private

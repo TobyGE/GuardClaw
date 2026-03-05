@@ -12,8 +12,9 @@ final class AppState {
     var pendingApprovals: [ApprovalItem] = []
     var pendingCount: Int { pendingApprovals.count }
 
-    // Events
-    var recentEvents: [EventItem] = []
+    // Per-backend events (fetched server-side with backend= param)
+    var ccEvents: [EventItem] = []
+    var ocEvents: [EventItem] = []
 
     // Icon
     var iconStatus: IconStatus {
@@ -37,32 +38,14 @@ final class AppState {
 
     // MARK: - Stats helpers
 
-    var todayEventCount: Int { serverStatus?.eventsCount ?? 0 }
+    var totalEventCount: Int { serverStatus?.eventsCount ?? 0 }
 
-    /// Only count tool events (not prompts/text) for risk stats
-    private var toolEvents: [EventItem] {
-        recentEvents.filter { $0.type?.contains("tool") == true }
-    }
-
-    var safeCount: Int {
-        toolEvents.filter { $0.effectiveRiskScore < 6 }.count
-    }
-
-    var warnCount: Int {
-        toolEvents.filter {
-            $0.effectiveRiskScore >= 6 && $0.effectiveRiskScore < 9
-        }.count
-    }
-
-    var blockCount: Int {
-        toolEvents.filter { $0.effectiveRiskScore >= 9 }.count
-    }
-
-    var highRiskEvents: [EventItem] {
-        recentEvents
-            .filter { $0.effectiveRiskScore >= 7 }
-            .prefix(5)
-            .map { $0 }
+    func eventsForBackend(_ key: String) -> [EventItem] {
+        switch key {
+        case "claude-code": return ccEvents
+        case "openclaw": return ocEvents
+        default: return []
+        }
     }
 
     // MARK: - Backend status helpers
@@ -73,11 +56,6 @@ final class AppState {
 
     func approvalsForBackend(_ key: String) -> [ApprovalItem] {
         pendingApprovals.filter { $0.backend == key }
-    }
-
-    func eventsForBackend(_ key: String) -> [EventItem] {
-        let provider = providers.first { $0.backendKey == key }
-        return provider?.filterEvents(recentEvents) ?? recentEvents
     }
 
     // MARK: - Polling
@@ -103,20 +81,23 @@ final class AppState {
 
     private func poll() async {
         do {
-            // Fetch status + approvals + events concurrently
+            // Fetch all data concurrently, using server-side backend filtering
             async let statusResult = api.status()
             async let approvalsResult = api.pendingApprovals()
-            async let eventsResult = api.eventHistory(limit: 30)
+            async let ccResult = api.eventHistory(limit: 10000, backend: "claude-code")
+            async let ocResult = api.eventHistory(limit: 10000, backend: "openclaw")
 
             let s = try await statusResult
             let a = try await approvalsResult
-            let e = try await eventsResult
+            let cc = try await ccResult
+            let oc = try await ocResult
 
             let previousPendingIds = Set(pendingApprovals.map(\.id))
 
             serverStatus = s
             pendingApprovals = a.pending
-            recentEvents = e.events
+            ccEvents = cc.events
+            ocEvents = oc.events
             isConnected = true
             lastError = nil
 
@@ -140,7 +121,6 @@ final class AppState {
             } else {
                 let _: ApprovalActionResponse = try await api.approve(id: id)
             }
-            // Remove from local list immediately
             pendingApprovals.removeAll { $0.id == id }
         } catch {
             lastError = "Approve failed: \(error.localizedDescription)"

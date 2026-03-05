@@ -12,24 +12,25 @@ struct ProviderCardView: View {
         appState.approvalsForBackend(provider.backendKey)
     }
 
+    /// All events for this backend (server-side filtered)
     private var backendEvents: [EventItem] {
         appState.eventsForBackend(provider.backendKey)
     }
 
-    private var backendToolEvents: [EventItem] {
-        backendEvents.filter { $0.type?.contains("tool") == true }
-    }
-
+    /// Server thresholds: safe ≤3, warning 3-7, blocked >7
+    /// Use effectiveRiskScore (falls back to safeguard.riskScore)
     private var backendSafeCount: Int {
-        backendToolEvents.filter { $0.effectiveRiskScore < 6 }.count
+        backendEvents.filter { $0.effectiveRiskScore <= 3 }.count
     }
 
     private var backendWarnCount: Int {
-        backendToolEvents.filter { $0.effectiveRiskScore >= 6 && $0.effectiveRiskScore < 9 }.count
+        backendEvents.filter {
+            $0.effectiveRiskScore > 3 && $0.effectiveRiskScore <= 7
+        }.count
     }
 
     private var backendBlockCount: Int {
-        backendToolEvents.filter { $0.effectiveRiskScore >= 9 }.count
+        backendEvents.filter { $0.effectiveRiskScore > 7 }.count
     }
 
     private var backendHighRiskEvents: [EventItem] {
@@ -74,9 +75,9 @@ struct ProviderCardView: View {
 
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("STATS (total: \(backendEvents.count))")
+            sectionHeader("STATS")
 
-            Text("Recent tool events: \(backendSafeCount + backendWarnCount + backendBlockCount)")
+            Text("Events: \(backendEvents.count)")
                 .font(.subheadline)
 
             // Risk distribution bar
