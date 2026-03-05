@@ -53,9 +53,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>${VERSION}</string>
+              <string>${{ env.VERSION }}</string>
               <key>CFBundleVersion</key>
-              <string>${VERSION}</string>
+              <string>${{ env.VERSION }}</string>
               <key>LSMinimumSystemVersion</key>
               <string>14.0</string>
               <key>LSUIElement</key>
@@ -84,7 +84,7 @@ jobs:
             -srcfolder dmg_stage \
             -ov \
             -format UDZO \
-            "GuardClawBar-${VERSION}.dmg"
+            "GuardClawBar-${{ env.VERSION }}.dmg"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
