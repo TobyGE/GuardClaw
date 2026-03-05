@@ -33,9 +33,15 @@ function ApprovalItem({ item, onApprove, onDeny }) {
         <span className={`text-[10px] font-bold uppercase tracking-wider ${labelColor}`}>Blocked</span>
         <span className="text-xs text-gc-text-dim font-mono">{item.originalToolName || item.toolName}</span>
         <span className="text-gc-border text-xs">·</span>
-        <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2 py-0.5">
-          Claude Code
-        </span>
+        {item.backend === 'openclaw' ? (
+          <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
+            OpenClaw
+          </span>
+        ) : (
+          <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-full px-2 py-0.5">
+            Claude Code
+          </span>
+        )}
         <div className="flex-1" />
         <span className={`text-xs font-bold font-mono ${scoreColor} ${scoreBg} border rounded px-1.5 py-0.5`}>
           {score}/10
@@ -62,7 +68,7 @@ function ApprovalItem({ item, onApprove, onDeny }) {
             onClick={() => setExpanded(v => !v)}
             className="text-[10px] text-gc-text-dim hover:text-gc-text transition-colors"
           >
-            {expanded ? '▲ 收起' : `▼ 展开全部 (${lines.length} 行)`}
+            {expanded ? '▲ Collapse' : `▼ Expand all (${lines.length} lines)`}
           </button>
         )}
 

@@ -483,7 +483,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
           <div className="flex gap-2">
             {activeTab === 'llm' && (
               <Btn variant="secondary" onClick={handleTestConnection} disabled={saving}>
-                {saving ? '...' : '<SearchIcon size={14} /> Test'}
+                {saving ? '...' : <><SearchIcon size={14} /> Test</>}
               </Btn>
             )}
             <Btn

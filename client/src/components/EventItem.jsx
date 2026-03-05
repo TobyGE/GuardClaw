@@ -10,8 +10,8 @@ function EventItem({ event }) {
 
   const getRiskLevel = (score, pending, verdict) => {
     if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse' };
-    if (score <= 3) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20' };
-    if (score <= 7) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20' };
+    if (score < 6) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20' };
+    if (score < 9) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20' };
     if (verdict === 'pass-through') return { label: 'FLAGGED', color: 'text-gc-danger bg-gc-danger/20' };
     return { label: 'BLOCKED', color: 'text-gc-danger bg-gc-danger/20' };
   };
@@ -144,7 +144,7 @@ function EventItem({ event }) {
                     onClick={() => setShowFullContent(v => !v)}
                     className="text-xs text-blue-400 hover:text-blue-300 mt-1 transition-colors"
                   >
-                    {showFullContent ? '▲ 收起' : `▼ 展开全部 (${lines.length} 行)`}
+                    {showFullContent ? '▲ Collapse' : `▼ Expand all (${lines.length} lines)`}
                   </button>
                 )}
               </div>

@@ -97,8 +97,8 @@ function ToolIcon({ name, size = 14, className = '' }) {
 function getRiskLevel(score, pending, verdict) {
   if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse', dot: 'bg-blue-400 animate-pulse' };
   if (score === undefined || score === null) return null;
-  if (score <= 3) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20', dot: 'bg-gc-safe' };
-  if (score <= 7) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20', dot: 'bg-gc-warning' };
+  if (score < 6) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20', dot: 'bg-gc-safe' };
+  if (score < 9) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20', dot: 'bg-gc-warning' };
   // High risk: show BLOCKED only if blocking was active (verdict='ask'/'denied'),
   // otherwise show FLAGGED (monitor-only mode, verdict='pass-through')
   if (verdict === 'pass-through') return { label: 'FLAGGED', color: 'text-gc-danger bg-gc-danger/20', dot: 'bg-gc-danger' };

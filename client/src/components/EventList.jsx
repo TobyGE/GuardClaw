@@ -140,12 +140,21 @@ function groupEventsIntoTurns(events) {
   return filtered.reverse();
 }
 
-function EventList({ events }) {
+function EventList({ events, connected }) {
   if (events.length === 0) {
     return (
       <div className="px-6 py-12 text-center text-gc-text-dim">
-        <p className="text-lg">No events yet. Waiting for agent activity...</p>
-        <p className="text-sm mt-2">Events will appear here in real-time</p>
+        {connected === false ? (
+          <>
+            <p className="text-lg text-red-400">Backend disconnected</p>
+            <p className="text-sm mt-2">Waiting to reconnect to GuardClaw server...</p>
+          </>
+        ) : (
+          <>
+            <p className="text-lg">No events yet</p>
+            <p className="text-sm mt-2">Events will appear here in real-time as agents run</p>
+          </>
+        )}
       </div>
     );
   }

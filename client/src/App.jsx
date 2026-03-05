@@ -26,9 +26,9 @@ function App() {
     (acc, event) => {
       acc.totalEvents++;
       const score = event.safeguard?.riskScore;
-      if (score != null && score <= 3) acc.safeCommands++;
-      else if (score != null && score <= 7) acc.warnings++;
-      else if (score != null && score > 7) acc.blocked++;
+      if (score != null && score < 6) acc.safeCommands++;
+      else if (score != null && score < 9) acc.warnings++;
+      else if (score != null && score >= 9) acc.blocked++;
       return acc;
     },
     { totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 }
@@ -215,7 +215,7 @@ function App() {
         retryCount++;
         if (retryCount > MAX_RETRIES) {
           console.warn('[GuardClaw] SSE: max retries reached, will retry in 30s');
-          setTimeout(() => { retryCount = 0; setupSSE(); }, MAX_DELAY);
+          setTimeout(() => { retryCount = 0; connectToBackend(); setupSSE(); }, MAX_DELAY);
           return;
         }
         console.log(`[GuardClaw] SSE: reconnecting in ${retryDelay / 1000}s (attempt ${retryCount}/${MAX_RETRIES})`);
@@ -262,9 +262,9 @@ function App() {
     return events.filter(ev => {
       const score = ev.safeguard?.riskScore;
       if (score == null) return false;
-      if (eventFilter === 'safe') return score <= 3;
-      if (eventFilter === 'warning') return score > 3 && score <= 7;
-      if (eventFilter === 'blocked') return score > 7;
+      if (eventFilter === 'safe') return score < 6;
+      if (eventFilter === 'warning') return score >= 6 && score < 9;
+      if (eventFilter === 'blocked') return score >= 9;
       return true;
     });
   }, [events, eventFilter]);
@@ -280,8 +280,8 @@ function App() {
     ];
   };
 
-  const handleSaveToken = async (newToken) => {
-    setCurrentToken(newToken);
+  const handleSaveToken = async (saved) => {
+    if (saved?.token) setCurrentToken(saved.token);
     // Trigger reconnect by fetching status again
     setTimeout(async () => {
       try {
@@ -459,6 +459,15 @@ function App() {
             </nav>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Connection status */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border ${
+              connected
+                ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                : 'bg-red-500/10 border-red-500/20 text-red-400'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400 animate-pulse'}`} />
+              {connected ? 'Connected' : 'Disconnected'}
+            </div>
             {/* Fail-Closed Toggle */}
             <button
               onClick={() => setShowFailClosedModal(true)}
@@ -548,7 +557,7 @@ function App() {
                 color="text-blue-400"
               />
               <StatCard
-                title="TOTAL EVENTS"
+                title={backendFilter !== 'all' ? `EVENTS (${backendFilter === 'claude-code' ? 'CC' : backendFilter === 'openclaw' ? 'OC' : backendFilter.toUpperCase()})` : 'TOTAL EVENTS'}
                 value={stats.totalEvents}
                 color="text-gc-text"
                 onClick={() => setEventFilter(null)}
@@ -699,7 +708,9 @@ function App() {
                 className="flex-1 overflow-y-auto"
                 ref={scrollContainerRef}
               >
-                <EventList events={
+                <EventList
+                  connected={connected}
+                  events={
                   selectedSession
                     ? filteredEvents.filter(e => {
                         // Support merged sessions (keys array) — match any of the grouped sessionKeys
