@@ -58,10 +58,22 @@ jobs:
           </plist>
           PLIST
 
-      - name: Remove quarantine attributes & create zip
+      - name: Create DMG
         run: |
           xattr -cr GuardClawBar.app
-          zip -r --symlinks GuardClawBar-${{ github.ref_name }}.zip GuardClawBar.app
+
+          # Staging folder for DMG contents
+          mkdir -p dmg_stage
+          cp -R GuardClawBar.app dmg_stage/
+          ln -s /Applications dmg_stage/Applications
+
+          # Create the DMG
+          hdiutil create \
+            -volname "GuardClawBar" \
+            -srcfolder dmg_stage \
+            -ov \
+            -format UDZO \
+            "GuardClawBar-${{ github.ref_name }}.dmg"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -74,17 +86,12 @@ jobs:
             macOS menu bar app for GuardClaw.
 
             ### Install
-            1. Download `GuardClawBar-${{ github.ref_name }}.zip`
-            2. Unzip and move `GuardClawBar.app` to `/Applications`
-            3. **If macOS says "damaged"**, run in Terminal:
-               ```
-               xattr -cr /Applications/GuardClawBar.app
-               ```
-            4. Open normally
+            1. Download `GuardClawBar-${{ github.ref_name }}.dmg`
+            2. Open the DMG, drag **GuardClawBar** into **Applications**
+            3. Eject the DMG, open GuardClawBar from Applications
 
-            > The app is not signed with an Apple Developer certificate.
-            > The `xattr` command removes the quarantine flag macOS adds to downloaded files.
-          files: GuardClawBar-${{ github.ref_name }}.zip
+            > If macOS says "damaged", run: `xattr -cr /Applications/GuardClawBar.app`
+          files: GuardClawBar-${{ github.ref_name }}.dmg
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:
