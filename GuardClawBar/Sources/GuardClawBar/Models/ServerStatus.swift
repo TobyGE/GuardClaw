@@ -10,6 +10,11 @@ struct ServerStatus: Codable, Sendable {
     let failClosed: Bool?
     let healthy: Bool?
     let warnings: [StatusWarning]?
+    let install: InstallInfo?
+}
+
+struct InstallInfo: Codable, Sendable {
+    let daysSinceInstall: Int?
 }
 
 struct BackendStatus: Codable, Sendable {

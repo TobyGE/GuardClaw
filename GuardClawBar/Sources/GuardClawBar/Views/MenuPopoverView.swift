@@ -27,15 +27,22 @@ struct MenuPopoverView: View {
                 .font(.headline)
                 .fontWeight(.bold)
 
+            if appState.daysProtected > 0 {
+                Text("\(appState.daysProtected)d protected")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary)
+                    .clipShape(Capsule())
+            }
+
             Spacer()
 
             HStack(spacing: 4) {
                 Circle()
                     .fill(appState.isConnected ? Color.green : Color.red)
                     .frame(width: 8, height: 8)
-                Text(appState.isConnected ? "Connected" : "Disconnected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)

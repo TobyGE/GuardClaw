@@ -39,6 +39,7 @@ final class AppState {
     // MARK: - Stats helpers
 
     var totalEventCount: Int { serverStatus?.eventsCount ?? 0 }
+    var daysProtected: Int { serverStatus?.install?.daysSinceInstall ?? 0 }
 
     func eventsForBackend(_ key: String) -> [EventItem] {
         switch key {

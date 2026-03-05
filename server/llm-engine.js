@@ -2,16 +2,74 @@
  * Built-in LLM engine — runs MLX models via mlx_lm.server subprocess.
  * Uses OpenAI-compatible API on localhost:8081.
  */
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import http from 'http';
 
-const MODELS_DIR = path.join(os.homedir(), '.guardclaw', 'models');
-const VENV_PYTHON = path.join(os.homedir(), '.guardclaw', 'venv', 'bin', 'python3.13');
+const GUARDCLAW_DIR = path.join(os.homedir(), '.guardclaw');
+const MODELS_DIR = path.join(GUARDCLAW_DIR, 'models');
+const VENV_DIR = path.join(GUARDCLAW_DIR, 'venv');
+const VENV_PYTHON = path.join(VENV_DIR, 'bin', 'python3');
 const MLX_PORT = 8081;
+
+/** Find a working Python 3.10+ on the system */
+function findSystemPython() {
+  const candidates = [
+    '/opt/homebrew/opt/python@3.13/bin/python3.13',
+    '/opt/homebrew/opt/python@3.12/bin/python3.12',
+    '/opt/homebrew/opt/python@3.11/bin/python3.11',
+    '/opt/homebrew/opt/python@3.10/bin/python3.10',
+    '/opt/homebrew/bin/python3',
+    '/usr/local/bin/python3',
+    'python3',
+  ];
+  for (const py of candidates) {
+    try {
+      const version = execFileSync(py, ['--version'], { encoding: 'utf8', timeout: 5000 }).trim();
+      const match = version.match(/Python 3\.(\d+)/);
+      if (match && parseInt(match[1]) >= 10) return py;
+    } catch {}
+  }
+  return null;
+}
+
+/** Ensure venv exists and mlx-lm is installed. Returns true if ready. */
+function ensureVenv() {
+  // Already set up?
+  if (fs.existsSync(VENV_PYTHON)) {
+    try {
+      execFileSync(VENV_PYTHON, ['-c', 'import mlx_lm'], { timeout: 10000 });
+      return true;
+    } catch {} // mlx-lm not installed in existing venv, continue
+  }
+
+  const sysPython = findSystemPython();
+  if (!sysPython) {
+    throw new Error('No Python 3.10+ found. Install Python via: brew install python@3.13');
+  }
+
+  console.log(`[LLMEngine] Setting up Python venv (using ${sysPython})...`);
+
+  if (!fs.existsSync(GUARDCLAW_DIR)) {
+    fs.mkdirSync(GUARDCLAW_DIR, { recursive: true });
+  }
+
+  // Create venv
+  execFileSync(sysPython, ['-m', 'venv', VENV_DIR], { timeout: 30000 });
+
+  // Install mlx-lm
+  console.log('[LLMEngine] Installing mlx-lm (this may take a minute)...');
+  execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', 'mlx-lm'], {
+    timeout: 300000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  console.log('[LLMEngine] Python environment ready');
+  return true;
+}
 
 const MODEL_CATALOG = [
   {
@@ -41,6 +99,13 @@ class LLMEngine extends EventEmitter {
     if (!fs.existsSync(MODELS_DIR)) {
       fs.mkdirSync(MODELS_DIR, { recursive: true });
     }
+  }
+
+  /** Ensure Python venv + mlx-lm are ready. Throws with user-friendly message if not. */
+  _ensureVenv() {
+    if (this._venvReady) return;
+    ensureVenv();
+    this._venvReady = true;
   }
 
   /** Get local path for a model */
@@ -84,6 +149,8 @@ class LLMEngine extends EventEmitter {
     if (this._isDownloaded(catalog)) {
       return { status: 'already_downloaded', path: destPath };
     }
+
+    this._ensureVenv();
 
     const state = { progress: 0, abortController: new AbortController() };
     this._downloading.set(modelId, state);
@@ -218,6 +285,8 @@ print(json.dumps({"done": True, "path": path}), flush=True)
     if (!this._isDownloaded(catalog)) {
       throw new Error(`Model not downloaded: ${modelId}`);
     }
+
+    this._ensureVenv();
 
     // Unload previous model
     if (this._process) {

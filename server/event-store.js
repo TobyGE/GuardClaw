@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 export class EventStore {
-  constructor(maxEvents = 10000) {
+  constructor(maxEvents = 100000) {
     this.maxEvents = maxEvents;
     this.listeners = [];
     this.dataDir = path.join(process.cwd(), '.guardclaw');
@@ -265,7 +265,29 @@ export class EventStore {
   }
 
   _pruneOldEvents() {
-    this._stmtPrune.run(this.maxEvents);
+    // Prune per-backend to prevent one noisy backend from evicting all others.
+    // Each backend gets its own quota (maxEvents each).
+    const backends = this.db.prepare(
+      `SELECT DISTINCT CASE
+        WHEN sessionKey LIKE 'claude-code:%' THEN 'claude-code'
+        WHEN sessionKey LIKE 'agent:%' THEN 'openclaw'
+        WHEN sessionKey LIKE 'nanobot%' THEN 'nanobot'
+        ELSE 'other'
+      END as backend FROM events`
+    ).all().map(r => r.backend);
+
+    for (const backend of backends) {
+      const pattern = backend === 'claude-code' ? 'claude-code:%'
+        : backend === 'openclaw' ? 'agent:%'
+        : backend === 'nanobot' ? 'nanobot%'
+        : '';
+      if (!pattern) continue;
+      this.db.prepare(`
+        DELETE FROM events WHERE sessionKey LIKE ? AND id NOT IN (
+          SELECT id FROM events WHERE sessionKey LIKE ? ORDER BY timestamp DESC LIMIT ?
+        )
+      `).run(pattern, pattern, this.maxEvents);
+    }
   }
 
   shutdown() {
