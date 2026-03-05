@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.4)'
+        required: true
 
 permissions:
   contents: write
@@ -13,6 +17,9 @@ jobs:
   build-and-release:
     name: Build & Release macOS App
     runs-on: macos-15
+
+    env:
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
     steps:
       - name: Checkout
@@ -32,7 +39,7 @@ jobs:
           mkdir -p "$APP_DIR"
           cp GuardClawBar/.build/apple/Products/Release/GuardClawBar "$APP_DIR/GuardClawBar"
 
-          cat > GuardClawBar.app/Contents/Info.plist << 'EOF'
+          cat > GuardClawBar.app/Contents/Info.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -46,9 +53,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>${{ github.ref_name }}</string>
+              <string>${VERSION}</string>
               <key>CFBundleVersion</key>
-              <string>${{ github.ref_name }}</string>
+              <string>${VERSION}</string>
               <key>LSMinimumSystemVersion</key>
               <string>14.0</string>
               <key>LSUIElement</key>
@@ -77,25 +84,25 @@ jobs:
             -srcfolder dmg_stage \
             -ov \
             -format UDZO \
-            "GuardClawBar-${{ github.ref_name }}.dmg"
+            "GuardClawBar-${VERSION}.dmg"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: GuardClawBar ${{ github.ref_name }}
+          tag_name: ${{ env.VERSION }}
+          name: GuardClawBar ${{ env.VERSION }}
           body: |
-            ## GuardClawBar ${{ github.ref_name }}
+            ## GuardClawBar ${{ env.VERSION }}
 
             macOS menu bar app for GuardClaw (universal: Apple Silicon + Intel).
 
             ### Install
-            1. Download `GuardClawBar-${{ github.ref_name }}.dmg`
+            1. Download `GuardClawBar-${{ env.VERSION }}.dmg`
             2. Open the DMG, drag **GuardClawBar** into **Applications**
             3. First launch: right-click → **Open** → click Open in the dialog
             4. If macOS still blocks it, run: `xattr -cr /Applications/GuardClawBar.app`
-          files: GuardClawBar-${{ github.ref_name }}.dmg
+          files: GuardClawBar-${{ env.VERSION }}.dmg
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(env.VERSION, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
