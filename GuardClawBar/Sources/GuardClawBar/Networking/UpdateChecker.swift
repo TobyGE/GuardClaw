@@ -4,7 +4,11 @@ import AppKit
 actor UpdateChecker {
     static let shared = UpdateChecker()
 
-    private let currentVersion = "1.0.4"
+    private var currentVersion: String {
+        // Read from Info.plist (set during CI build), fall back to hardcoded
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            ?? "1.0.10"
+    }
     private let releasesURL = URL(string: "https://api.github.com/repos/TobyGE/GuardClaw/releases/latest")!
 
     struct GitHubRelease: Decodable {
@@ -32,7 +36,8 @@ actor UpdateChecker {
             let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
             let latest = release.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
 
-            if isNewer(latest, than: currentVersion) {
+            let localVersion = currentVersion.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            if isNewer(latest, than: localVersion) {
                 return .newVersion(version: release.tag_name, url: release.html_url)
             } else {
                 return .upToDate

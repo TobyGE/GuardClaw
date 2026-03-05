@@ -41,6 +41,13 @@ final class AppState {
     var totalEventCount: Int { serverStatus?.eventsCount ?? 0 }
     var daysProtected: Int { serverStatus?.install?.daysSinceInstall ?? 0 }
 
+    /// Green if any agent backend connected, yellow if server up but no agents, red if server down
+    var connectionDotColor: Color {
+        guard isConnected, let backends = serverStatus?.backends else { return .red }
+        let anyAgentConnected = backends.values.contains { $0.connected == true }
+        return anyAgentConnected ? .green : .orange
+    }
+
     func eventsForBackend(_ key: String) -> [EventItem] {
         switch key {
         case "claude-code": return ccEvents

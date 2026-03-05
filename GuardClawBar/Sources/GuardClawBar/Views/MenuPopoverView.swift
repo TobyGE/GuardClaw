@@ -40,7 +40,7 @@ struct MenuPopoverView: View {
             Spacer()
 
             Circle()
-                .fill(appState.isConnected ? Color.green : Color.red)
+                .fill(appState.connectionDotColor)
                 .frame(width: 8, height: 8)
         }
         .padding(.horizontal, 16)
