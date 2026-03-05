@@ -407,6 +407,17 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                               </div>
                             </div>
 
+                            {/* Error message */}
+                            {m.setupError && !isBusy && (
+                              <div className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                                <span className="text-red-500 flex-shrink-0 mt-0.5">✕</span>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-medium text-red-700 dark:text-red-300">Setup failed</div>
+                                  <div className="text-[11px] text-red-600 dark:text-red-400 mt-0.5 break-words">{m.setupError}</div>
+                                </div>
+                              </div>
+                            )}
+
                             {/* Progress / status area (downloading or loading) */}
                             {isBusy && (
                               <div className="mt-3 space-y-2">

@@ -125,6 +125,9 @@ const ccLastReadLine = new Map();    // session_id → last line number processe
 // Active CC sub-agents: session_id → { agent_id, agent_type, startTime }
 // When a sub-agent is active, tool calls from that session_id are attributed to it.
 const ccActiveSubagents = new Map();
+// Track when the last CC hook was received (for connection status)
+let ccLastHookTime = 0;
+const CC_CONNECTED_TIMEOUT_MS = 120_000; // consider CC disconnected after 2min of no hooks
 // Track PreToolUse 'ask' decisions awaiting PostToolUse feedback (approve/deny inference)
 // Key: `${sessionKey}:${toolName}:${commandHash}` → { toolName, commandStr, displayInput, riskScore, sessionKey, timestamp }
 const ccPendingAsks = new Map();
@@ -361,15 +364,17 @@ app.get('/api/status', async (req, res) => {
   const approvalStats = approvalHandler ? approvalHandler.getStats() : null;
 
   // Per-backend connection status
+  const backendLabels = { openclaw: 'OC', nanobot: 'NB' };
   const backends = {};
   for (const { client, name } of activeClients) {
-    backends[name] = client.getConnectionStats();
+    backends[name] = { ...client.getConnectionStats(), label: backendLabels[name] || name };
   }
-  // Claude Code is always "connected" — it's an HTTP hook, no WebSocket needed
-  backends['claude-code'] = { connected: true, label: 'Claude Code', type: 'http-hook' };
+  // Claude Code uses HTTP hooks — consider it "connected" if we received a hook recently
+  const ccConnected = ccLastHookTime > 0 && (Date.now() - ccLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
+  backends['claude-code'] = { connected: ccConnected, label: 'CC', type: 'http-hook' };
 
   // Connected if ANY backend is connected
-  const anyConnected = activeClients.some(({ client }) => client.connected);
+  const anyConnected = ccConnected || activeClients.some(({ client }) => client.connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -1085,6 +1090,7 @@ function emitIntermediateText(session_id) {
 }
 
 app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+  ccLastHookTime = Date.now();
   console.log(`[GuardClaw] 🔔 pre-tool-use received:`, JSON.stringify(req.body).slice(0, 500));
   const { tool_name, tool_input, session_id } = req.body;
   if (!tool_name) return res.json({});
@@ -1359,6 +1365,7 @@ const CONTENT_CREDENTIAL_ALERTS = [
 
 // Post-tool-use: store results for chain analysis + scan Read content
 app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
+  ccLastHookTime = Date.now();
   const { tool_name, tool_input, tool_output, session_id } = req.body;
   if (!tool_name) return res.json({});
 
@@ -1438,6 +1445,7 @@ const PROMPT_INJECTION_PATTERNS = [
 ];
 
 app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
+  ccLastHookTime = Date.now();
   const { session_id, prompt } = req.body;
   if (!prompt) return res.json({});
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';

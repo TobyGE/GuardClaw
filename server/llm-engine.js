@@ -91,6 +91,7 @@ class LLMEngine extends EventEmitter {
     this._downloading = new Map(); // modelId -> { progress, abortController }
     this._loadingModelId = null; // modelId currently being loaded
     this._statusMessage = null;  // human-readable status for UI
+    this._setupError = null;     // last setup/download error for UI
   }
 
   get modelsDir() {
@@ -136,6 +137,7 @@ class LLMEngine extends EventEmitter {
         loading: this._loadingModelId === m.id,
         loaded: this._loadedModelId === m.id,
         statusMessage: this._statusMessage,
+        setupError: this._setupError,
         filePath: downloaded ? this._modelPath(m) : null,
       };
     });
@@ -148,6 +150,7 @@ class LLMEngine extends EventEmitter {
     if (this._downloading.has(modelId)) throw new Error(`Already downloading: ${modelId}`);
 
     this._ensureDir();
+    this._setupError = null;
     const destPath = this._modelPath(catalog);
 
     if (this._isDownloaded(catalog)) {
@@ -155,7 +158,13 @@ class LLMEngine extends EventEmitter {
     }
 
     this._statusMessage = 'Setting up Python environment...';
-    this._ensureVenv();
+    try {
+      this._ensureVenv();
+    } catch (err) {
+      this._statusMessage = null;
+      this._setupError = err.message;
+      throw err;
+    }
     this._statusMessage = 'Starting download...';
 
     const state = { progress: 0, abortController: new AbortController() };
@@ -228,6 +237,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
         } else {
           this._statusMessage = null;
           const err = new Error(`Download failed (code ${code}): ${stderr.slice(-500)}`);
+          this._setupError = err.message;
           this.emit('download-error', { modelId, error: err.message });
           reject(err);
         }
@@ -307,6 +317,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
     }
 
     this._loadingModelId = modelId;
+    this._setupError = null;
     this._statusMessage = 'Setting up Python environment...';
 
     try {
@@ -356,6 +367,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
     } catch (err) {
       this._loadingModelId = null;
       this._statusMessage = null;
+      this._setupError = err.message;
       throw err;
     }
   }
