@@ -1,5 +1,5 @@
 import { BenchmarkIcon, CpuIcon, LlamaIcon, CheckIcon, XIcon } from "./icons";
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const VERDICT_STYLE = {
   SAFE: 'text-gc-safe bg-gc-safe/20',
@@ -8,6 +8,21 @@ const VERDICT_STYLE = {
   ANALYZING: 'text-blue-400 bg-blue-400/20 animate-pulse',
   ALLOW: 'text-gc-safe bg-gc-safe/20',
 };
+
+const DIFFICULTY_STYLE = {
+  easy: 'text-emerald-400 bg-emerald-500/15',
+  medium: 'text-amber-400 bg-amber-500/15',
+  hard: 'text-red-400 bg-red-500/15',
+};
+
+function DifficultyBadge({ level }) {
+  const cls = DIFFICULTY_STYLE[level] || 'text-gray-400 bg-gray-400/20';
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${cls}`}>
+      {level}
+    </span>
+  );
+}
 
 function VerdictBadge({ verdict }) {
   const cls = VERDICT_STYLE[verdict] || 'text-gray-400 bg-gray-400/20';
@@ -32,6 +47,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
+  const [expandedRow, setExpandedRow] = useState(null);
   const esRef = useRef(null);
 
   // Fetch available models from both LM Studio and Ollama
@@ -97,6 +113,10 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           setSummary(data);
           setRunning(false);
           es.close();
+        } else if (data.type === 'aborted') {
+          setError('Benchmark aborted');
+          setRunning(false);
+          es.close();
         } else if (data.type === 'error') {
           setError(data.error);
           setRunning(false);
@@ -110,6 +130,15 @@ export default function BenchmarkModal({ isOpen, onClose }) {
       setRunning(false);
       es.close();
     };
+  };
+
+  const handleAbort = async () => {
+    try {
+      await fetch('/api/benchmark/abort', { method: 'POST' });
+    } catch {}
+    if (esRef.current) esRef.current.close();
+    setRunning(false);
+    setError('Benchmark aborted');
   };
 
   const accColor = (acc) => acc >= 0.95 ? 'text-gc-safe' : acc >= 0.80 ? 'text-yellow-500' : 'text-gc-danger';
@@ -126,7 +155,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white"><BenchmarkIcon size={18} /></div>
             <div>
               <h2 className="text-lg font-bold text-gc-text">Model Benchmark</h2>
-              <p className="text-xs text-gray-400">BLOCK vs ALLOW · 30 tool-trace scenarios</p>
+              <p className="text-xs text-gray-400">BLOCK vs ALLOW · tool-trace + intent alignment scenarios</p>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gc-text hover:bg-gc-border transition-colors">✕</button>
@@ -250,31 +279,71 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gc-border">
-                  {results.map((r) => (
-                    <tr key={r.id} className={r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}>
-                      <td className="px-4 py-2.5 text-center">{r.correct ? <CheckIcon size={16} className='text-gc-safe mx-auto' /> : <XIcon size={16} className='text-gc-danger mx-auto' />}</td>
-                      <td className="px-4 py-2.5">
-                        <div className="font-medium text-gc-text">{r.label}</div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {r.tools.map((t, i) => (
-                            <span key={i}>
-                              {i > 0 && <span className="mx-1 text-gray-300">→</span>}
-                              <span className="font-mono">{t}</span>
-                            </span>
-                          ))}
-                        </div>
-                        {!r.correct && r.reasoning && (
-                          <div className="text-xs text-red-500 dark:text-red-400 mt-1 italic">
-                            {r.reasoning.substring(0, 150)}
-                          </div>
+                  {results.map((r) => {
+                    const isExpanded = expandedRow === r.id;
+                    return (
+                      <React.Fragment key={r.id}>
+                        <tr
+                          className={`cursor-pointer hover:bg-gc-border/20 transition-colors ${r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}`}
+                          onClick={() => setExpandedRow(isExpanded ? null : r.id)}
+                        >
+                          <td className="px-4 py-2.5 text-center">{r.correct ? <CheckIcon size={16} className='text-gc-safe mx-auto' /> : <XIcon size={16} className='text-gc-danger mx-auto' />}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="font-medium text-gc-text flex items-center gap-2">
+                              <span className="text-gc-text-dim text-xs">{isExpanded ? '▼' : '▶'}</span>
+                              {r.label}
+                              <DifficultyBadge level={r.difficulty} />
+                            </div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {r.tools.map((t, i) => (
+                                <span key={i}>
+                                  {i > 0 && <span className="mx-1 text-gray-300">→</span>}
+                                  <span className="font-mono">{t}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.expected)} /></td>
+                          <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.actual)} /></td>
+                          <td className="px-4 py-2.5 text-right font-mono text-gray-500">{r.score}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-gray-400">{r.elapsed}</td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-gc-bg/50">
+                            <td colSpan={6} className="px-6 py-3">
+                              <div className="space-y-2 text-xs">
+                                {r.taskContext?.userPrompt && (
+                                  <div>
+                                    <span className="text-gc-text-dim font-semibold">User Prompt:</span>
+                                    <code className="ml-2 text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">{r.taskContext.userPrompt}</code>
+                                  </div>
+                                )}
+                                <div>
+                                  <span className="text-gc-text-dim font-semibold">Trace:</span>
+                                  <div className="mt-1 space-y-1">
+                                    {(r.traceDetails || []).map((step, i) => (
+                                      <div key={i} className="flex items-start gap-2">
+                                        <span className="text-gc-text-dim font-mono shrink-0">{i + 1}.</span>
+                                        <span className="font-mono text-blue-400 shrink-0">{step.tool}</span>
+                                        <code className="text-gc-text bg-gc-bg px-1.5 py-0.5 rounded break-all">{step.summary}</code>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-gc-text-dim font-semibold">Reasoning:</span>
+                                  <p className="mt-1 text-gc-text bg-gc-bg px-2 py-1.5 rounded whitespace-pre-wrap">{r.reasoning || '(none)'}</p>
+                                </div>
+                                <div className="flex gap-4 text-gc-text-dim">
+                                  <span>Backend: <span className="text-gc-text font-mono">{r.backend}</span></span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.expected)} /></td>
-                      <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.actual)} /></td>
-                      <td className="px-4 py-2.5 text-right font-mono text-gray-500">{r.score}</td>
-                      <td className="px-4 py-2.5 text-right font-mono text-gray-400">{r.elapsed}</td>
-                    </tr>
-                  ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -286,7 +355,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
               <div className="mb-3"><BenchmarkIcon size={40} /></div>
               <h3 className="text-lg font-semibold text-gc-text mb-2">Security Benchmark</h3>
               <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
-                30 tool-trace scenarios testing BLOCK detection accuracy.
+                tool-trace + intent alignment scenarios testing BLOCK detection accuracy.
               </p>
               <p className="text-xs text-gray-400 max-w-md mx-auto">
                 Each trace simulates a real agent workflow (read → edit → exec) and tests whether
@@ -299,13 +368,23 @@ export default function BenchmarkModal({ isOpen, onClose }) {
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
           <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">Close</button>
-          <button
-            onClick={handleRun}
-            disabled={running || !selectedModel}
-            className="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {running ? `Running (${progress?.current || 0}/${progress?.total || '?'})...` : summary ? '↻ Run Again' : '▶ Run Benchmark'}
-          </button>
+          <div className="flex items-center gap-2">
+            {running && (
+              <button
+                onClick={handleAbort}
+                className="px-4 py-2.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white shadow-sm transition-colors"
+              >
+                Stop
+              </button>
+            )}
+            <button
+              onClick={handleRun}
+              disabled={running || !selectedModel}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {running ? `Running (${progress?.current || 0}/${progress?.total || '?'})...` : summary ? '↻ Run Again' : '▶ Run Benchmark'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

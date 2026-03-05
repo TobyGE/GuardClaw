@@ -1,12 +1,12 @@
 import GuardClawLogo from './GuardClawLogo';
-import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, MessageIcon, WrenchIcon } from './icons';
+import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, MessageIcon, WrenchIcon, GitBranchIcon } from './icons';
 import { useState } from 'react';
 
 function EventItem({ event }) {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [showFullContent, setShowFullContent] = useState(false);
-  const CONTENT_PREVIEW_LINES = 5;
+  const CONTENT_PREVIEW_LINES = 2;
 
   const getRiskLevel = (score, pending, verdict) => {
     if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse' };
@@ -46,6 +46,9 @@ function EventItem({ event }) {
   const riskLevel = event.safeguard?.riskScore !== undefined
     ? getRiskLevel(event.safeguard.riskScore, event.safeguard?.pending, event.safeguard?.verdict)
     : null;
+
+  const isSubagent = event.sessionKey?.includes(':subagent:');
+  const subagentShortId = isSubagent ? event.sessionKey.split(':subagent:')[1]?.substring(0, 8) : null;
 
   const eventType = event.type || event.tool || 'unknown';
   const displayName = eventType === 'tool-call' 
@@ -109,6 +112,11 @@ function EventItem({ event }) {
                displayName === 'message' ? <><MessageIcon size={14} /> message</> :
                <><WrenchIcon size={14} /> {displayName}</>}
             </span>
+            {isSubagent && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 font-medium inline-flex items-center gap-1">
+                <GitBranchIcon size={10} /> {subagentShortId}
+              </span>
+            )}
             {status === 'aborted' && (
               <span className="text-xs px-2 py-1 rounded bg-gc-text-dim/20 text-gc-text-dim">
                 (aborted)

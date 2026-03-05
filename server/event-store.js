@@ -167,8 +167,15 @@ export class EventStore {
 
     if (session) {
       // Support merged sessions: agent:main:telegram matches agent:main:telegram:*
-      sql += ' AND (sessionKey = ? OR sessionKey LIKE ?)';
-      params.push(session, session + ':%');
+      // But exclude subagent events from parent session queries
+      if (session.includes(':subagent:')) {
+        // Subagent tab: exact match only
+        sql += ' AND sessionKey = ?';
+        params.push(session);
+      } else {
+        sql += ' AND (sessionKey = ? OR (sessionKey LIKE ? AND sessionKey NOT LIKE ?))';
+        params.push(session, session + ':%', '%:subagent:%');
+      }
     }
 
     if (filter === 'safe') {

@@ -21,7 +21,7 @@ function App() {
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
 
-  // Stats derived from current events (updates automatically when events/filter changes)
+  // Stats derived from current events (updates when events change via tab/filter)
   const stats = useMemo(() => events.reduce(
     (acc, event) => {
       acc.totalEvents++;
@@ -163,8 +163,10 @@ function App() {
           || (bf === 'nanobot' && eventSessionKey2.includes('nanobot'))
           || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'));
         // Support merged sessions: if selectedSession is a channel prefix (e.g. agent:main:cron),
-        // match all sessionKeys that start with it
-        const matchesSession = !ss || eventSessionKey2 === ss || eventSessionKey2.startsWith(ss + ':');
+        // match all sessionKeys that start with it — but exclude subagent events from non-CC parent sessions
+        const matchesSession = !ss
+          || eventSessionKey2 === ss
+          || (eventSessionKey2.startsWith(ss + ':') && (bf === 'claude-code' || !eventSessionKey2.includes(':subagent:')));
         if (matchesBackend && matchesSession) {
           setEvents((prev) => [newEvent, ...prev]);
         }
@@ -234,16 +236,15 @@ function App() {
     };
   }, []);
 
-  // Refetch events when filter, backend, or session changes
+  // Refetch events when backend or session changes (NOT eventFilter — that's applied client-side)
   useEffect(() => {
-    setEvents([]); // clear immediately so stale tab events don't show during fetch
+    let cancelled = false;
     const refetchEvents = async () => {
       try {
-        const filterParam = eventFilter ? `&filter=${eventFilter}` : '';
         const backendParam = backendFilter !== 'all' ? `&backend=${backendFilter}` : '';
         const sessionParam = selectedSession ? `&session=${encodeURIComponent(selectedSession)}` : '';
-        const response = await fetch(`/api/events/history?limit=9999${filterParam}${backendParam}${sessionParam}`);
-        if (response.ok) {
+        const response = await fetch(`/api/events/history?limit=9999${backendParam}${sessionParam}`);
+        if (response.ok && !cancelled) {
           const data = await response.json();
           setEvents(data.events || []);
         }
@@ -252,7 +253,21 @@ function App() {
       }
     };
     refetchEvents();
-  }, [eventFilter, backendFilter, selectedSession]);
+    return () => { cancelled = true; };
+  }, [backendFilter, selectedSession]);
+
+  // Client-side filter for stat card clicks — events stay full, only display is filtered
+  const filteredEvents = useMemo(() => {
+    if (!eventFilter) return events;
+    return events.filter(ev => {
+      const score = ev.safeguard?.riskScore;
+      if (score == null) return false;
+      if (eventFilter === 'safe') return score <= 3;
+      if (eventFilter === 'warning') return score > 3 && score <= 7;
+      if (eventFilter === 'blocked') return score > 7;
+      return true;
+    });
+  }, [events, eventFilter]);
 
   const getGatewayDetails = () => {
     if (!connectionStats) return [];
@@ -631,7 +646,7 @@ function App() {
                 const visibleSessions = sessions.filter(s => {
                   if (isOC) return s.key.startsWith('agent:') && s.key !== 'agent:main:main';
                   if (backendFilter === 'nanobot') return s.key.startsWith('nanobot');
-                  if (isCC) return s.key.startsWith('claude-code:') && s.isSubagent;
+                  if (isCC) return false; // CC subagents fold into Main tab (ephemeral, fire-and-forget)
                   // "All" view: exclude CC sessions (they have their own Main/Sub-agent tabs in CC view)
                   if (backendFilter === 'all' && s.key.startsWith('claude-code:')) return false;
                   return true;
@@ -686,13 +701,13 @@ function App() {
               >
                 <EventList events={
                   selectedSession
-                    ? events.filter(e => {
+                    ? filteredEvents.filter(e => {
                         // Support merged sessions (keys array) — match any of the grouped sessionKeys
                         const sess = sessions.find(s => s.key === selectedSession);
                         if (sess?.keys) return sess.keys.includes(e.sessionKey);
                         return e.sessionKey === selectedSession;
                       })
-                    : events
+                    : filteredEvents
                 } />
               </div>
             </div>

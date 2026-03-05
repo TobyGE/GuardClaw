@@ -118,6 +118,24 @@ const ccLastReadLine = new Map();    // session_id → last line number processe
 // Active CC sub-agents: session_id → { agent_id, agent_type, startTime }
 // When a sub-agent is active, tool calls from that session_id are attributed to it.
 const ccActiveSubagents = new Map();
+// Track PreToolUse 'ask' decisions awaiting PostToolUse feedback (approve/deny inference)
+// Key: `${sessionKey}:${toolName}:${commandHash}` → { toolName, commandStr, displayInput, riskScore, sessionKey, timestamp }
+const ccPendingAsks = new Map();
+const PENDING_ASK_TIMEOUT_MS = 15_000; // fallback: infer denial after 15s with no PostToolUse
+
+// Infer denials for pending asks in a session.
+// Called on each new hook — if a new hook arrives and the pending ask wasn't cleared
+// by PostToolUse (approve), it means the user denied it.
+// excludeKey: skip this key (used in PostToolUse to avoid inferring denial for the current tool)
+function inferPendingDenials(sessionKey, excludeKey = null) {
+  for (const [key, ask] of ccPendingAsks) {
+    if (ask.sessionKey === sessionKey && key !== excludeKey) {
+      ccPendingAsks.delete(key);
+      memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
+      console.log(`[GuardClaw] 🧠 Memory: user DENIED blocked action → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+    }
+  }
+}
 const EVAL_CACHE_TTL_MS = 60_000;
 
 function generateId(prefix = 'evt') {
@@ -1072,6 +1090,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
     : 'claude-code:default';
 
+  // Infer denials for any stale pending asks from this session
+  inferPendingDenials(sessionKey);
+
   // Capture any assistant text output before this tool call
   if (session_id) emitIntermediateText(session_id);
 
@@ -1232,6 +1253,21 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     if (blockingEnabled) {
       const askMsg = `⛨ GuardClaw: high-risk action detected (score: ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
       console.log(`[GuardClaw] ❓ Claude Code asking user: ${tool_name} (score ${analysis.riskScore})`);
+      // Track this 'ask' so we can infer approve/deny from PostToolUse
+      const askKey = `${sessionKey}:${gcToolName}:${commandStr.slice(0, 200)}`;
+      ccPendingAsks.set(askKey, {
+        toolName: gcToolName, commandStr, displayInput, riskScore: analysis.riskScore,
+        sessionKey, timestamp: Date.now(),
+      });
+      // Fallback: infer denial after timeout if no PostToolUse comes
+      setTimeout(() => {
+        const pending = ccPendingAsks.get(askKey);
+        if (pending) {
+          ccPendingAsks.delete(askKey);
+          memoryStore.recordDecision(pending.toolName, pending.displayInput, pending.riskScore, 'deny', pending.sessionKey);
+          console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (timeout) → ${pending.toolName}: ${pending.commandStr.slice(0, 80)}`);
+        }
+      }, PENDING_ASK_TIMEOUT_MS);
       return res.json({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -1326,6 +1362,18 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
     ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
     : 'claude-code:default';
 
+  // Check if this tool had a pending 'ask' — PostToolUse means user approved
+  const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+  const askKey = `${sessionKey}:${gcToolName}:${commandStr.slice(0, 200)}`;
+  const pendingAsk = ccPendingAsks.get(askKey);
+  if (pendingAsk) {
+    ccPendingAsks.delete(askKey);
+    memoryStore.recordDecision(pendingAsk.toolName, pendingAsk.displayInput, pendingAsk.riskScore, 'approve', sessionKey);
+    console.log(`[GuardClaw] 🧠 Memory: user APPROVED blocked action → ${pendingAsk.toolName}: ${pendingAsk.commandStr.slice(0, 80)}`);
+  }
+  // Infer denials for any OTHER pending asks in this session (different tools that were denied)
+  inferPendingDenials(sessionKey, askKey);
+
   // Store in toolHistoryStore for chain analysis
   const resultSnippet = typeof tool_output === 'string'
     ? tool_output.slice(0, 500)
@@ -1387,6 +1435,9 @@ app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
   if (!prompt) return res.json({});
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
   const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+
+  // Infer denials for any pending asks (user moved on to next prompt)
+  inferPendingDenials(sessionKey);
 
   // Detect prompt injection attempts
   let injectionDetected = false;
@@ -2531,8 +2582,19 @@ app.listen(PORT, () => {
           }
         }
 
-        if (evicted || histEvicted || ccEvicted) {
-          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted}, ccTranscript=${ccEvicted} sessions evicted`);
+        // 5. Infer denials from timed-out pending asks (no PostToolUse received)
+        let denyInferred = 0;
+        for (const [key, ask] of ccPendingAsks) {
+          if (now - ask.timestamp > PENDING_ASK_TIMEOUT_MS) {
+            ccPendingAsks.delete(key);
+            memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
+            console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (timeout) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+            denyInferred++;
+          }
+        }
+
+        if (evicted || histEvicted || ccEvicted || denyInferred) {
+          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted}, ccTranscript=${ccEvicted}, denyInferred=${denyInferred}`);
         }
       }, 300_000);
 

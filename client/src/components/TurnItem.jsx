@@ -352,16 +352,18 @@ function ReplyText({ text, expanded, onToggle }) {
 function IntermediateText({ text }) {
   const [expanded, setExpanded] = useState(false);
   if (!text) return null;
-  const lineCount = text.split('\n').filter(l => l.trim()).length;
-  const hasMore = lineCount > 2 || text.length > 100;
+  const lines = text.split('\n');
+  const MAX_LINES = 2;
+  const hasMore = lines.length > MAX_LINES || text.length > 120;
+  const preview = hasMore ? lines.slice(0, MAX_LINES).join('\n').slice(0, 120) : text;
   return (
     <div
       className={`text-xs text-gc-text bg-purple-500/10 border border-purple-400/20 rounded-lg px-3 py-2 ${hasMore ? 'cursor-pointer' : ''}`}
       onClick={() => hasMore && setExpanded(v => !v)}
     >
       <span className="text-purple-400 text-[10px] font-semibold mr-1.5">ASSISTANT</span>
-      <span className={`whitespace-pre-wrap break-words ${!expanded && hasMore ? 'line-clamp-2 block' : ''}`}>
-        {text}
+      <span className="whitespace-pre-wrap break-words">
+        {expanded ? text : preview}{!expanded && hasMore ? '...' : ''}
       </span>
       {hasMore && !expanded && (
         <span className="text-blue-400 text-[10px] mt-1 block select-none">show more ▼</span>
