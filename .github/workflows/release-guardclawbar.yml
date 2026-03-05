@@ -55,8 +55,10 @@ jobs:
       - name: Package .app bundle
         run: |
           APP_DIR="GuardClawBar.app/Contents/MacOS"
-          mkdir -p "$APP_DIR"
+          RES_DIR="GuardClawBar.app/Contents/Resources"
+          mkdir -p "$APP_DIR" "$RES_DIR"
           cp GuardClawBar/.build/apple/Products/Release/GuardClawBar "$APP_DIR/GuardClawBar"
+          cp GuardClawBar/Sources/GuardClawBar/Resources/AppIcon.icns "$RES_DIR/AppIcon.icns"
 
           cat > GuardClawBar.app/Contents/Info.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -71,6 +73,8 @@ jobs:
               <string>GuardClawBar</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
+              <key>CFBundleIconFile</key>
+              <string>AppIcon</string>
               <key>CFBundleShortVersionString</key>
               <string>$VERSION</string>
               <key>CFBundleVersion</key>
