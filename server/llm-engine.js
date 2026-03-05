@@ -8,6 +8,9 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import http from 'http';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const GUARDCLAW_DIR = path.join(os.homedir(), '.guardclaw');
 const MODELS_DIR = path.join(GUARDCLAW_DIR, 'models');
