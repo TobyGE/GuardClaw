@@ -25,16 +25,19 @@ const MLX_PORT = 8081;
  */
 function findBundledPython() {
   // __dirname → .../Contents/Resources/backend/server
-  // bundled venv → .../Contents/Resources/python-env
+  // bundled python → .../Contents/Resources/python-env/bin/python3
   const bundled = path.resolve(__dirname, '..', '..', 'python-env', 'bin', 'python3');
+  console.log(`[LLMEngine] Checking bundled Python at: ${bundled}`);
   if (fs.existsSync(bundled)) {
     try {
-      execFileSync(bundled, ['-c', 'import mlx_lm'], { timeout: 10000 });
+      execFileSync(bundled, ['-c', 'import mlx_lm'], { timeout: 15000 });
       console.log(`[LLMEngine] Using bundled Python: ${bundled}`);
       return bundled;
-    } catch {
-      console.log('[LLMEngine] Bundled Python found but mlx-lm not working');
+    } catch (err) {
+      console.log(`[LLMEngine] Bundled Python found but mlx-lm not working: ${err.message}`);
     }
+  } else {
+    console.log(`[LLMEngine] No bundled Python found at that path`);
   }
   return null;
 }
@@ -215,18 +218,18 @@ class LLMEngine extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const pyScript = `
-import sys, json
+import sys, json, os
 from huggingface_hub import snapshot_download
-from huggingface_hub.utils import tqdm as hf_tqdm
 
 path = snapshot_download(
-    "${catalog.hfRepo}",
-    local_dir="${destPath}",
+    os.environ["HF_REPO"],
+    local_dir=os.environ["DEST_PATH"],
 )
 print(json.dumps({"done": True, "path": path}), flush=True)
 `;
       const proc = spawn(resolvedPython, ['-u', '-c', pyScript], {
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, HF_REPO: catalog.hfRepo, DEST_PATH: destPath },
       });
 
       if (state.abortController.signal.aborted) {

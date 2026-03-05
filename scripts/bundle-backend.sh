@@ -80,37 +80,56 @@ rm -rf "$BACKEND_DIR/node_modules/.package-lock.json"
 find "$BACKEND_DIR/node_modules" -name "test" -type d -maxdepth 3 -exec rm -rf {} + 2>/dev/null || true
 find "$BACKEND_DIR/node_modules" -name "*.md" -maxdepth 3 -delete 2>/dev/null || true
 
-# Step 4: Bundle Python venv with mlx-lm (for built-in LLM engine)
-echo "--- Setting up Python venv with mlx-lm..."
+# Step 4: Bundle standalone Python + mlx-lm (for built-in LLM engine)
+echo "--- Bundling standalone Python with mlx-lm..."
 PYTHON_ENV_DIR="${APP_BUNDLE}/Contents/Resources/python-env"
 
-# Find Python 3.10+
-SYSTEM_PYTHON=""
-for py in python3.13 python3.12 python3.11 python3.10 python3; do
-  if command -v "$py" &>/dev/null; then
-    ver=$("$py" --version 2>&1 | grep -oE '3\.[0-9]+')
-    minor=$(echo "$ver" | cut -d. -f2)
-    if [ "$minor" -ge 10 ] 2>/dev/null; then
-      SYSTEM_PYTHON="$py"
-      break
-    fi
-  fi
-done
+# Use python-build-standalone for a fully portable Python
+# These are self-contained builds that don't depend on system libraries
+PY_VERSION="3.12.10"
+PY_TAG="20250409"
+PY_ARCH="aarch64"  # Apple Silicon only (MLX requires it)
+PY_URL="https://github.com/indygreg/python-build-standalone/releases/download/${PY_TAG}/cpython-${PY_VERSION}+${PY_TAG}-${PY_ARCH}-apple-darwin-install_only.tar.gz"
+PY_TARBALL="${CACHE_DIR}/python-standalone-${PY_VERSION}-${PY_ARCH}.tar.gz"
+PY_EXTRACT="${CACHE_DIR}/python-standalone-${PY_VERSION}"
 
-if [ -n "$SYSTEM_PYTHON" ]; then
-  echo "    Using Python: $SYSTEM_PYTHON ($($SYSTEM_PYTHON --version))"
-  "$SYSTEM_PYTHON" -m venv "$PYTHON_ENV_DIR"
+mkdir -p "$CACHE_DIR"
+
+if [ ! -f "${PY_EXTRACT}/python/bin/python3" ]; then
+  echo "    Downloading standalone Python ${PY_VERSION}..."
+  curl -fsSL "$PY_URL" -o "$PY_TARBALL"
+  mkdir -p "$PY_EXTRACT"
+  tar -xzf "$PY_TARBALL" -C "$PY_EXTRACT"
+  rm -f "$PY_TARBALL"
+fi
+
+STANDALONE_PYTHON="${PY_EXTRACT}/python/bin/python3"
+
+if [ -f "$STANDALONE_PYTHON" ]; then
+  echo "    Using standalone Python: $($STANDALONE_PYTHON --version)"
+
+  # Copy the standalone Python into the app bundle
+  cp -R "${PY_EXTRACT}/python" "$PYTHON_ENV_DIR"
+
+  # Install mlx-lm into the standalone Python
   "$PYTHON_ENV_DIR/bin/python3" -m pip install --quiet --no-cache-dir mlx-lm
-  # Clean up pip cache and unnecessary files to reduce size
+
+  # Clean up to reduce size
+  rm -rf "$PYTHON_ENV_DIR/share"
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/test
   rm -rf "$PYTHON_ENV_DIR/lib/python"*/*/pip*
   rm -rf "$PYTHON_ENV_DIR/lib/python"*/*/setuptools*
-  rm -rf "$PYTHON_ENV_DIR/lib/python"*/*/__pycache__/pip*
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/ensurepip
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/idlelib
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/tkinter
+  rm -rf "$PYTHON_ENV_DIR/lib/python"*/turtle*
   find "$PYTHON_ENV_DIR" -name "*.pyc" -delete 2>/dev/null || true
-  find "$PYTHON_ENV_DIR" -name "__pycache__" -empty -delete 2>/dev/null || true
+  find "$PYTHON_ENV_DIR" -name "__pycache__" -type d -empty -delete 2>/dev/null || true
+
   VENV_SIZE=$(du -sh "$PYTHON_ENV_DIR" | cut -f1)
   echo "    Python env bundled: ${VENV_SIZE}"
 else
-  echo "    WARNING: No Python 3.10+ found, skipping mlx-lm bundling"
+  echo "    WARNING: Failed to download standalone Python, skipping mlx-lm bundling"
 fi
 
 # Calculate bundle size
