@@ -5,6 +5,9 @@ struct SettingsView: View {
     @State private var pollInterval: Double = SettingsStore.shared.pollInterval
     @State private var models: [BuiltinModel] = []
     @State private var isLoadingModels = true
+    @State private var ccHooksInstalled: Bool? = nil
+    @State private var ccSetupMessage: String? = nil
+    @State private var ocConnected = false
 
     private let api = GuardClawAPI()
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
@@ -38,6 +41,53 @@ struct SettingsView: View {
 
                 Divider()
 
+                // -- Connections --
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Connections")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    // Claude Code
+                    HStack {
+                        Circle()
+                            .fill(ccHooksInstalled == true ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("Claude Code")
+                            .font(.caption)
+                        Spacer()
+                        if ccHooksInstalled == true {
+                            Text("Hooks installed")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green)
+                        } else {
+                            Button("Setup") { setupClaudeCode() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        }
+                    }
+
+                    // OpenClaw
+                    HStack {
+                        Circle()
+                            .fill(ocConnected ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("OpenClaw")
+                            .font(.caption)
+                        Spacer()
+                        Text(ocConnected ? "Connected" : "Not connected")
+                            .font(.system(size: 9))
+                            .foregroundStyle(ocConnected ? .green : .secondary)
+                    }
+
+                    if let msg = ccSetupMessage {
+                        Text(msg)
+                            .font(.system(size: 9))
+                            .foregroundStyle(msg.contains("✓") ? .green : .red)
+                    }
+                }
+
+                Divider()
+
                 // -- Server URL --
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Server URL")
@@ -66,9 +116,9 @@ struct SettingsView: View {
             }
             .padding(16)
         }
-        .frame(width: 300, height: 340)
-        .onAppear { fetchModels() }
-        .onReceive(timer) { _ in fetchModels() }
+        .frame(width: 300, height: 420)
+        .onAppear { fetchModels(); checkCCStatus() }
+        .onReceive(timer) { _ in fetchModels(); checkCCStatus() }
     }
 
     private func save() {
@@ -86,6 +136,35 @@ struct SettingsView: View {
                 }
             } catch {
                 await MainActor.run { isLoadingModels = false }
+            }
+        }
+    }
+
+    private func checkCCStatus() {
+        Task {
+            if let status = try? await api.claudeCodeStatus() {
+                await MainActor.run { ccHooksInstalled = status.installed }
+            }
+            if let serverStatus = try? await api.status() {
+                await MainActor.run {
+                    ocConnected = serverStatus.backends?["openclaw"]?.connected == true
+                }
+            }
+        }
+    }
+
+    private func setupClaudeCode() {
+        Task {
+            do {
+                _ = try await api.setupClaudeCode()
+                await MainActor.run {
+                    ccHooksInstalled = true
+                    ccSetupMessage = "✓ Hooks installed — restart Claude Code to activate"
+                }
+            } catch {
+                await MainActor.run {
+                    ccSetupMessage = "Failed: \(error.localizedDescription)"
+                }
             }
         }
     }

@@ -76,6 +76,13 @@ struct BuiltinModel: Codable, Sendable, Identifiable {
 }
 
 struct SetupResponse: Codable, Sendable {
-    let status: String
+    let status: String?
+    let ok: Bool?
     let modelId: String?
+    let path: String?
+}
+
+struct CCSetupStatus: Codable, Sendable {
+    let installed: Bool
+    let path: String?
 }

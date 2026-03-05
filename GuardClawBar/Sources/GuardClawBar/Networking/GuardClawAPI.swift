@@ -49,6 +49,16 @@ actor GuardClawAPI {
         ])
     }
 
+    // MARK: - Setup
+
+    func setupClaudeCode() async throws -> SetupResponse {
+        try await post("/api/setup/claude-code", body: [:] as [String: String])
+    }
+
+    func claudeCodeStatus() async throws -> CCSetupStatus {
+        try await get("/api/setup/claude-code/status")
+    }
+
     // MARK: - Models
 
     func listModels() async throws -> ModelsResponse {

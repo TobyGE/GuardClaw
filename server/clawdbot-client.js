@@ -494,8 +494,10 @@ export class ClawdbotClient {
   }
 
   getConnectionStats() {
+    // Double-check: if the WebSocket is not open, we're not connected
+    const wsOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
     return {
-      connected: this.connected,
+      connected: this.connected && wsOpen,
       reconnectAttempts: this.reconnectAttempts,
       autoReconnect: this.autoReconnect,
       pendingRequests: this.pendingRequests.size

@@ -374,7 +374,7 @@ app.get('/api/status', async (req, res) => {
   backends['claude-code'] = { connected: ccConnected, label: 'CC', type: 'http-hook' };
 
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || activeClients.some(({ client }) => client.connected);
+  const anyConnected = ccConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -1760,6 +1760,66 @@ app.post('/api/config/fail-closed', (req, res) => {
   }
   console.log(`[GuardClaw] Fail-closed ${enabled ? 'enabled' : 'disabled'}`);
   res.json({ ok: true, failClosed: failClosedEnabled });
+});
+
+// Claude Code hook setup API
+app.post('/api/setup/claude-code', (req, res) => {
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    const claudeDir = path.join(os.homedir(), '.claude');
+    const port = process.env.PORT || '3002';
+
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+
+    let settings = {};
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+    if (!settings.hooks) settings.hooks = {};
+
+    const isGCHook = (g) => g?.hooks?.some(h => h.url?.includes('/api/hooks/'));
+
+    // Remove existing GuardClaw hooks
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      if (Array.isArray(settings.hooks[event])) {
+        settings.hooks[event] = settings.hooks[event].filter(g => !isGCHook(g));
+      }
+    }
+
+    // Add hooks
+    const hooks = {
+      PreToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/pre-tool-use`, timeout: 300, statusMessage: '⏳ GuardClaw evaluating...' }] }],
+      PostToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/post-tool-use`, timeout: 10 }] }],
+    };
+    for (const [event, groups] of Object.entries(hooks)) {
+      if (!settings.hooks[event]) settings.hooks[event] = [];
+      settings.hooks[event].push(...groups);
+    }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    console.log(`[GuardClaw] Claude Code hooks installed at ${settingsPath}`);
+    res.json({ ok: true, path: settingsPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/claude-code/status', (req, res) => {
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      return res.json({ installed: false });
+    }
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const hasHooks = settings.hooks?.PreToolUse?.some(g =>
+      g.hooks?.some(h => h.url?.includes('/api/hooks/pre-tool-use'))
+    );
+    res.json({ installed: !!hasHooks, path: settingsPath });
+  } catch {
+    res.json({ installed: false });
+  }
 });
 
 // Blocking configuration API
