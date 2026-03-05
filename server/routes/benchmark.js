@@ -17,6 +17,15 @@ export function benchmarkRoutes(deps) {
     });
   });
 
+  router.get('/api/benchmark/results', (_req, res) => {
+    try {
+      const all = deps.getBenchmarkStore().getAll();
+      res.json({ results: all });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.post('/api/benchmark/abort', (_req, res) => {
     if (!benchmarkRunning || !benchmarkAbort) {
       return res.json({ ok: false, error: 'No benchmark running' });
@@ -54,6 +63,15 @@ export function benchmarkRoutes(deps) {
           try { res.write(`data: ${JSON.stringify({ type: 'progress', ...progress })}\n\n`); } catch {}
         }
       });
+
+      // Persist result
+      const modelName = requestedModel || 'default';
+      try {
+        deps.getBenchmarkStore().save(modelName, { ...result, backend: requestedBackend });
+      } catch (e) {
+        console.error('[GuardClaw] Failed to save benchmark result:', e.message);
+      }
+
       res.write(`data: ${JSON.stringify({ type: 'complete', ...result })}\n\n`);
     } catch (err) {
       if (err.name === 'AbortError') {

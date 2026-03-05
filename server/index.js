@@ -18,6 +18,7 @@ import { benchmarkRoutes } from './routes/benchmark.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
+import { BenchmarkStore } from './benchmark-store.js';
 
 dotenv.config();
 
@@ -100,6 +101,7 @@ const safeguardService = new SafeguardService(
 
 const eventStore = new EventStore();
 const memoryStore = new MemoryStore();
+const benchmarkStore = new BenchmarkStore();
 
 // ─── Tool History Store (for chain analysis) ─────────────────────────────────
 // Tracks recent tool calls per session including outputs, for LLM chain analysis
@@ -1630,6 +1632,7 @@ const routeDeps = {
   setSafeguardService: (s) => { Object.assign(safeguardService, s); },
   getFailClosed: () => failClosedEnabled,
   setFailClosed: (v) => { failClosedEnabled = v; },
+  getBenchmarkStore: () => benchmarkStore,
 };
 app.use(configRoutes(routeDeps));
 app.use(benchmarkRoutes(routeDeps));

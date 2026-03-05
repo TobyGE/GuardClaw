@@ -38,24 +38,162 @@ function binaryVerdict(v) {
   return v === 'BLOCK' ? 'BLOCK' : 'ALLOW';
 }
 
+const accColor = (acc) => acc >= 0.95 ? 'text-gc-safe' : acc >= 0.80 ? 'text-yellow-500' : 'text-gc-danger';
+
+function SummaryCards({ summary }) {
+  return (
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
+          <div className={`text-3xl font-bold ${accColor(summary.accuracy)}`}>{(summary.accuracy * 100).toFixed(1)}%</div>
+          <div className="text-xs text-gray-400 mt-1">Accuracy</div>
+        </div>
+        <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
+          <div className="text-3xl font-bold text-gc-text">{summary.correct}/{summary.total}</div>
+          <div className="text-xs text-gray-400 mt-1">Correct</div>
+        </div>
+        <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
+          <div className="text-3xl font-bold text-blue-500">{summary.avgLatencyMs}ms</div>
+          <div className="text-xs text-gray-400 mt-1">Avg Latency</div>
+        </div>
+        <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
+          <div className={`text-3xl font-bold ${summary.falsePositives === 0 ? 'text-gc-safe' : 'text-yellow-500'}`}>{summary.falsePositives}</div>
+          <div className="text-xs text-gray-400 mt-1">False Positives</div>
+        </div>
+        <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
+          <div className={`text-3xl font-bold ${summary.falseNegatives === 0 ? 'text-gc-safe' : 'text-gc-danger'}`}>{summary.falseNegatives}</div>
+          <div className="text-xs text-gray-400 mt-1">False Negatives</div>
+        </div>
+      </div>
+
+      {summary.summary && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg border border-gc-border p-3 flex items-center justify-between">
+            <VerdictBadge verdict="ALLOW" />
+            <span className={`text-sm font-bold ${summary.summary.allow.correct === summary.summary.allow.total ? 'text-gc-safe' : 'text-yellow-500'}`}>
+              {summary.summary.allow.correct}/{summary.summary.allow.total}
+            </span>
+          </div>
+          <div className="rounded-lg border border-gc-border p-3 flex items-center justify-between">
+            <VerdictBadge verdict="BLOCK" />
+            <span className={`text-sm font-bold ${summary.summary.block.correct === summary.summary.block.total ? 'text-gc-safe' : 'text-gc-danger'}`}>
+              {summary.summary.block.correct}/{summary.summary.block.total}
+            </span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ResultsTable({ results }) {
+  const [expandedRow, setExpandedRow] = useState(null);
+
+  return (
+    <div className="rounded-xl border border-gc-border overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-gc-bg text-left text-xs text-gc-text-dim uppercase tracking-wider">
+            <th className="px-4 py-2.5 w-8"></th>
+            <th className="px-4 py-2.5">Trace</th>
+            <th className="px-4 py-2.5 w-24">Expected</th>
+            <th className="px-4 py-2.5 w-24">Actual</th>
+            <th className="px-4 py-2.5 w-16 text-right">Score</th>
+            <th className="px-4 py-2.5 w-16 text-right">ms</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gc-border">
+          {results.map((r) => {
+            const isExpanded = expandedRow === r.id;
+            return (
+              <React.Fragment key={r.id}>
+                <tr
+                  className={`cursor-pointer hover:bg-gc-border/20 transition-colors ${r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}`}
+                  onClick={() => setExpandedRow(isExpanded ? null : r.id)}
+                >
+                  <td className="px-4 py-2.5 text-center">{r.correct ? <CheckIcon size={16} className='text-gc-safe mx-auto' /> : <XIcon size={16} className='text-gc-danger mx-auto' />}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-gc-text flex items-center gap-2">
+                      <span className="text-gc-text-dim text-xs">{isExpanded ? '▼' : '▶'}</span>
+                      {r.label}
+                      <DifficultyBadge level={r.difficulty} />
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {r.tools.map((t, i) => (
+                        <span key={i}>
+                          {i > 0 && <span className="mx-1 text-gray-300">→</span>}
+                          <span className="font-mono">{t}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.expected)} /></td>
+                  <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.actual)} /></td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-500">{r.score}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-400">{r.elapsed}</td>
+                </tr>
+                {isExpanded && (
+                  <tr className="bg-gc-bg/50">
+                    <td colSpan={6} className="px-6 py-3">
+                      <div className="space-y-2 text-xs">
+                        {r.taskContext?.userPrompt && (
+                          <div>
+                            <span className="text-gc-text-dim font-semibold">User Prompt:</span>
+                            <code className="ml-2 text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">{r.taskContext.userPrompt}</code>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-gc-text-dim font-semibold">Trace:</span>
+                          <div className="mt-1 space-y-1">
+                            {(r.traceDetails || []).map((step, i) => (
+                              <div key={i} className="flex items-start gap-2">
+                                <span className="text-gc-text-dim font-mono shrink-0">{i + 1}.</span>
+                                <span className="font-mono text-blue-400 shrink-0">{step.tool}</span>
+                                <code className="text-gc-text bg-gc-bg px-1.5 py-0.5 rounded break-all">{step.summary}</code>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-gc-text-dim font-semibold">Reasoning:</span>
+                          <p className="mt-1 text-gc-text bg-gc-bg px-2 py-1.5 rounded whitespace-pre-wrap">{r.reasoning || '(none)'}</p>
+                        </div>
+                        <div className="flex gap-4 text-gc-text-dim">
+                          <span>Backend: <span className="text-gc-text font-mono">{r.backend}</span></span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function BenchmarkModal({ isOpen, onClose }) {
   const [running, setRunning] = useState(false);
-  const [results, setResults] = useState([]);
-  const [summary, setSummary] = useState(null);
+  const [liveResults, setLiveResults] = useState([]);
+  const [liveSummary, setLiveSummary] = useState(null);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
-  const [expandedRow, setExpandedRow] = useState(null);
+  const [savedResults, setSavedResults] = useState({}); // model → result object
+  const [loadingSaved, setLoadingSaved] = useState(false);
   const esRef = useRef(null);
 
-  // Fetch available models from both LM Studio and Ollama
+  // Fetch available models + saved results when modal opens
   useEffect(() => {
     if (!isOpen) return;
     setLoadingModels(true);
+    setLoadingSaved(true);
 
-    const fetchBoth = async () => {
+    const fetchModels = async () => {
       const all = [];
       // LM Studio
       try {
@@ -79,7 +217,20 @@ export default function BenchmarkModal({ isOpen, onClose }) {
       if (!selectedModel && all.length) setSelectedModel(all[0].id);
       setLoadingModels(false);
     };
-    fetchBoth();
+
+    const fetchSaved = async () => {
+      try {
+        const r = await fetch('/api/benchmark/results');
+        const d = await r.json();
+        const map = {};
+        (d.results || []).forEach(res => { map[res.model] = res; });
+        setSavedResults(map);
+      } catch {}
+      setLoadingSaved(false);
+    };
+
+    fetchModels();
+    fetchSaved();
   }, [isOpen]);
 
   useEffect(() => {
@@ -88,10 +239,16 @@ export default function BenchmarkModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
+  // Current display data: live results take priority while/after running, otherwise saved
+  const currentSaved = savedResults[selectedModel];
+  const showLive = liveSummary && liveSummary._model === selectedModel;
+  const displayResults = showLive ? liveResults : (currentSaved?.results || []);
+  const displaySummary = showLive ? liveSummary : currentSaved || null;
+
   const handleRun = () => {
     setRunning(true);
-    setResults([]);
-    setSummary(null);
+    setLiveResults([]);
+    setLiveSummary(null);
     setProgress(null);
     setError(null);
 
@@ -108,9 +265,28 @@ export default function BenchmarkModal({ isOpen, onClose }) {
         const data = JSON.parse(e.data);
         if (data.type === 'progress') {
           setProgress({ current: data.current, total: data.total, accuracy: data.accuracy });
-          setResults(prev => [...prev, data.result]);
+          setLiveResults(prev => [...prev, data.result]);
         } else if (data.type === 'complete') {
-          setSummary(data);
+          const summaryWithModel = { ...data, _model: selectedModel };
+          setLiveSummary(summaryWithModel);
+          // Update savedResults cache so tab badge refreshes immediately
+          setSavedResults(prev => ({
+            ...prev,
+            [selectedModel]: {
+              model: selectedModel,
+              backend,
+              timestamp: Date.now(),
+              accuracy: data.accuracy,
+              correct: data.correct,
+              total: data.total,
+              avgLatencyMs: data.avgLatencyMs,
+              totalTimeMs: data.totalTimeMs,
+              falsePositives: data.falsePositives,
+              falseNegatives: data.falseNegatives,
+              results: data.results,
+              summary: data.summary,
+            }
+          }));
           setRunning(false);
           es.close();
         } else if (data.type === 'aborted') {
@@ -141,7 +317,13 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     setError('Benchmark aborted');
   };
 
-  const accColor = (acc) => acc >= 0.95 ? 'text-gc-safe' : acc >= 0.80 ? 'text-yellow-500' : 'text-gc-danger';
+  // Build unique model list: merge loaded models with saved-only models
+  const allModelIds = new Set(models.map(m => m.id));
+  Object.keys(savedResults).forEach(m => allModelIds.add(m));
+  const modelTabs = Array.from(allModelIds).map(id => {
+    const meta = models.find(m => m.id === id);
+    return { id, source: meta?.source || savedResults[id]?.backend || 'unknown' };
+  });
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -161,88 +343,58 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gc-text hover:bg-gc-border transition-colors">✕</button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-
-          {/* Model picker */}
-          <div className="rounded-xl border border-gc-border bg-gc-bg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-gc-text">Test Model</span>
-              {loadingModels && <span className="text-xs text-gray-400 animate-pulse">loading...</span>}
-            </div>
-            {models.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {models.map(m => (
+        {/* Model Tabs */}
+        <div className="px-6 pt-4 pb-0">
+          {loadingModels ? (
+            <span className="text-xs text-gray-400 animate-pulse">loading models...</span>
+          ) : modelTabs.length > 0 ? (
+            <div className="flex gap-1 overflow-x-auto pb-0 -mb-px">
+              {modelTabs.map(m => {
+                const isActive = selectedModel === m.id;
+                const saved = savedResults[m.id];
+                return (
                   <button
                     key={`${m.source}:${m.id}`}
-                    onClick={() => setSelectedModel(m.id)}
+                    onClick={() => { if (!running) setSelectedModel(m.id); }}
                     disabled={running}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border-2 transition-all flex items-center gap-1.5 ${
-                      selectedModel === m.id
+                    className={`shrink-0 px-3 py-2 text-sm font-medium border-b-2 transition-all flex items-center gap-1.5 rounded-t-lg ${
+                      isActive
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                        : 'border-gc-border text-gc-text-dim hover:border-gray-300'
+                        : 'border-transparent text-gc-text-dim hover:text-gc-text hover:bg-gc-border/30'
                     }`}
                   >
                     <span className="text-[10px] opacity-50">{m.source === 'ollama' ? <LlamaIcon size={12} /> : <CpuIcon size={12} />}</span>
-                    {m.id.split('/').pop()}
+                    <span className="truncate max-w-[160px]">{m.id.split('/').pop()}</span>
+                    {saved && (
+                      <span className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        saved.accuracy >= 0.95 ? 'text-gc-safe bg-gc-safe/15' :
+                        saved.accuracy >= 0.80 ? 'text-yellow-500 bg-yellow-500/15' :
+                        'text-gc-danger bg-gc-danger/15'
+                      }`}>
+                        {(saved.accuracy * 100).toFixed(1)}%
+                      </span>
+                    )}
                   </button>
-                ))}
-              </div>
-            ) : (
-              <input
-                type="text"
-                value={selectedModel}
-                onChange={e => setSelectedModel(e.target.value)}
-                placeholder="qwen/qwen3-4b-2507"
-                className="w-full px-3 py-2 rounded-lg border border-gc-border bg-gc-card text-sm text-gc-text"
-                disabled={running}
-              />
-            )}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={selectedModel}
+              onChange={e => setSelectedModel(e.target.value)}
+              placeholder="qwen/qwen3-4b-2507"
+              className="w-full px-3 py-2 rounded-lg border border-gc-border bg-gc-card text-sm text-gc-text"
+              disabled={running}
+            />
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
           {/* Summary cards */}
-          {summary && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
-                <div className={`text-3xl font-bold ${accColor(summary.accuracy)}`}>{(summary.accuracy * 100).toFixed(1)}%</div>
-                <div className="text-xs text-gray-400 mt-1">Accuracy</div>
-              </div>
-              <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
-                <div className="text-3xl font-bold text-gc-text">{summary.correct}/{summary.total}</div>
-                <div className="text-xs text-gray-400 mt-1">Correct</div>
-              </div>
-              <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
-                <div className="text-3xl font-bold text-blue-500">{summary.avgLatencyMs}ms</div>
-                <div className="text-xs text-gray-400 mt-1">Avg Latency</div>
-              </div>
-              <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
-                <div className={`text-3xl font-bold ${summary.falsePositives === 0 ? 'text-gc-safe' : 'text-yellow-500'}`}>{summary.falsePositives}</div>
-                <div className="text-xs text-gray-400 mt-1">False Positives</div>
-              </div>
-              <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
-                <div className={`text-3xl font-bold ${summary.falseNegatives === 0 ? 'text-gc-safe' : 'text-gc-danger'}`}>{summary.falseNegatives}</div>
-                <div className="text-xs text-gray-400 mt-1">False Negatives</div>
-              </div>
-            </div>
-          )}
-
-          {/* ALLOW / BLOCK breakdown */}
-          {summary && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-gc-border p-3 flex items-center justify-between">
-                <VerdictBadge verdict="ALLOW" />
-                <span className={`text-sm font-bold ${summary.summary.allow.correct === summary.summary.allow.total ? 'text-gc-safe' : 'text-yellow-500'}`}>
-                  {summary.summary.allow.correct}/{summary.summary.allow.total}
-                </span>
-              </div>
-              <div className="rounded-lg border border-gc-border p-3 flex items-center justify-between">
-                <VerdictBadge verdict="BLOCK" />
-                <span className={`text-sm font-bold ${summary.summary.block.correct === summary.summary.block.total ? 'text-gc-safe' : 'text-gc-danger'}`}>
-                  {summary.summary.block.correct}/{summary.summary.block.total}
-                </span>
-              </div>
-            </div>
-          )}
+          {displaySummary && <SummaryCards summary={displaySummary} />}
 
           {/* Progress bar */}
           {running && progress && (
@@ -265,102 +417,38 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           )}
 
           {/* Results table */}
-          {results.length > 0 && (
-            <div className="rounded-xl border border-gc-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gc-bg text-left text-xs text-gc-text-dim uppercase tracking-wider">
-                    <th className="px-4 py-2.5 w-8"></th>
-                    <th className="px-4 py-2.5">Trace</th>
-                    <th className="px-4 py-2.5 w-24">Expected</th>
-                    <th className="px-4 py-2.5 w-24">Actual</th>
-                    <th className="px-4 py-2.5 w-16 text-right">Score</th>
-                    <th className="px-4 py-2.5 w-16 text-right">ms</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gc-border">
-                  {results.map((r) => {
-                    const isExpanded = expandedRow === r.id;
-                    return (
-                      <React.Fragment key={r.id}>
-                        <tr
-                          className={`cursor-pointer hover:bg-gc-border/20 transition-colors ${r.correct ? '' : 'bg-red-50/50 dark:bg-red-900/10'}`}
-                          onClick={() => setExpandedRow(isExpanded ? null : r.id)}
-                        >
-                          <td className="px-4 py-2.5 text-center">{r.correct ? <CheckIcon size={16} className='text-gc-safe mx-auto' /> : <XIcon size={16} className='text-gc-danger mx-auto' />}</td>
-                          <td className="px-4 py-2.5">
-                            <div className="font-medium text-gc-text flex items-center gap-2">
-                              <span className="text-gc-text-dim text-xs">{isExpanded ? '▼' : '▶'}</span>
-                              {r.label}
-                              <DifficultyBadge level={r.difficulty} />
-                            </div>
-                            <div className="text-xs text-gray-400 mt-0.5">
-                              {r.tools.map((t, i) => (
-                                <span key={i}>
-                                  {i > 0 && <span className="mx-1 text-gray-300">→</span>}
-                                  <span className="font-mono">{t}</span>
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.expected)} /></td>
-                          <td className="px-4 py-2.5"><VerdictBadge verdict={binaryVerdict(r.actual)} /></td>
-                          <td className="px-4 py-2.5 text-right font-mono text-gray-500">{r.score}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-gray-400">{r.elapsed}</td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="bg-gc-bg/50">
-                            <td colSpan={6} className="px-6 py-3">
-                              <div className="space-y-2 text-xs">
-                                {r.taskContext?.userPrompt && (
-                                  <div>
-                                    <span className="text-gc-text-dim font-semibold">User Prompt:</span>
-                                    <code className="ml-2 text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">{r.taskContext.userPrompt}</code>
-                                  </div>
-                                )}
-                                <div>
-                                  <span className="text-gc-text-dim font-semibold">Trace:</span>
-                                  <div className="mt-1 space-y-1">
-                                    {(r.traceDetails || []).map((step, i) => (
-                                      <div key={i} className="flex items-start gap-2">
-                                        <span className="text-gc-text-dim font-mono shrink-0">{i + 1}.</span>
-                                        <span className="font-mono text-blue-400 shrink-0">{step.tool}</span>
-                                        <code className="text-gc-text bg-gc-bg px-1.5 py-0.5 rounded break-all">{step.summary}</code>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="text-gc-text-dim font-semibold">Reasoning:</span>
-                                  <p className="mt-1 text-gc-text bg-gc-bg px-2 py-1.5 rounded whitespace-pre-wrap">{r.reasoning || '(none)'}</p>
-                                </div>
-                                <div className="flex gap-4 text-gc-text-dim">
-                                  <span>Backend: <span className="text-gc-text font-mono">{r.backend}</span></span>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {displayResults.length > 0 && <ResultsTable results={displayResults} />}
+
+          {/* Empty state — no results for this model */}
+          {!running && displayResults.length === 0 && !error && (
+            <div className="text-center py-12">
+              <div className="mb-3"><BenchmarkIcon size={40} /></div>
+              {selectedModel ? (
+                <>
+                  <h3 className="text-lg font-semibold text-gc-text mb-2">No results yet</h3>
+                  <p className="text-sm text-gray-400 max-w-md mx-auto">
+                    Run a benchmark for <span className="font-mono text-gc-text">{selectedModel.split('/').pop()}</span> to see accuracy and latency metrics.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-semibold text-gc-text mb-2">Security Benchmark</h3>
+                  <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
+                    tool-trace + intent alignment scenarios testing BLOCK detection accuracy.
+                  </p>
+                  <p className="text-xs text-gray-400 max-w-md mx-auto">
+                    Each trace simulates a real agent workflow (read → edit → exec) and tests whether
+                    the judge correctly blocks dangerous tool chains while allowing safe ones.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
-          {/* Empty state */}
-          {!running && results.length === 0 && !error && (
-            <div className="text-center py-12">
-              <div className="mb-3"><BenchmarkIcon size={40} /></div>
-              <h3 className="text-lg font-semibold text-gc-text mb-2">Security Benchmark</h3>
-              <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
-                tool-trace + intent alignment scenarios testing BLOCK detection accuracy.
-              </p>
-              <p className="text-xs text-gray-400 max-w-md mx-auto">
-                Each trace simulates a real agent workflow (read → edit → exec) and tests whether
-                the judge correctly blocks dangerous tool chains while allowing safe ones.
-              </p>
+          {/* Saved result timestamp */}
+          {currentSaved && !showLive && !running && (
+            <div className="text-center text-xs text-gray-400">
+              Last run: {new Date(currentSaved.timestamp).toLocaleString()}
             </div>
           )}
         </div>
@@ -382,7 +470,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
               disabled={running || !selectedModel}
               className="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {running ? `Running (${progress?.current || 0}/${progress?.total || '?'})...` : summary ? '↻ Run Again' : '▶ Run Benchmark'}
+              {running ? `Running (${progress?.current || 0}/${progress?.total || '?'})...` : currentSaved || showLive ? '↻ Run Again' : '▶ Run Benchmark'}
             </button>
           </div>
         </div>
