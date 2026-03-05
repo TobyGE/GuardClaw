@@ -120,6 +120,7 @@ jobs:
         with:
           tag_name: ${{ env.VERSION }}
           name: GuardClawBar ${{ env.VERSION }}
+          generate_release_notes: true
           body: |
             ## GuardClawBar ${{ env.VERSION }}
 
