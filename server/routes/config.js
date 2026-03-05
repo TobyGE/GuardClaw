@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { SafeguardService } from '../safeguard.js';
+import { getDataDir } from '../data-dir.js';
 
 export function configRoutes(deps) {
   const router = Router();
@@ -13,7 +14,7 @@ export function configRoutes(deps) {
     if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Invalid token' });
 
     try {
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = path.join(getDataDir(), '.env');
       let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
       const tokenRegex = /^OPENCLAW_TOKEN=.*/m;
@@ -57,7 +58,7 @@ export function configRoutes(deps) {
     if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
 
     try {
-      const envPath = path.join(process.cwd(), '.env');
+      const envPath = path.join(getDataDir(), '.env');
       let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
       const updates = { SAFEGUARD_BACKEND: backend, LMSTUDIO_URL: lmstudioUrl, LMSTUDIO_MODEL: lmstudioModel, OLLAMA_URL: ollamaUrl, OLLAMA_MODEL: ollamaModel };
 

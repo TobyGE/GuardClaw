@@ -1,0 +1,86 @@
+#!/bin/bash
+# Bundle the Node.js backend into GuardClawBar.app
+# Usage: ./scripts/bundle-backend.sh <path-to-app-bundle>
+#
+# This script:
+# 1. Downloads a standalone Node.js binary (if not cached)
+# 2. Copies server/, client/dist/, package.json, node_modules/ into .app/Contents/Resources/backend/
+# 3. The app will auto-start the backend on launch
+
+set -euo pipefail
+
+APP_BUNDLE="${1:?Usage: $0 <path-to-GuardClawBar.app>}"
+NODE_VERSION="${NODE_VERSION:-22.14.0}"
+
+# Detect architecture
+ARCH=$(uname -m)
+case "$ARCH" in
+  arm64|aarch64) NODE_ARCH="arm64" ;;
+  x86_64)        NODE_ARCH="x64" ;;
+  *)             echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+PLATFORM="darwin"
+NODE_DIST="node-v${NODE_VERSION}-${PLATFORM}-${NODE_ARCH}"
+NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_DIST}.tar.gz"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CACHE_DIR="${PROJECT_ROOT}/.node-cache"
+BACKEND_DIR="${APP_BUNDLE}/Contents/Resources/backend"
+
+echo "=== Bundling GuardClaw backend into ${APP_BUNDLE} ==="
+echo "    Node.js: v${NODE_VERSION} (${NODE_ARCH})"
+
+# Step 1: Download Node.js binary (cached)
+mkdir -p "$CACHE_DIR"
+NODE_TARBALL="${CACHE_DIR}/${NODE_DIST}.tar.gz"
+NODE_BIN="${CACHE_DIR}/${NODE_DIST}/bin/node"
+
+if [ ! -f "$NODE_BIN" ]; then
+  echo "--- Downloading Node.js v${NODE_VERSION}..."
+  curl -fsSL "$NODE_URL" -o "$NODE_TARBALL"
+  tar -xzf "$NODE_TARBALL" -C "$CACHE_DIR"
+  rm -f "$NODE_TARBALL"
+else
+  echo "--- Using cached Node.js binary"
+fi
+
+# Step 2: Create backend directory structure
+echo "--- Creating backend bundle..."
+rm -rf "$BACKEND_DIR"
+mkdir -p "$BACKEND_DIR"
+
+# Copy Node.js binary
+cp "$NODE_BIN" "$BACKEND_DIR/node"
+chmod +x "$BACKEND_DIR/node"
+
+# Copy server code
+cp -R "$PROJECT_ROOT/server" "$BACKEND_DIR/server"
+
+# Copy client dist (for the dashboard web UI)
+mkdir -p "$BACKEND_DIR/client"
+cp -R "$PROJECT_ROOT/client/dist" "$BACKEND_DIR/client/dist"
+
+# Copy package.json (needed for ES module resolution)
+cp "$PROJECT_ROOT/package.json" "$BACKEND_DIR/package.json"
+
+# Copy node_modules (production deps only if possible)
+if [ -d "$PROJECT_ROOT/node_modules" ]; then
+  echo "--- Copying node_modules..."
+  cp -R "$PROJECT_ROOT/node_modules" "$BACKEND_DIR/node_modules"
+fi
+
+# Step 3: Clean up unnecessary files from the bundle
+echo "--- Cleaning up bundle..."
+# Remove dev-only files
+rm -rf "$BACKEND_DIR/node_modules/.cache"
+rm -rf "$BACKEND_DIR/node_modules/.package-lock.json"
+# Remove test files from native modules
+find "$BACKEND_DIR/node_modules" -name "test" -type d -maxdepth 3 -exec rm -rf {} + 2>/dev/null || true
+find "$BACKEND_DIR/node_modules" -name "*.md" -maxdepth 3 -delete 2>/dev/null || true
+
+# Calculate bundle size
+BUNDLE_SIZE=$(du -sh "$BACKEND_DIR" | cut -f1)
+echo "=== Backend bundle complete: ${BUNDLE_SIZE} ==="
+echo "    Location: ${BACKEND_DIR}"

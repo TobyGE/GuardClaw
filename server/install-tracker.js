@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { getGuardClawDir } from './data-dir.js';
 
 class InstallTracker {
   constructor() {
-    this.dataDir = path.join(process.cwd(), '.guardclaw');
+    this.dataDir = getGuardClawDir();
     this.installFile = path.join(this.dataDir, 'install.json');
     this.ensureDataDir();
     this.ensureInstallDate();

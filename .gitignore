@@ -21,3 +21,4 @@ memory/
 MEMORY.md
 canvas/
 .guardclaw/
+.node-cache/

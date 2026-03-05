@@ -1,12 +1,13 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { getGuardClawDir } from './data-dir.js';
 
 export class EventStore {
   constructor(maxEvents = 100000) {
     this.maxEvents = maxEvents;
     this.listeners = [];
-    this.dataDir = path.join(process.cwd(), '.guardclaw');
+    this.dataDir = getGuardClawDir();
 
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });

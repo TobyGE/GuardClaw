@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { getGuardClawDir } from './data-dir.js';
 
 export class BenchmarkStore {
   constructor() {
-    const dataDir = path.join(process.cwd(), '.guardclaw');
+    const dataDir = getGuardClawDir();
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }

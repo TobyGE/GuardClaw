@@ -4,10 +4,11 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { getGuardClawDir } from './data-dir.js';
 
 export class MemoryStore {
   constructor(dataDir) {
-    this.dataDir = dataDir || path.join(process.cwd(), '.guardclaw');
+    this.dataDir = dataDir || getGuardClawDir();
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
     }

@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { getDataDir } from './data-dir.js';
 
 class Logger {
   constructor(logFile = 'guardclaw.log') {
-    this.logPath = path.join(process.cwd(), logFile);
+    this.logPath = path.join(getDataDir(), logFile);
     this.stream = fs.createWriteStream(this.logPath, { flags: 'a' }); // append mode
     
     // Log startup separator

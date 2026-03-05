@@ -20,6 +20,7 @@ import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
 import { BenchmarkStore } from './benchmark-store.js';
+import { getDataDir } from './data-dir.js';
 
 dotenv.config();
 
@@ -27,7 +28,7 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 
 // Blocking config (whitelist/blacklist)
-const BLOCKING_CONFIG_PATH = path.join(process.cwd(), 'blocking-config.json');
+const BLOCKING_CONFIG_PATH = path.join(getDataDir(), 'blocking-config.json');
 let blockingConfig = { whitelist: [], blacklist: [] };
 
 function loadBlockingConfig() {
@@ -59,7 +60,10 @@ const BACKEND = (process.env.BACKEND || 'auto').toLowerCase();
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('client/dist', { maxAge: 0, etag: false }));
+// Resolve client/dist relative to this file (works in both dev and bundled mode)
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+app.use(express.static(clientDistPath, { maxAge: 0, etag: false }));
 
 // ─── Lightweight in-memory rate limiter (no external dependency) ──────────────
 const rateLimitBuckets = new Map(); // key → { count, resetAt }
@@ -1735,7 +1739,7 @@ app.post('/api/config/fail-closed', (req, res) => {
   failClosedEnabled = enabled;
   // Persist to .env so it survives restarts
   try {
-    const envPath = path.join(process.cwd(), '.env');
+    const envPath = path.join(getDataDir(), '.env');
     let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
     if (envContent.includes('GUARDCLAW_FAIL_CLOSED=')) {
       envContent = envContent.replace(/GUARDCLAW_FAIL_CLOSED=.*/, `GUARDCLAW_FAIL_CLOSED=${enabled}`);
@@ -1775,9 +1779,9 @@ app.post('/api/blocking/toggle', (req, res) => {
 
   try {
     // Update .env file
-    const envPath = path.join(process.cwd(), '.env');
-    let envContent = fs.readFileSync(envPath, 'utf8');
-    
+    const envPath = path.join(getDataDir(), '.env');
+    let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+
     if (envContent.includes('GUARDCLAW_BLOCKING_ENABLED=')) {
       envContent = envContent.replace(
         /GUARDCLAW_BLOCKING_ENABLED=.*/,
