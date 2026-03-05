@@ -13,6 +13,7 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
   <a href="#dashboard">Dashboard</a> ·
+  <a href="docs/GUARDCLAWBAR.md">Menu Bar App</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
@@ -199,6 +200,10 @@ The web dashboard at `localhost:3002` gives you full visibility into what your a
 GuardClaw learns from your decisions. Approve/deny actions are recorded as generalized patterns, and future risk scores adjust automatically. After enough consistent approvals, similar commands skip the LLM entirely.
 
 Use **Mark Safe** / **Mark Risky** on any event to train memory directly.
+
+### Menu Bar App (macOS)
+
+Prefer native over browser? **[GuardClawBar](docs/GUARDCLAWBAR.md)** sits in your menu bar — approve/deny tool calls, get desktop notifications, and monitor agents without opening a tab. [Download the DMG →](https://github.com/TobyGE/GuardClaw/releases)
 
 ## Architecture
 
