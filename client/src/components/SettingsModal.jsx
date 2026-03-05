@@ -82,7 +82,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   const [activeTab, setActiveTab] = useState(defaultTab || 'llm');
   useEffect(() => { if (defaultTab) setActiveTab(defaultTab); }, [defaultTab]);
   const [token, setToken] = useState(currentToken || '');
-  const [llmBackend, setLlmBackend] = useState(currentLlmConfig?.backend || 'lmstudio');
+  const [llmBackend, setLlmBackend] = useState(currentLlmConfig?.backend || 'built-in');
   const [lmstudioUrl, setLmstudioUrl] = useState(currentLlmConfig?.lmstudioUrl || 'http://localhost:1234/v1');
   const [lmstudioModel, setLmstudioModel] = useState(currentLlmConfig?.lmstudioModel || 'qwen/qwen3-4b-2507');
   const [customLmstudioModel, setCustomLmstudioModel] = useState('');
@@ -93,6 +93,63 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   const [availableModels, setAvailableModels] = useState([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // Built-in model management
+  const [builtinModels, setBuiltinModels] = useState([]);
+  const [loadingBuiltin, setLoadingBuiltin] = useState(false);
+
+  const fetchBuiltinModels = async () => {
+    try {
+      const resp = await fetch('/api/models');
+      const data = await resp.json();
+      setBuiltinModels(data.models || []);
+    } catch { setBuiltinModels([]); }
+  };
+
+  useEffect(() => {
+    if (isOpen && llmBackend === 'built-in') {
+      fetchBuiltinModels();
+      // Poll for download progress
+      const interval = setInterval(fetchBuiltinModels, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen, llmBackend]);
+
+  const handleDownloadModel = async (modelId) => {
+    setLoadingBuiltin(true);
+    try {
+      await fetch(`/api/models/${modelId}/download`, { method: 'POST' });
+      setMessage({ type: 'success', text: 'Download started...' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    }
+    setLoadingBuiltin(false);
+  };
+
+  const handleLoadModel = async (modelId) => {
+    setLoadingBuiltin(true);
+    setMessage(null);
+    try {
+      const resp = await fetch(`/api/models/${modelId}/load`, { method: 'POST' });
+      if (resp.ok) {
+        setMessage({ type: 'success', text: 'Model loaded and ready!' });
+        fetchBuiltinModels();
+      } else {
+        const data = await resp.json();
+        setMessage({ type: 'error', text: data.error });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    }
+    setLoadingBuiltin(false);
+  };
+
+  const handleDeleteModel = async (modelId) => {
+    try {
+      await fetch(`/api/models/${modelId}`, { method: 'DELETE' });
+      fetchBuiltinModels();
+    } catch {}
+  };
 
   const fetchModels = async () => {
     setLoadingModels(true);
@@ -248,10 +305,11 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               {/* Backend Picker */}
               <Card>
                 <Label>Backend</Label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   {[
-                    { value: 'lmstudio', icon: <CpuIcon size={18} />, label: 'LM Studio', desc: 'Local inference' },
-                    { value: 'ollama', icon: <LlamaIcon size={18} />, label: 'Ollama', desc: 'Local inference' },
+                    { value: 'built-in', icon: <BrainIcon size={18} />, label: 'Built-in', desc: 'No setup needed' },
+                    { value: 'lmstudio', icon: <CpuIcon size={18} />, label: 'LM Studio', desc: 'External server' },
+                    { value: 'ollama', icon: <LlamaIcon size={18} />, label: 'Ollama', desc: 'External server' },
                   ].map(opt => (
                     <button
                       key={opt.value}
@@ -272,6 +330,75 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                   ))}
                 </div>
               </Card>
+
+              {/* Built-in Model Manager */}
+              {llmBackend === 'built-in' && (
+                <Card>
+                  <Label hint="Models run directly in GuardClaw — no external software needed">Judge Model</Label>
+                  <div className="space-y-2">
+                    {builtinModels.map(m => (
+                      <div
+                        key={m.id}
+                        className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                          m.loaded
+                            ? 'border-green-500 bg-green-900/20'
+                            : m.downloaded
+                            ? 'border-gc-border bg-gc-card'
+                            : 'border-dashed border-gc-border bg-gc-card'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-semibold ${m.loaded ? 'text-green-400' : 'text-gc-text'}`}>{m.name}</span>
+                            {m.recommended && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                                recommended
+                              </span>
+                            )}
+                            {m.loaded && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-green-900/40 text-green-300">
+                                active
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gc-text-dim mt-0.5">{m.description} ({m.size})</div>
+                          {m.downloading && (
+                            <div className="mt-2">
+                              <div className="h-1.5 rounded-full bg-gc-border overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${m.progress}%` }} />
+                              </div>
+                              <span className="text-[10px] text-blue-400 mt-1">{m.progress}%</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {!m.downloaded && !m.downloading && (
+                            <Btn variant="primary" onClick={() => handleDownloadModel(m.id)} disabled={loadingBuiltin} className="!text-xs !px-3 !py-1.5">
+                              Download
+                            </Btn>
+                          )}
+                          {m.downloaded && !m.loaded && (
+                            <Btn variant="success" onClick={() => handleLoadModel(m.id)} disabled={loadingBuiltin} className="!text-xs !px-3 !py-1.5">
+                              Load
+                            </Btn>
+                          )}
+                          {m.downloaded && !m.loaded && (
+                            <Btn variant="ghost" onClick={() => handleDeleteModel(m.id)} className="!text-xs !px-2 !py-1.5 !text-red-400">
+                              Delete
+                            </Btn>
+                          )}
+                          {m.loaded && (
+                            <span className="text-xs text-green-400 font-medium">Running</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {builtinModels.length === 0 && (
+                      <div className="text-sm text-gc-text-dim text-center py-4">Loading model catalog...</div>
+                    )}
+                  </div>
+                </Card>
+              )}
 
               {/* LM Studio Config */}
               {llmBackend === 'lmstudio' && (

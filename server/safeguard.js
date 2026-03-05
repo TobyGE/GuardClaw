@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import llmEngine from './llm-engine.js';
 
 // ---------------------------------------------------------------------------
 // Rule-based fast-path: commands that are clearly safe skip LLM entirely.
@@ -250,6 +251,8 @@ export class SafeguardService {
     if (this.backend === 'anthropic' && apiKey) {
       this.client = new Anthropic({ apiKey });
       this.enabled = true;
+    } else if (this.backend === 'built-in') {
+      this.enabled = true;
     } else if (this.backend === 'lmstudio' || this.backend === 'ollama') {
       this.enabled = true;
     } else {
@@ -270,6 +273,18 @@ export class SafeguardService {
 
   // Get an OpenAI-compatible client for summary generation
   get llm() {
+    if (!this._llmClient && this.backend === 'built-in') {
+      // Built-in engine uses llmEngine directly
+      this._llmClient = {
+        chat: {
+          completions: {
+            create: async (opts) => llmEngine.chatCompletion(opts),
+          }
+        }
+      };
+      this.config.model = llmEngine.loadedModelId || 'built-in';
+      return this._llmClient;
+    }
     if (!this._llmClient && (this.backend === 'lmstudio' || this.backend === 'ollama')) {
       // Create a minimal OpenAI-compatible client
       // Ollama's OpenAI-compat endpoint is at /v1/chat/completions
@@ -377,6 +392,9 @@ export class SafeguardService {
           case 'anthropic':
             result = await this.analyzeWithClaudePrompt(enhancedPrompt);
             break;
+          case 'built-in':
+            result = await this.analyzeWithBuiltIn(enhancedPrompt, { tool: 'exec', summary: command });
+            break;
           case 'lmstudio':
             result = await this.analyzeWithLMStudioPrompt(enhancedPrompt, { tool: 'exec', summary: command });
             break;
@@ -390,6 +408,9 @@ export class SafeguardService {
         switch (this.backend) {
           case 'anthropic':
             result = await this.analyzeWithClaude(command);
+            break;
+          case 'built-in':
+            result = await this.analyzeWithBuiltIn(enhancedPrompt || command, { tool: 'exec', summary: command });
             break;
           case 'lmstudio':
             result = await this.analyzeWithLMStudio(command);
@@ -678,6 +699,9 @@ export class SafeguardService {
         case 'anthropic':
           result = await this.analyzeWithClaudePrompt(prompt);
           break;
+        case 'built-in':
+          result = await this.analyzeWithBuiltIn(prompt, action);
+          break;
         case 'lmstudio':
           result = await this.analyzeWithLMStudioPrompt(prompt, action);
           break;
@@ -840,6 +864,7 @@ Output ONLY ONE JSON object:
     } else {
       switch (this.backend) {
         case 'anthropic': result = await this.analyzeWithClaudePrompt(prompt); break;
+        case 'built-in': result = await this.analyzeWithBuiltIn(prompt, action); break;
         case 'lmstudio': result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
         case 'ollama':   result = await this.analyzeWithOllamaPrompt(prompt); break;
         default:         result = this.fallbackToolAnalysis(action);
@@ -880,6 +905,9 @@ Output ONLY ONE JSON object:
       switch (this.backend) {
         case 'anthropic':
           result = await this.analyzeWithClaudePrompt(prompt);
+          break;
+        case 'built-in':
+          result = await this.analyzeWithBuiltIn(prompt);
           break;
         case 'lmstudio':
           result = await this.analyzeWithLMStudioPrompt(prompt);
@@ -950,6 +978,9 @@ Respond ONLY with valid JSON:
       switch (this.backend) {
         case 'anthropic':
           result = await this.analyzeWithClaudePrompt(prompt);
+          break;
+        case 'built-in':
+          result = await this.analyzeWithBuiltIn(prompt, action);
           break;
         case 'lmstudio':
           result = await this.analyzeWithLMStudioPrompt(prompt, action);
@@ -1414,6 +1445,35 @@ Output ONLY the JSON. No other text.`;
       console.error('[SafeguardService] LM Studio analysis failed:', error);
       console.error('[SafeguardService] Model:', modelToUse);
       return this.fallbackToolAnalysis({ summary: prompt });
+    }
+  }
+
+  async analyzeWithBuiltIn(prompt, action) {
+    if (!llmEngine.isReady) {
+      console.warn('[SafeguardService] Built-in engine not ready, using fallback');
+      return this.fallbackToolAnalysis(action || { summary: prompt });
+    }
+
+    try {
+      const modelCfg = this.getModelConfig(llmEngine.loadedModelId || 'default');
+      const userPrompt = (modelCfg.promptStyle === 'minimal' && action)
+        ? this.createToolAnalysisPromptMinimal(action)
+        : prompt;
+
+      const data = await llmEngine.chatCompletion({
+        messages: [
+          { role: 'system', content: modelCfg.system },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: modelCfg.temperature,
+        maxTokens: modelCfg.max_tokens,
+      });
+
+      const content = data.choices[0].message.content;
+      return this.parseAnalysisResponse(content, prompt);
+    } catch (error) {
+      console.error('[SafeguardService] Built-in analysis failed:', error.message);
+      return this.fallbackToolAnalysis(action || { summary: prompt });
     }
   }
 
@@ -2030,6 +2090,17 @@ Output ONLY ONE JSON object (pick exactly one verdict):
     }
 
     try {
+      if (this.backend === 'built-in') {
+        const ready = llmEngine.isReady;
+        const loadedId = llmEngine.loadedModelId;
+        return {
+          connected: ready,
+          backend: 'built-in',
+          model: loadedId || 'none',
+          message: ready ? `Built-in engine ready (${loadedId})` : 'No model loaded — open Settings to download and load a model',
+        };
+      }
+
       if (this.backend === 'lmstudio') {
         // LM Studio URL should already include /v1, so just append /models
         const baseUrl = this.config.lmstudioUrl.replace(/\/+$/, ''); // Remove trailing slashes

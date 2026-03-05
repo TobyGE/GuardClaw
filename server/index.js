@@ -15,6 +15,7 @@ import { logger } from './logger.js';
 import { shouldSkipEvent, shouldAnalyzeEvent, extractAction, classifyNonExecEvent, parseEventDetails, isExecCommand, extractCommand } from './helpers.js';
 import { configRoutes } from './routes/config.js';
 import { benchmarkRoutes } from './routes/benchmark.js';
+import modelsRouter from './routes/models.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
@@ -1636,6 +1637,7 @@ const routeDeps = {
 };
 app.use(configRoutes(routeDeps));
 app.use(benchmarkRoutes(routeDeps));
+app.use('/api/models', modelsRouter);
 
 // ─── Approval APIs (OC-specific) ────────────────────────────────────────────
 

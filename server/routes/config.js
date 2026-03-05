@@ -54,7 +54,7 @@ export function configRoutes(deps) {
 
   router.post('/api/config/llm', async (req, res) => {
     const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
-    if (!backend || !['lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
+    if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
 
     try {
       const envPath = path.join(process.cwd(), '.env');
@@ -90,7 +90,7 @@ export function configRoutes(deps) {
 
   router.post('/api/config/llm/test', async (req, res) => {
     const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
-    if (!backend || !['lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
+    if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
     try {
       const testSafeguard = new SafeguardService(process.env.ANTHROPIC_API_KEY, backend, { lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel });
       res.json(await testSafeguard.testConnection());

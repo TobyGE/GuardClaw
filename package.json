@@ -35,6 +35,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
+    "node-llama-cpp": "^3.17.1",
     "ws": "^8.16.0"
   },
   "devDependencies": {
