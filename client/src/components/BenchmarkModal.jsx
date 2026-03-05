@@ -355,7 +355,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
                 return (
                   <button
                     key={`${m.source}:${m.id}`}
-                    onClick={() => { if (!running) setSelectedModel(m.id); }}
+                    onClick={() => { if (!running) { setSelectedModel(m.id); setError(null); } }}
                     disabled={running}
                     className={`shrink-0 px-3 py-2 text-sm font-medium border-b-2 transition-all flex items-center gap-1.5 rounded-t-lg ${
                       isActive
