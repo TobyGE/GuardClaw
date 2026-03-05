@@ -58,9 +58,10 @@ jobs:
           </plist>
           PLIST
 
-      - name: Create zip archive
+      - name: Remove quarantine attributes & create zip
         run: |
-          zip -r GuardClawBar-${{ github.ref_name }}.zip GuardClawBar.app
+          xattr -cr GuardClawBar.app
+          zip -r --symlinks GuardClawBar-${{ github.ref_name }}.zip GuardClawBar.app
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -75,7 +76,14 @@ jobs:
             ### Install
             1. Download `GuardClawBar-${{ github.ref_name }}.zip`
             2. Unzip and move `GuardClawBar.app` to `/Applications`
-            3. Open it (right-click → Open if Gatekeeper blocks)
+            3. **If macOS says "damaged"**, run in Terminal:
+               ```
+               xattr -cr /Applications/GuardClawBar.app
+               ```
+            4. Open normally
+
+            > The app is not signed with an Apple Developer certificate.
+            > The `xattr` command removes the quarantine flag macOS adds to downloaded files.
           files: GuardClawBar-${{ github.ref_name }}.zip
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
