@@ -435,14 +435,14 @@ function getSystemWarnings(backends, pollerStats, llmStatus, approvalStats) {
   }
 
 
-  if (llmStatus && !llmStatus.connected && llmStatus.backend !== 'fallback') {
+  if (llmStatus && !llmStatus.connected && llmStatus.backend !== 'fallback' && llmStatus.backend !== 'built-in') {
     warnings.push({
       level: 'error',
       message: `${llmStatus.backend.toUpperCase()} not connected`,
       suggestion: llmStatus.backend === 'lmstudio'
-        ? 'Start LM Studio and load a model, or set SAFEGUARD_BACKEND=fallback'
+        ? 'Start LM Studio and load a model, or switch to Built-in in Settings'
         : llmStatus.backend === 'ollama'
-        ? 'Start Ollama service, or set SAFEGUARD_BACKEND=fallback'
+        ? 'Start Ollama service, or switch to Built-in in Settings'
         : 'Check API credentials'
     });
   }

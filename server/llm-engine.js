@@ -1,53 +1,35 @@
 /**
- * Built-in LLM engine — runs GGUF models directly via node-llama-cpp.
- * No external LM Studio / Ollama dependency needed.
+ * Built-in LLM engine — runs MLX models via mlx_lm.server subprocess.
+ * Uses OpenAI-compatible API on localhost:8081.
  */
-import { getLlama, LlamaChatSession, resolveModelFile } from 'node-llama-cpp';
+import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import http from 'http';
 
 const MODELS_DIR = path.join(os.homedir(), '.guardclaw', 'models');
+const VENV_PYTHON = path.join(os.homedir(), '.guardclaw', 'venv', 'bin', 'python3.13');
+const MLX_PORT = 8081;
 
-// Curated model list (small, fast, good at structured JSON output)
 const MODEL_CATALOG = [
   {
     id: 'qwen3-4b',
     name: 'Qwen 3 4B',
     description: 'Best balance of speed and accuracy for security analysis',
-    size: '2.7 GB',
-    hfRepo: 'unsloth/Qwen3-4B-GGUF',
-    hfFile: 'Qwen3-4B-Q4_K_M.gguf',
+    size: '2.5 GB',
+    hfRepo: 'mlx-community/Qwen3-4B-Instruct-2507-4bit',
     recommended: true,
-  },
-  {
-    id: 'qwen2.5-3b',
-    name: 'Qwen 2.5 3B',
-    description: 'Smaller and faster, good for low-memory systems',
-    size: '2.0 GB',
-    hfRepo: 'Qwen/Qwen2.5-3B-Instruct-GGUF',
-    hfFile: 'qwen2.5-3b-instruct-q4_k_m.gguf',
-    recommended: false,
-  },
-  {
-    id: 'qwen3-1.7b',
-    name: 'Qwen 3 1.7B',
-    description: 'Ultra-light, runs on any machine',
-    size: '1.1 GB',
-    hfRepo: 'unsloth/Qwen3-1.7B-GGUF',
-    hfFile: 'Qwen3-1.7B-Q4_K_M.gguf',
-    recommended: false,
   },
 ];
 
 class LLMEngine extends EventEmitter {
   constructor() {
     super();
-    this._llama = null;
-    this._model = null;
-    this._context = null;
+    this._process = null;
     this._loadedModelId = null;
+    this._serverModelId = null;
     this._downloading = new Map(); // modelId -> { progress, abortController }
   }
 
@@ -55,19 +37,28 @@ class LLMEngine extends EventEmitter {
     return MODELS_DIR;
   }
 
-  /** Ensure models directory exists */
   _ensureDir() {
     if (!fs.existsSync(MODELS_DIR)) {
       fs.mkdirSync(MODELS_DIR, { recursive: true });
     }
   }
 
+  /** Get local path for a model */
+  _modelPath(catalog) {
+    return path.join(MODELS_DIR, catalog.hfRepo.replace('/', '--'));
+  }
+
+  /** Check if model is downloaded by looking for config.json in its directory */
+  _isDownloaded(catalog) {
+    const dir = this._modelPath(catalog);
+    return fs.existsSync(path.join(dir, 'config.json'));
+  }
+
   /** Get model catalog with download status */
   listModels() {
     this._ensureDir();
     return MODEL_CATALOG.map(m => {
-      const filePath = path.join(MODELS_DIR, m.hfFile);
-      const downloaded = fs.existsSync(filePath);
+      const downloaded = this._isDownloaded(m);
       const downloading = this._downloading.has(m.id);
       const progress = downloading ? this._downloading.get(m.id).progress : 0;
       return {
@@ -76,21 +67,21 @@ class LLMEngine extends EventEmitter {
         downloading,
         progress,
         loaded: this._loadedModelId === m.id,
-        filePath: downloaded ? filePath : null,
+        filePath: downloaded ? this._modelPath(m) : null,
       };
     });
   }
 
-  /** Download a model from HuggingFace */
+  /** Download a model from HuggingFace using snapshot_download */
   async downloadModel(modelId) {
     const catalog = MODEL_CATALOG.find(m => m.id === modelId);
     if (!catalog) throw new Error(`Unknown model: ${modelId}`);
     if (this._downloading.has(modelId)) throw new Error(`Already downloading: ${modelId}`);
 
     this._ensureDir();
-    const destPath = path.join(MODELS_DIR, catalog.hfFile);
+    const destPath = this._modelPath(catalog);
 
-    if (fs.existsSync(destPath)) {
+    if (this._isDownloaded(catalog)) {
       return { status: 'already_downloaded', path: destPath };
     }
 
@@ -98,28 +89,74 @@ class LLMEngine extends EventEmitter {
     this._downloading.set(modelId, state);
     this.emit('download-start', { modelId });
 
-    try {
-      const modelPath = await resolveModelFile(
-        `hf:${catalog.hfRepo}/${catalog.hfFile}`,
-        {
-          directory: MODELS_DIR,
-          signal: state.abortController.signal,
-          onProgress: ({ downloadedSize, totalSize }) => {
-            if (totalSize > 0) {
-              state.progress = Math.round((downloadedSize / totalSize) * 100);
-              this.emit('download-progress', { modelId, progress: state.progress });
-            }
-          },
+    return new Promise((resolve, reject) => {
+      const pyScript = `
+import sys, json
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import tqdm as hf_tqdm
+
+path = snapshot_download(
+    "${catalog.hfRepo}",
+    local_dir="${destPath}",
+)
+print(json.dumps({"done": True, "path": path}), flush=True)
+`;
+      const proc = spawn(VENV_PYTHON, ['-u', '-c', pyScript], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      if (state.abortController.signal.aborted) {
+        proc.kill();
+        this._downloading.delete(modelId);
+        reject(new Error('Download cancelled'));
+        return;
+      }
+
+      state.abortController.signal.addEventListener('abort', () => {
+        proc.kill();
+      });
+
+      let stderr = '';
+      let lastProgress = 0;
+
+      proc.stderr.on('data', (chunk) => {
+        const text = chunk.toString();
+        stderr += text;
+        // Parse tqdm progress from stderr (e.g., "50%|...")
+        const match = text.match(/(\d+)%\|/);
+        if (match) {
+          const pct = parseInt(match[1]);
+          if (pct > lastProgress) {
+            lastProgress = pct;
+            state.progress = pct;
+            this.emit('download-progress', { modelId, progress: pct });
+          }
         }
-      );
-      this._downloading.delete(modelId);
-      this.emit('download-complete', { modelId, path: modelPath });
-      return { status: 'downloaded', path: modelPath };
-    } catch (err) {
-      this._downloading.delete(modelId);
-      this.emit('download-error', { modelId, error: err.message });
-      throw err;
-    }
+      });
+
+      proc.stdout.on('data', (chunk) => {
+        const text = chunk.toString().trim();
+        try {
+          const data = JSON.parse(text);
+          if (data.done) {
+            state.progress = 100;
+            this.emit('download-progress', { modelId, progress: 100 });
+          }
+        } catch {}
+      });
+
+      proc.on('close', (code) => {
+        this._downloading.delete(modelId);
+        if (code === 0 && this._isDownloaded(catalog)) {
+          this.emit('download-complete', { modelId, path: destPath });
+          resolve({ status: 'downloaded', path: destPath });
+        } else {
+          const err = new Error(`Download failed (code ${code}): ${stderr.slice(-500)}`);
+          this.emit('download-error', { modelId, error: err.message });
+          reject(err);
+        }
+      });
+    });
   }
 
   /** Cancel an ongoing download */
@@ -140,92 +177,192 @@ class LLMEngine extends EventEmitter {
       this.unload();
     }
 
-    const filePath = path.join(MODELS_DIR, catalog.hfFile);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    const dir = this._modelPath(catalog);
+    if (fs.existsSync(dir)) {
+      fs.rmSync(dir, { recursive: true });
     }
   }
 
-  /** Load a model into memory */
+  /** Wait for mlx_lm.server to be ready by polling the health endpoint */
+  async _waitForServer(timeoutMs = 60000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        await new Promise((resolve, reject) => {
+          const req = http.request(
+            { hostname: '127.0.0.1', port: MLX_PORT, path: '/v1/models', method: 'GET', timeout: 2000 },
+            (res) => {
+              let body = '';
+              res.on('data', (d) => body += d);
+              res.on('end', () => resolve(body));
+            }
+          );
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+          req.end();
+        });
+        return true;
+      } catch {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+    throw new Error('mlx_lm.server did not become ready within timeout');
+  }
+
+  /** Load a model by starting mlx_lm.server subprocess */
   async loadModel(modelId) {
     const catalog = MODEL_CATALOG.find(m => m.id === modelId);
     if (!catalog) throw new Error(`Unknown model: ${modelId}`);
 
-    const filePath = path.join(MODELS_DIR, catalog.hfFile);
-    if (!fs.existsSync(filePath)) {
+    const modelPath = this._modelPath(catalog);
+    if (!this._isDownloaded(catalog)) {
       throw new Error(`Model not downloaded: ${modelId}`);
     }
 
     // Unload previous model
-    if (this._model) {
+    if (this._process) {
       await this.unload();
     }
 
-    if (!this._llama) {
-      this._llama = await getLlama();
-    }
+    console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
 
-    console.log(`[LLMEngine] Loading model: ${catalog.name}...`);
-    this._model = await this._llama.loadModel({ modelPath: filePath });
-    this._context = await this._model.createContext();
+    this._process = spawn(VENV_PYTHON, [
+      '-m', 'mlx_lm.server',
+      '--model', modelPath,
+      '--port', String(MLX_PORT),
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    this._process.stdout.on('data', (chunk) => {
+      console.log(`[mlx_lm] ${chunk.toString().trimEnd()}`);
+    });
+    this._process.stderr.on('data', (chunk) => {
+      console.log(`[mlx_lm] ${chunk.toString().trimEnd()}`);
+    });
+
+    this._process.on('close', (code) => {
+      console.log(`[LLMEngine] mlx_lm.server exited (code ${code})`);
+      if (this._loadedModelId === modelId) {
+        this._process = null;
+        this._loadedModelId = null;
+      }
+    });
+
+    await this._waitForServer();
+
     this._loadedModelId = modelId;
     console.log(`[LLMEngine] Model loaded: ${catalog.name}`);
 
     return { status: 'loaded', modelId };
   }
 
-  /** Unload current model */
+  /** Unload current model by killing the subprocess */
   async unload() {
-    if (this._context) {
-      await this._context.dispose();
-      this._context = null;
-    }
-    if (this._model) {
-      await this._model.dispose();
-      this._model = null;
+    if (this._process) {
+      this._process.kill('SIGTERM');
+      // Give it a moment to shut down
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          if (this._process) this._process.kill('SIGKILL');
+          resolve();
+        }, 3000);
+        this._process.on('close', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      this._process = null;
     }
     this._loadedModelId = null;
+    this._serverModelId = null;
     console.log('[LLMEngine] Model unloaded');
   }
 
   /** Check if a model is loaded and ready */
   get isReady() {
-    return this._model !== null && this._context !== null;
+    return this._process !== null && this._loadedModelId !== null;
   }
 
   get loadedModelId() {
     return this._loadedModelId;
   }
 
-  /** Run a chat completion (OpenAI-compatible interface) */
+  /** Query /v1/models to get the actual model ID reported by mlx_lm.server */
+  async _getServerModelId() {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { hostname: '127.0.0.1', port: MLX_PORT, path: '/v1/models', method: 'GET', timeout: 5000 },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => data += chunk);
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              resolve(json.data?.[0]?.id || 'default');
+            } catch { resolve('default'); }
+          });
+        }
+      );
+      req.on('error', () => resolve('default'));
+      req.on('timeout', () => { req.destroy(); resolve('default'); });
+      req.end();
+    });
+  }
+
+  /** Run a chat completion via mlx_lm.server OpenAI-compatible endpoint */
   async chatCompletion({ messages, temperature = 0.3, maxTokens = 800 }) {
     if (!this.isReady) {
       throw new Error('No model loaded');
     }
 
-    const session = new LlamaChatSession({
-      contextSequence: this._context.getSequence(),
+    // mlx_lm.server uses the full model path as its model ID
+    if (!this._serverModelId) {
+      this._serverModelId = await this._getServerModelId();
+    }
+
+    const body = JSON.stringify({
+      model: this._serverModelId,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
     });
 
-    try {
-      // Build prompt from messages
-      const systemMsg = messages.find(m => m.role === 'system')?.content || '';
-      const userMsg = messages.find(m => m.role === 'user')?.content || '';
-      const prompt = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg;
-
-      const response = await session.prompt(prompt, {
-        temperature,
-        maxTokens,
-      });
-
-      return {
-        choices: [{
-          message: { role: 'assistant', content: response },
-        }],
-      };
-    } finally {
-      session.dispose();
-    }
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: MLX_PORT,
+          path: '/v1/chat/completions',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          },
+          timeout: 60000,
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => data += chunk);
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              if (res.statusCode >= 400) {
+                reject(new Error(`MLX server error ${res.statusCode}: ${data}`));
+              } else {
+                resolve(json);
+              }
+            } catch (e) {
+              reject(new Error(`Failed to parse MLX response: ${data}`));
+            }
+          });
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('MLX inference timeout')); });
+      req.write(body);
+      req.end();
+    });
   }
 }
 

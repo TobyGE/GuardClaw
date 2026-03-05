@@ -459,15 +459,6 @@ function App() {
             </nav>
           </div>
           <div className="flex items-center space-x-2">
-            {/* Connection status */}
-            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border ${
-              connected
-                ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                : 'bg-red-500/10 border-red-500/20 text-red-400'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400 animate-pulse'}`} />
-              {connected ? 'Connected' : 'Disconnected'}
-            </div>
             {/* Fail-Closed Toggle */}
             <button
               onClick={() => setShowFailClosedModal(true)}
