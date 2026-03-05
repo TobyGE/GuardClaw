@@ -237,7 +237,7 @@ guardclaw help                        # show all commands
 
 See the [full roadmap](docs/ROADMAP.md) for details.
 
-**Coming up:** Event search & filtering · Cross-session chain analysis · A2A protocol monitoring
+**Coming up:** Post-execution audit with runtime taint analysis · Pollution source backtrace · Event search & filtering · Cross-session chain analysis
 
 **Recently shipped:** Claude Code auto-approve with context-aware reasoning · Adaptive memory · Human feedback loop · SQLite persistence · Real-time dashboard · 3-tier verdict system (100% benchmark accuracy) · Multi-platform support
 

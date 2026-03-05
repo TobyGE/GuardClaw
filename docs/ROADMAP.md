@@ -74,6 +74,47 @@ Implemented (2026-02-22):
 
 ---
 
+## Post-Execution Audit (Runtime Taint Analysis)
+
+### File diff scanning via PostToolUse hook
+After every file-modifying tool call (`Write`, `Edit`, `Bash` with redirects), GuardClaw captures the diff and scans for suspicious changes:
+- **Backdoor patterns** — reverse shells, `eval(base64decode(...))`, obfuscated payloads
+- **Security weakening** — removed auth checks, disabled validation, loosened permissions
+- **Secret injection** — hardcoded credentials, API keys written into source files
+- **Dependency poisoning** — unexpected additions to `package.json`, `requirements.txt`, `Gemfile`
+
+Unlike pre-execution analysis (which judges intent), post-execution scanning verifies what actually changed on disk. Findings are non-blocking (the action already ran) but trigger alerts and are logged to the audit trail.
+
+### Taint tracking and backtrace
+Every tool call is tagged with its data source: `external` (WebFetch, curl, user-provided URLs) or `local` (project files, git). When a post-execution scan flags a suspicious diff, GuardClaw traces the **pollution chain** backwards:
+
+```
+Suspicious Edit(src/auth.js)      ← caused by tool call #47
+  ↑ Agent reasoning influenced by  ← tool call #45 output
+    WebFetch(evil-blog.com/tips)   ← external, tainted
+
+Result: evil-blog.com identified as pollution source
+```
+
+Data model per tool call:
+- `filesModified` — which files were created/changed (captured via PostToolUse diff)
+- `dataSource` — external vs local
+- `tainted` — whether input chain includes unverified external data
+- `taintChain` — ordered list of upstream tool call IDs that contributed to this action
+
+### Pollution source identification
+When a finding is traced back to an external source (fetched webpage, downloaded file, piped curl output), GuardClaw:
+1. Flags the source URL/file in the dashboard with a ⚠️ pollution badge
+2. Records it in memory so future fetches from the same domain get elevated risk scores
+3. Shows the full taint chain visually in the event detail panel: `Source → Propagation → Impact`
+
+### Dashboard integration
+- **Taint chain view** — click any flagged event to see the full backtrace as a visual chain
+- **Pollution sources panel** — aggregated view of all external sources that introduced suspicious content
+- **Post-audit findings** — separate finding type in the event timeline with severity and affected files
+
+---
+
 ## Active Blocking
 
 ### OpenClaw plugin — pre-execution interception
