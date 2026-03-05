@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-and-release:
     name: Build & Release macOS App
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout
@@ -20,18 +20,18 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      - name: Build GuardClawBar (release)
+      - name: Build universal binary (arm64 + x86_64)
         run: |
           cd GuardClawBar
-          swift build -c release
+          swift build -c release --arch arm64 --arch x86_64
 
       - name: Package .app bundle
         run: |
           APP_DIR="GuardClawBar.app/Contents/MacOS"
           mkdir -p "$APP_DIR"
-          cp GuardClawBar/.build/release/GuardClawBar "$APP_DIR/GuardClawBar"
+          cp GuardClawBar/.build/apple/Products/Release/GuardClawBar "$APP_DIR/GuardClawBar"
 
-          cat > GuardClawBar.app/Contents/Info.plist << 'PLIST'
+          cat > GuardClawBar.app/Contents/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -56,18 +56,21 @@ jobs:
               <true/>
           </dict>
           </plist>
-          PLIST
+          EOF
+
+      - name: Ad-hoc code sign
+        run: |
+          codesign --force --deep -s - GuardClawBar.app
+          codesign --verify GuardClawBar.app
 
       - name: Create DMG
         run: |
           xattr -cr GuardClawBar.app
 
-          # Staging folder for DMG contents
           mkdir -p dmg_stage
           cp -R GuardClawBar.app dmg_stage/
           ln -s /Applications dmg_stage/Applications
 
-          # Create the DMG
           hdiutil create \
             -volname "GuardClawBar" \
             -srcfolder dmg_stage \
@@ -83,14 +86,13 @@ jobs:
           body: |
             ## GuardClawBar ${{ github.ref_name }}
 
-            macOS menu bar app for GuardClaw.
+            macOS menu bar app for GuardClaw (universal: Apple Silicon + Intel).
 
             ### Install
             1. Download `GuardClawBar-${{ github.ref_name }}.dmg`
             2. Open the DMG, drag **GuardClawBar** into **Applications**
-            3. Eject the DMG, open GuardClawBar from Applications
-
-            > If macOS says "damaged", run: `xattr -cr /Applications/GuardClawBar.app`
+            3. First launch: right-click → **Open** → click Open in the dialog
+            4. If macOS still blocks it, run: `xattr -cr /Applications/GuardClawBar.app`
           files: GuardClawBar-${{ github.ref_name }}.dmg
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
