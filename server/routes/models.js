@@ -50,6 +50,19 @@ router.post('/:id/load', async (req, res) => {
   }
 });
 
+/** POST /api/models/:id/setup — download (if needed) + load in one step */
+router.post('/:id/setup', async (req, res) => {
+  try {
+    // Respond immediately, setup runs in background
+    res.json({ status: 'setting_up', modelId: req.params.id });
+    engine.setupAndLoad(req.params.id).catch(err => {
+      console.error(`[Models] Setup failed for ${req.params.id}:`, err.message);
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** POST /api/models/unload — unload current model */
 router.post('/unload', async (req, res) => {
   await engine.unload();

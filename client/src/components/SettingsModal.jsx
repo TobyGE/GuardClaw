@@ -96,7 +96,6 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
 
   // Built-in model management
   const [builtinModels, setBuiltinModels] = useState([]);
-  const [loadingBuiltin, setLoadingBuiltin] = useState(false);
 
   const fetchBuiltinModels = async () => {
     try {
@@ -109,39 +108,32 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   useEffect(() => {
     if (isOpen && llmBackend === 'built-in') {
       fetchBuiltinModels();
-      // Poll for download progress
-      const interval = setInterval(fetchBuiltinModels, 2000);
+      const interval = setInterval(fetchBuiltinModels, 1500);
       return () => clearInterval(interval);
     }
   }, [isOpen, llmBackend]);
 
-  const handleDownloadModel = async (modelId) => {
-    setLoadingBuiltin(true);
-    try {
-      await fetch(`/api/models/${modelId}/download`, { method: 'POST' });
-      setMessage({ type: 'success', text: 'Download started...' });
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message });
-    }
-    setLoadingBuiltin(false);
-  };
-
-  const handleLoadModel = async (modelId) => {
-    setLoadingBuiltin(true);
+  // One-click setup: download (if needed) + load
+  const handleSetupModel = async (modelId) => {
     setMessage(null);
     try {
-      const resp = await fetch(`/api/models/${modelId}/load`, { method: 'POST' });
-      if (resp.ok) {
-        setMessage({ type: 'success', text: 'Model loaded and ready!' });
-        fetchBuiltinModels();
-      } else {
-        const data = await resp.json();
-        setMessage({ type: 'error', text: data.error });
-      }
+      await fetch(`/api/models/${modelId}/setup`, { method: 'POST' });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     }
-    setLoadingBuiltin(false);
+  };
+
+  const handleCancelDownload = async (modelId) => {
+    try {
+      await fetch(`/api/models/${modelId}/cancel`, { method: 'POST' });
+    } catch {}
+  };
+
+  const handleUnloadModel = async () => {
+    try {
+      await fetch('/api/models/unload', { method: 'POST' });
+      fetchBuiltinModels();
+    } catch {}
   };
 
   const handleDeleteModel = async (modelId) => {
@@ -307,13 +299,23 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                 <Label>Backend</Label>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { value: 'built-in', icon: <BrainIcon size={18} />, label: 'Built-in', desc: 'No setup needed' },
+                    { value: 'built-in', icon: <BrainIcon size={18} />, label: 'Built-in', desc: 'Runs on your Mac' },
                     { value: 'lmstudio', icon: <CpuIcon size={18} />, label: 'LM Studio', desc: 'External server' },
                     { value: 'ollama', icon: <LlamaIcon size={18} />, label: 'Ollama', desc: 'External server' },
                   ].map(opt => (
                     <button
                       key={opt.value}
-                      onClick={() => setLlmBackend(opt.value)}
+                      onClick={() => {
+                        setLlmBackend(opt.value);
+                        // Auto-save backend selection when switching to built-in
+                        if (opt.value === 'built-in') {
+                          fetch('/api/config/llm', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ backend: 'built-in' })
+                          }).catch(() => {});
+                        }
+                      }}
                       disabled={saving}
                       className={`flex items-center gap-3 p-3.5 rounded-lg border-2 transition-all duration-150 text-left ${
                         llmBackend === opt.value
@@ -334,69 +336,132 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               {/* Built-in Model Manager */}
               {llmBackend === 'built-in' && (
                 <Card>
-                  <Label hint="Models run directly in GuardClaw — no external software needed">Judge Model</Label>
-                  <div className="space-y-2">
-                    {builtinModels.map(m => (
-                      <div
-                        key={m.id}
-                        className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                          m.loaded
-                            ? 'border-green-500 bg-green-900/20'
-                            : m.downloaded
-                            ? 'border-gc-border bg-gc-card'
-                            : 'border-dashed border-gc-border bg-gc-card'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-semibold ${m.loaded ? 'text-green-400' : 'text-gc-text'}`}>{m.name}</span>
-                            {m.recommended && (
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                                recommended
-                              </span>
-                            )}
-                            {m.loaded && (
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-green-900/40 text-green-300">
-                                active
-                              </span>
+                  <Label hint="Runs directly on your Mac via Apple Silicon — no external software needed">Judge Model</Label>
+                  <div className="space-y-3">
+                    {builtinModels.map(m => {
+                      const isBusy = m.downloading || m.loading;
+                      return (
+                        <div
+                          key={m.id}
+                          className={`rounded-xl border-2 transition-all overflow-hidden ${
+                            m.loaded
+                              ? 'border-green-500/60 bg-green-950/20'
+                              : isBusy
+                              ? 'border-blue-500/40 bg-blue-950/10'
+                              : m.downloaded
+                              ? 'border-gc-border bg-gc-card'
+                              : 'border-dashed border-gc-border bg-gc-card'
+                          }`}
+                        >
+                          <div className="p-4">
+                            {/* Header row */}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-sm font-semibold ${m.loaded ? 'text-green-400' : 'text-gc-text'}`}>{m.name}</span>
+                                  {m.recommended && (
+                                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                                      recommended
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gc-text-dim mt-1">{m.description} &middot; {m.size}</div>
+                              </div>
+
+                              {/* Action area */}
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {/* State: Not downloaded, not busy → "Setup & Run" */}
+                                {!m.downloaded && !isBusy && (
+                                  <Btn variant="primary" onClick={() => handleSetupModel(m.id)} className="!text-xs !px-4 !py-2">
+                                    Setup &amp; Run
+                                  </Btn>
+                                )}
+
+                                {/* State: Downloaded but not loaded or busy → "Run" + "Delete" */}
+                                {m.downloaded && !m.loaded && !isBusy && (
+                                  <>
+                                    <Btn variant="success" onClick={() => handleSetupModel(m.id)} className="!text-xs !px-4 !py-2">
+                                      Run
+                                    </Btn>
+                                    <Btn variant="ghost" onClick={() => handleDeleteModel(m.id)} className="!text-xs !px-2 !py-2 !text-red-400 hover:!text-red-300">
+                                      Delete
+                                    </Btn>
+                                  </>
+                                )}
+
+                                {/* State: Loaded → "Active" indicator + "Stop" */}
+                                {m.loaded && (
+                                  <>
+                                    <span className="flex items-center gap-1.5 text-xs font-medium text-green-400">
+                                      <span className="relative flex h-2 w-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                      </span>
+                                      Active
+                                    </span>
+                                    <Btn variant="ghost" onClick={handleUnloadModel} className="!text-xs !px-2 !py-2 !text-gc-text-dim">
+                                      Stop
+                                    </Btn>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Progress / status area (downloading or loading) */}
+                            {isBusy && (
+                              <div className="mt-3 space-y-2">
+                                {/* Progress bar for download */}
+                                {m.downloading && (
+                                  <div>
+                                    <div className="h-2 rounded-full bg-gc-border overflow-hidden">
+                                      <div
+                                        className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transition-all duration-500 ease-out"
+                                        style={{ width: `${Math.max(m.progress, 2)}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Loading spinner for load phase */}
+                                {m.loading && !m.downloading && (
+                                  <div className="h-2 rounded-full bg-gc-border overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse" style={{ width: '100%' }} />
+                                  </div>
+                                )}
+
+                                {/* Status text + cancel */}
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-blue-400 flex items-center gap-1.5">
+                                    <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                    </svg>
+                                    {m.statusMessage || (m.downloading ? `Downloading... ${m.progress}%` : 'Loading model...')}
+                                  </span>
+                                  {m.downloading && (
+                                    <button
+                                      onClick={() => handleCancelDownload(m.id)}
+                                      className="text-[11px] text-gc-text-dim hover:text-red-400 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             )}
                           </div>
-                          <div className="text-xs text-gc-text-dim mt-0.5">{m.description} ({m.size})</div>
-                          {m.downloading && (
-                            <div className="mt-2">
-                              <div className="h-1.5 rounded-full bg-gc-border overflow-hidden">
-                                <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${m.progress}%` }} />
-                              </div>
-                              <span className="text-[10px] text-blue-400 mt-1">{m.progress}%</span>
-                            </div>
-                          )}
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {!m.downloaded && !m.downloading && (
-                            <Btn variant="primary" onClick={() => handleDownloadModel(m.id)} disabled={loadingBuiltin} className="!text-xs !px-3 !py-1.5">
-                              Download
-                            </Btn>
-                          )}
-                          {m.downloaded && !m.loaded && (
-                            <Btn variant="success" onClick={() => handleLoadModel(m.id)} disabled={loadingBuiltin} className="!text-xs !px-3 !py-1.5">
-                              Load
-                            </Btn>
-                          )}
-                          {m.downloaded && !m.loaded && (
-                            <Btn variant="ghost" onClick={() => handleDeleteModel(m.id)} className="!text-xs !px-2 !py-1.5 !text-red-400">
-                              Delete
-                            </Btn>
-                          )}
-                          {m.loaded && (
-                            <span className="text-xs text-green-400 font-medium">Running</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {builtinModels.length === 0 && (
-                      <div className="text-sm text-gc-text-dim text-center py-4">Loading model catalog...</div>
+                      <div className="text-sm text-gc-text-dim text-center py-6">Loading model catalog...</div>
                     )}
                   </div>
+
+                  {/* Requirements note */}
+                  <p className="text-[11px] text-gc-text-dim mt-3 leading-relaxed">
+                    Requires Apple Silicon Mac with Python 3.10+. First run installs dependencies automatically (~2 min).
+                  </p>
                 </Card>
               )}
 
@@ -606,20 +671,25 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
 
         {/* Footer Actions */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
-          <Btn variant="ghost" onClick={onClose} disabled={saving}>Cancel</Btn>
+          <Btn variant="ghost" onClick={onClose} disabled={saving}>
+            {activeTab === 'llm' && llmBackend === 'built-in' ? 'Close' : 'Cancel'}
+          </Btn>
           <div className="flex gap-2">
-            {activeTab === 'llm' && (
-              <Btn variant="secondary" onClick={handleTestConnection} disabled={saving}>
-                {saving ? '...' : <><SearchIcon size={14} /> Test</>}
+            {activeTab === 'llm' && llmBackend !== 'built-in' && (
+              <>
+                <Btn variant="secondary" onClick={handleTestConnection} disabled={saving}>
+                  {saving ? '...' : <><SearchIcon size={14} /> Test</>}
+                </Btn>
+                <Btn variant="primary" onClick={handleSaveLlm} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save & Apply'}
+                </Btn>
+              </>
+            )}
+            {activeTab === 'gateway' && (
+              <Btn variant="primary" onClick={handleSaveGateway} disabled={saving || !token}>
+                {saving ? 'Saving…' : 'Save & Reconnect'}
               </Btn>
             )}
-            <Btn
-              variant="primary"
-              onClick={activeTab === 'gateway' ? handleSaveGateway : handleSaveLlm}
-              disabled={saving || (activeTab === 'gateway' && !token)}
-            >
-              {saving ? 'Saving…' : activeTab === 'gateway' ? 'Save & Reconnect' : 'Save & Apply'}
-            </Btn>
           </div>
         </div>
       </div>

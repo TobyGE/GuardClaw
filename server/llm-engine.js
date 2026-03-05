@@ -89,6 +89,8 @@ class LLMEngine extends EventEmitter {
     this._loadedModelId = null;
     this._serverModelId = null;
     this._downloading = new Map(); // modelId -> { progress, abortController }
+    this._loadingModelId = null; // modelId currently being loaded
+    this._statusMessage = null;  // human-readable status for UI
   }
 
   get modelsDir() {
@@ -131,7 +133,9 @@ class LLMEngine extends EventEmitter {
         downloaded,
         downloading,
         progress,
+        loading: this._loadingModelId === m.id,
         loaded: this._loadedModelId === m.id,
+        statusMessage: this._statusMessage,
         filePath: downloaded ? this._modelPath(m) : null,
       };
     });
@@ -150,7 +154,9 @@ class LLMEngine extends EventEmitter {
       return { status: 'already_downloaded', path: destPath };
     }
 
+    this._statusMessage = 'Setting up Python environment...';
     this._ensureVenv();
+    this._statusMessage = 'Starting download...';
 
     const state = { progress: 0, abortController: new AbortController() };
     this._downloading.set(modelId, state);
@@ -196,6 +202,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
           if (pct > lastProgress) {
             lastProgress = pct;
             state.progress = pct;
+            this._statusMessage = `Downloading model... ${pct}%`;
             this.emit('download-progress', { modelId, progress: pct });
           }
         }
@@ -215,15 +222,28 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       proc.on('close', (code) => {
         this._downloading.delete(modelId);
         if (code === 0 && this._isDownloaded(catalog)) {
+          this._statusMessage = null;
           this.emit('download-complete', { modelId, path: destPath });
           resolve({ status: 'downloaded', path: destPath });
         } else {
+          this._statusMessage = null;
           const err = new Error(`Download failed (code ${code}): ${stderr.slice(-500)}`);
           this.emit('download-error', { modelId, error: err.message });
           reject(err);
         }
       });
     });
+  }
+
+  /** Download and load a model in one step */
+  async setupAndLoad(modelId) {
+    const catalog = MODEL_CATALOG.find(m => m.id === modelId);
+    if (!catalog) throw new Error(`Unknown model: ${modelId}`);
+
+    if (!this._isDownloaded(catalog)) {
+      await this.downloadModel(modelId);
+    }
+    return this.loadModel(modelId);
   }
 
   /** Cancel an ongoing download */
@@ -286,44 +306,58 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       throw new Error(`Model not downloaded: ${modelId}`);
     }
 
-    this._ensureVenv();
+    this._loadingModelId = modelId;
+    this._statusMessage = 'Setting up Python environment...';
 
-    // Unload previous model
-    if (this._process) {
-      await this.unload();
-    }
+    try {
+      this._ensureVenv();
 
-    console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
-
-    this._process = spawn(VENV_PYTHON, [
-      '-m', 'mlx_lm.server',
-      '--model', modelPath,
-      '--port', String(MLX_PORT),
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    this._process.stdout.on('data', (chunk) => {
-      console.log(`[mlx_lm] ${chunk.toString().trimEnd()}`);
-    });
-    this._process.stderr.on('data', (chunk) => {
-      console.log(`[mlx_lm] ${chunk.toString().trimEnd()}`);
-    });
-
-    this._process.on('close', (code) => {
-      console.log(`[LLMEngine] mlx_lm.server exited (code ${code})`);
-      if (this._loadedModelId === modelId) {
-        this._process = null;
-        this._loadedModelId = null;
+      // Unload previous model
+      if (this._process) {
+        this._statusMessage = 'Unloading previous model...';
+        await this.unload();
       }
-    });
 
-    await this._waitForServer();
+      this._statusMessage = 'Starting model server...';
+      console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
 
-    this._loadedModelId = modelId;
-    console.log(`[LLMEngine] Model loaded: ${catalog.name}`);
+      this._process = spawn(VENV_PYTHON, [
+        '-m', 'mlx_lm.server',
+        '--model', modelPath,
+        '--port', String(MLX_PORT),
+      ], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
-    return { status: 'loaded', modelId };
+      this._process.stdout.on('data', (chunk) => {
+        console.log(`[mlx_lm] ${chunk.toString().trimEnd()}`);
+      });
+      this._process.stderr.on('data', (chunk) => {
+        console.log(`[mlx_lm] ${chunk.toString().trimEnd()}`);
+      });
+
+      this._process.on('close', (code) => {
+        console.log(`[LLMEngine] mlx_lm.server exited (code ${code})`);
+        if (this._loadedModelId === modelId) {
+          this._process = null;
+          this._loadedModelId = null;
+        }
+      });
+
+      this._statusMessage = 'Loading model into memory...';
+      await this._waitForServer();
+
+      this._loadedModelId = modelId;
+      this._loadingModelId = null;
+      this._statusMessage = null;
+      console.log(`[LLMEngine] Model loaded: ${catalog.name}`);
+
+      return { status: 'loaded', modelId };
+    } catch (err) {
+      this._loadingModelId = null;
+      this._statusMessage = null;
+      throw err;
+    }
   }
 
   /** Unload current model by killing the subprocess */
