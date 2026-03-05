@@ -18,10 +18,15 @@ jobs:
     name: Build & Release macOS App
     runs-on: macos-15
 
-    env:
-      VERSION: ${{ github.event.inputs.version || github.ref_name }}
-
     steps:
+      - name: Set version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          else
+            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -53,9 +58,9 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>${{ env.VERSION }}</string>
+              <string>$VERSION</string>
               <key>CFBundleVersion</key>
-              <string>${{ env.VERSION }}</string>
+              <string>$VERSION</string>
               <key>LSMinimumSystemVersion</key>
               <string>14.0</string>
               <key>LSUIElement</key>
@@ -84,7 +89,7 @@ jobs:
             -srcfolder dmg_stage \
             -ov \
             -format UDZO \
-            "GuardClawBar-${{ env.VERSION }}.dmg"
+            "GuardClawBar-$VERSION.dmg"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -103,6 +108,6 @@ jobs:
             4. If macOS still blocks it, run: `xattr -cr /Applications/GuardClawBar.app`
           files: GuardClawBar-${{ env.VERSION }}.dmg
           draft: false
-          prerelease: ${{ contains(env.VERSION, '-') }}
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
