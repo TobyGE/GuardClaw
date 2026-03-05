@@ -1,0 +1,80 @@
+name: Release GuardClawBar
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build & Release macOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build GuardClawBar (release)
+        run: |
+          cd GuardClawBar
+          swift build -c release
+
+      - name: Package .app bundle
+        run: |
+          APP_DIR="GuardClawBar.app/Contents/MacOS"
+          mkdir -p "$APP_DIR"
+          cp GuardClawBar/.build/release/GuardClawBar "$APP_DIR/GuardClawBar"
+
+          cat > GuardClawBar.app/Contents/Info.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>GuardClawBar</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.guardclaw.bar</string>
+              <key>CFBundleName</key>
+              <string>GuardClawBar</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${{ github.ref_name }}</string>
+              <key>CFBundleVersion</key>
+              <string>${{ github.ref_name }}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Create zip archive
+        run: |
+          zip -r GuardClawBar-${{ github.ref_name }}.zip GuardClawBar.app
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: GuardClawBar ${{ github.ref_name }}
+          body: |
+            ## GuardClawBar ${{ github.ref_name }}
+
+            macOS menu bar app for GuardClaw.
+
+            ### Install
+            1. Download `GuardClawBar-${{ github.ref_name }}.zip`
+            2. Unzip and move `GuardClawBar.app` to `/Applications`
+            3. Open it (right-click → Open if Gatekeeper blocks)
+          files: GuardClawBar-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

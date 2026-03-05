@@ -16,6 +16,29 @@ struct ProviderCardView: View {
         appState.eventsForBackend(provider.backendKey)
     }
 
+    private var backendToolEvents: [EventItem] {
+        backendEvents.filter { $0.type?.contains("tool") == true }
+    }
+
+    private var backendSafeCount: Int {
+        backendToolEvents.filter { $0.effectiveRiskScore < 6 }.count
+    }
+
+    private var backendWarnCount: Int {
+        backendToolEvents.filter { $0.effectiveRiskScore >= 6 && $0.effectiveRiskScore < 9 }.count
+    }
+
+    private var backendBlockCount: Int {
+        backendToolEvents.filter { $0.effectiveRiskScore >= 9 }.count
+    }
+
+    private var backendHighRiskEvents: [EventItem] {
+        backendEvents
+            .filter { $0.effectiveRiskScore >= 7 }
+            .prefix(5)
+            .map { $0 }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             connectionSection
@@ -51,18 +74,18 @@ struct ProviderCardView: View {
 
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("STATS (total: \(appState.todayEventCount))")
+            sectionHeader("STATS (total: \(backendEvents.count))")
 
-            Text("Recent tool events: \(appState.safeCount + appState.warnCount + appState.blockCount)")
+            Text("Recent tool events: \(backendSafeCount + backendWarnCount + backendBlockCount)")
                 .font(.subheadline)
 
             // Risk distribution bar
             riskBar
 
             HStack(spacing: 12) {
-                statLabel("Safe", count: appState.safeCount, color: .green)
-                statLabel("Warn", count: appState.warnCount, color: .orange)
-                statLabel("Block", count: appState.blockCount, color: .red)
+                statLabel("Safe", count: backendSafeCount, color: .green)
+                statLabel("Warn", count: backendWarnCount, color: .orange)
+                statLabel("Block", count: backendBlockCount, color: .red)
             }
             .font(.caption)
         }
@@ -70,28 +93,28 @@ struct ProviderCardView: View {
 
     private var riskBar: some View {
         GeometryReader { geo in
-            let total = max(appState.safeCount + appState.warnCount + appState.blockCount, 1)
-            let safeW = CGFloat(appState.safeCount) / CGFloat(total) * geo.size.width
-            let warnW = CGFloat(appState.warnCount) / CGFloat(total) * geo.size.width
-            let blockW = CGFloat(appState.blockCount) / CGFloat(total) * geo.size.width
+            let total = max(backendSafeCount + backendWarnCount + backendBlockCount, 1)
+            let safeW = CGFloat(backendSafeCount) / CGFloat(total) * geo.size.width
+            let warnW = CGFloat(backendWarnCount) / CGFloat(total) * geo.size.width
+            let blockW = CGFloat(backendBlockCount) / CGFloat(total) * geo.size.width
 
             HStack(spacing: 1) {
-                if appState.safeCount > 0 {
+                if backendSafeCount > 0 {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.green)
                         .frame(width: safeW)
                 }
-                if appState.warnCount > 0 {
+                if backendWarnCount > 0 {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.orange)
                         .frame(width: warnW)
                 }
-                if appState.blockCount > 0 {
+                if backendBlockCount > 0 {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.red)
                         .frame(width: blockW)
                 }
-                if total <= 1 && appState.safeCount == 0 {
+                if total <= 1 && backendSafeCount == 0 {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.gray.opacity(0.3))
                 }
@@ -123,7 +146,7 @@ struct ProviderCardView: View {
     // MARK: - High Risk Events
 
     private var highRiskSection: some View {
-        let highRisk = appState.highRiskEvents
+        let highRisk = backendHighRiskEvents
         return Group {
             if !highRisk.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
