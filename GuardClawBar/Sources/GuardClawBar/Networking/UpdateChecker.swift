@@ -4,7 +4,7 @@ import AppKit
 actor UpdateChecker {
     static let shared = UpdateChecker()
 
-    private let currentVersion = "1.0.3"
+    private let currentVersion = "1.0.4"
     private let releasesURL = URL(string: "https://api.github.com/repos/TobyGE/GuardClaw/releases/latest")!
 
     struct GitHubRelease: Decodable {
