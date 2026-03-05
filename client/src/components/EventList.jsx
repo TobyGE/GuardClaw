@@ -129,8 +129,15 @@ function groupEventsIntoTurns(events) {
     });
   }
 
+  // Filter out standalone context-only turns (no tool calls, no useful content)
+  const filtered = turns.filter(t => {
+    if (t.toolCalls.length > 0 || t.isCCTurn) return true;
+    if (t.parent?.safeguard?.isContext && t.toolCalls.length === 0) return false;
+    return true;
+  });
+
   // Newest-first: most recent turn at top
-  return turns.reverse();
+  return filtered.reverse();
 }
 
 function EventList({ events }) {
