@@ -35,8 +35,11 @@ struct ProviderCardView: View {
 
     private var backendHighRiskEvents: [EventItem] {
         backendEvents
-            .filter { $0.effectiveRiskScore > 3 }
-            .prefix(5)
+            .filter {
+                let v = $0.safeguard?.verdict?.lowercased()
+                return v == "block" || v == "blocked" || $0.effectiveRiskScore >= 8
+            }
+            .prefix(10)
             .map { $0 }
     }
 
@@ -89,7 +92,23 @@ struct ProviderCardView: View {
                 statLabel("Block", count: backendBlockCount, color: .red)
             }
             .font(.caption)
+
+            // Token usage summary
+            if let usage = appState.serverStatus?.tokenUsage, (usage.totalTokens ?? 0) > 0 {
+                Divider()
+                let total = usage.totalTokens ?? 0
+                let reqs = usage.requests ?? 0
+                Text("Judge: \(formatTokenCount(total)) tokens · \(reqs) calls")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000.0) }
+        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000.0) }
+        return "\(count)"
     }
 
     private var riskBar: some View {
@@ -151,46 +170,112 @@ struct ProviderCardView: View {
         return Group {
             if !highRisk.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionHeader("RECENT HIGH-RISK")
+                    sectionHeader("RECENT FLAGGED / BLOCKED")
                     ForEach(highRisk, id: \.stableId) { event in
-                        highRiskRow(event)
+                        HighRiskRowView(event: event)
                     }
                 }
             }
         }
     }
 
-    private func highRiskRow(_ event: EventItem) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
-
-            Text(event.displayText)
-                .font(.caption)
-                .lineLimit(1)
-
-            Spacer()
-
-            Text("\(Int(event.effectiveRiskScore))/10")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.red)
-
-            Text(event.timeAgoText)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(6)
-        .background(Color.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
-    }
-
     // MARK: - Helpers
+
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.caption)
             .fontWeight(.semibold)
             .foregroundStyle(.secondary)
+    }
+}
+
+// MARK: - Expandable High Risk Row
+
+private struct HighRiskRowView: View {
+    let event: EventItem
+    @State private var isExpanded = false
+
+    private var isBlocked: Bool {
+        let v = event.safeguard?.verdict?.lowercased()
+        return v == "block" || v == "blocked" || event.effectiveRiskScore > 7
+    }
+
+    private var accentColor: Color {
+        isBlocked ? .red : .orange
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Header row — always visible
+            HStack(spacing: 6) {
+                Image(systemName: isBlocked ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(accentColor)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    // Tool / command name
+                    if let tool = event.tool ?? event.command {
+                        Text(tool)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    // Description or text preview
+                    Text(event.description ?? event.text ?? event.displayText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(isExpanded ? nil : 2)
+                }
+
+                Spacer()
+
+                Text(isBlocked ? "BLOCKED" : "FLAGGED")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(accentColor)
+
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+            }
+
+            // Expanded detail
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    detailRow("Time", event.timeAgoText)
+                    detailRow("Score", "\(Int(event.effectiveRiskScore))/10")
+                    if let cat = event.safeguard?.category ?? event.category {
+                        detailRow("Category", cat)
+                    }
+                    if let reasoning = event.safeguard?.reasoning, !reasoning.isEmpty {
+                        Text("Reason:")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text(reasoning)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let backend = event.safeguard?.backend {
+                        detailRow("Judge", backend)
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.leading, 20)
+            }
+        }
+        .padding(8)
+        .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() } }
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(label + ":")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 10))
+        }
     }
 }

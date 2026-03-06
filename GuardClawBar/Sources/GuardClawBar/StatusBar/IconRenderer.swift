@@ -2,9 +2,10 @@ import AppKit
 import CoreGraphics
 
 enum IconStatus {
-    case normal      // green dot
+    case normal      // green dot — agent(s) connected
+    case idle        // gray dot — server up, no agents
     case pending     // yellow dot + badge
-    case error       // red dot
+    case error       // red dot — server down
 }
 
 enum IconRenderer {
@@ -115,6 +116,8 @@ enum IconRenderer {
         switch status {
         case .normal:
             color = CGColor(red: 0.22, green: 0.78, blue: 0.35, alpha: 1.0) // green
+        case .idle:
+            color = CGColor(red: 0.60, green: 0.60, blue: 0.60, alpha: 1.0) // gray
         case .pending:
             color = CGColor(red: 1.0, green: 0.76, blue: 0.03, alpha: 1.0) // yellow
         case .error:

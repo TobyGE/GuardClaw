@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { getGuardClawDir } from './data-dir.js';
+import { calcEventTokens } from './token-calculator.js';
 
 export class EventStore {
   constructor(maxEvents = Infinity) {
@@ -44,6 +45,11 @@ export class EventStore {
       CREATE INDEX IF NOT EXISTS idx_events_session ON events(sessionKey);
       CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
       CREATE INDEX IF NOT EXISTS idx_events_risk ON events(riskScore);
+
+      CREATE TABLE IF NOT EXISTS counters (
+        key TEXT PRIMARY KEY,
+        value INTEGER NOT NULL DEFAULT 0
+      );
     `);
   }
 
@@ -272,6 +278,66 @@ export class EventStore {
 
   shutdown() {
     try { this.db.close(); } catch {}
+  }
+
+  // --- Persistent counters ---
+
+  incrementCounter(key, amount = 1) {
+    this.db.prepare(`
+      INSERT INTO counters (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = value + ?
+    `).run(key, amount, amount);
+  }
+
+  getCounter(key) {
+    const row = this.db.prepare(`SELECT value FROM counters WHERE key = ?`).get(key);
+    return row ? row.value : 0;
+  }
+
+  getTokenUsage() {
+    const tracked = {
+      prompt: this.getCounter('token_prompt'),
+      completion: this.getCounter('token_completion'),
+      requests: this.getCounter('token_requests'),
+    };
+
+    // Always include historical estimate (events before precise tracking started)
+    if (!this._estimatedTokens) {
+      this._calculateHistoricalTokens();
+    }
+    const est = this._estimatedTokens;
+    return {
+      promptTokens: est.prompt + tracked.prompt,
+      completionTokens: est.completion + tracked.completion,
+      totalTokens: est.prompt + est.completion + tracked.prompt + tracked.completion,
+      requests: est.requests + tracked.requests,
+    };
+  }
+
+  _calculateHistoricalTokens() {
+    // Scan ALL events — every event represents a potential Haiku API call
+    try {
+      const rows = this.db.prepare(`SELECT data FROM events`).all();
+
+      let prompt = 0, completion = 0, requests = 0;
+      for (const row of rows) {
+        try {
+          const event = JSON.parse(row.data);
+          const tokens = calcEventTokens(event);
+          if (tokens) {
+            prompt += tokens.promptTokens;
+            completion += tokens.completionTokens;
+            requests++;
+          }
+        } catch {}
+      }
+
+      console.log(`[TokenCalc] Scanned ${rows.length} events → ${requests} counted, ${prompt + completion} tokens`);
+      this._estimatedTokens = { prompt, completion, requests };
+    } catch (e) {
+      console.error('[TokenCalc] Failed:', e.message);
+      this._estimatedTokens = { prompt: 0, completion: 0, requests: 0 };
+    }
   }
 
   // Legacy compat — no-ops

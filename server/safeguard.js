@@ -1439,6 +1439,9 @@ Output ONLY the JSON. No other text.`;
       }
 
       const data = await response.json();
+      if (data.usage && llmEngine._onTokenUsage) {
+        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+      }
       const content = data.choices[0].message.content;
       return this.parseAnalysisResponse(content, prompt);
     } catch (error) {
@@ -1501,6 +1504,9 @@ Output ONLY the JSON. No other text.`;
       }
 
       const data = await response.json();
+      if (llmEngine._onTokenUsage) {
+        llmEngine._onTokenUsage(data.prompt_eval_count || 0, data.eval_count || 0);
+      }
       const content = data.response;
       return this.parseAnalysisResponse(content, prompt);
     } catch (error) {
@@ -1744,6 +1750,9 @@ Output ONLY the JSON. No other text.`;
       }
 
       const data = await response.json();
+      if (data.usage && llmEngine._onTokenUsage) {
+        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+      }
       const content = data.choices[0].message.content;
       return this.parseAnalysisResponse(content, command);
     } catch (error) {

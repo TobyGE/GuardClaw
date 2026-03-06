@@ -16,6 +16,7 @@ import { shouldSkipEvent, shouldAnalyzeEvent, extractAction, classifyNonExecEven
 import { configRoutes } from './routes/config.js';
 import { benchmarkRoutes } from './routes/benchmark.js';
 import modelsRouter, { setBackendSwitcher } from './routes/models.js';
+import llmEngine from './llm-engine.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
@@ -406,6 +407,7 @@ app.get('/api/status', async (req, res) => {
     safeguardCache: cacheStats,
     llmStatus,
     llmConfig,
+    tokenUsage: eventStore.getTokenUsage(),
 
     // Approval status
     approvals: approvalStats,
@@ -1440,10 +1442,13 @@ const PROMPT_INJECTION_PATTERNS = [
 
 app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
   ccLastHookTime = Date.now();
-  const { session_id, prompt } = req.body;
-  if (!prompt) return res.json({});
+  console.log('[GuardClaw] UserPromptSubmit hook body:', JSON.stringify(req.body).slice(0, 500));
+  const { session_id, message } = req.body;
+  // Extract user prompt text from message object or legacy prompt field
+  const rawPrompt = message?.content || req.body.prompt;
+  if (!rawPrompt) return res.json({});
   const sessionKey = session_id ? `claude-code:${session_id}` : 'claude-code:default';
-  const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+  const promptText = typeof rawPrompt === 'string' ? rawPrompt : JSON.stringify(rawPrompt);
 
   // Infer denials for any pending asks (user moved on to next prompt)
   inferPendingDenials(sessionKey);
@@ -1646,6 +1651,13 @@ app.use(benchmarkRoutes(routeDeps));
 app.use('/api/models', modelsRouter);
 
 // Auto-switch to built-in backend when a model is loaded
+// Persist token usage to SQLite
+llmEngine._onTokenUsage = (prompt, completion) => {
+  eventStore.incrementCounter('token_prompt', prompt);
+  eventStore.incrementCounter('token_completion', completion);
+  eventStore.incrementCounter('token_requests', 1);
+};
+
 setBackendSwitcher(() => {
   if (safeguardService.backend !== 'built-in') {
     console.log('[GuardClaw] Built-in model loaded — auto-switching backend to built-in');
@@ -1785,7 +1797,7 @@ app.post('/api/setup/claude-code', (req, res) => {
     const isGCHook = (g) => g?.hooks?.some(h => h.url?.includes('/api/hooks/'));
 
     // Remove existing GuardClaw hooks
-    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'UserPromptSubmit']) {
       if (Array.isArray(settings.hooks[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => !isGCHook(g));
       }
@@ -1796,7 +1808,7 @@ app.post('/api/setup/claude-code', (req, res) => {
       PreToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/pre-tool-use`, timeout: 300, statusMessage: '⏳ GuardClaw evaluating...' }] }],
       PostToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/post-tool-use`, timeout: 10 }] }],
       Stop: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/stop`, timeout: 10 }] }],
-      Notification: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/user-prompt`, timeout: 10 }] }],
+      UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/user-prompt`, timeout: 5 }] }],
     };
     for (const [event, groups] of Object.entries(hooks)) {
       if (!settings.hooks[event]) settings.hooks[event] = [];

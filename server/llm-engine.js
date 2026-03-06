@@ -137,6 +137,7 @@ class LLMEngine extends EventEmitter {
     this._loadingModelId = null; // modelId currently being loaded
     this._statusMessage = null;  // human-readable status for UI
     this._setupError = null;     // last setup/download error for UI
+    this._onTokenUsage = null; // callback(promptTokens, completionTokens)
   }
 
   get modelsDir() {
@@ -522,6 +523,10 @@ print(json.dumps({"done": True, "path": path}), flush=True)
               if (res.statusCode >= 400) {
                 reject(new Error(`MLX server error ${res.statusCode}: ${data}`));
               } else {
+                // Track token usage
+                if (json.usage && this._onTokenUsage) {
+                  this._onTokenUsage(json.usage.prompt_tokens || 0, json.usage.completion_tokens || 0);
+                }
                 resolve(json);
               }
             } catch (e) {

@@ -11,6 +11,14 @@ struct ServerStatus: Codable, Sendable {
     let healthy: Bool?
     let warnings: [StatusWarning]?
     let install: InstallInfo?
+    let tokenUsage: TokenUsage?
+}
+
+struct TokenUsage: Codable, Sendable {
+    let promptTokens: Int?
+    let completionTokens: Int?
+    let totalTokens: Int?
+    let requests: Int?
 }
 
 struct InstallInfo: Codable, Sendable {

@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var blockingEnabled = false
     @State private var failClosedEnabled = false
     @State private var llmBackend: String? = nil
+    @State private var isChangingBackend = false
     @State private var llmConnected: Bool? = nil
     @State private var gatewayToken: String = ""
     @State private var tokenMessage: String? = nil
@@ -38,9 +39,11 @@ struct SettingsView: View {
                         Picker("", selection: Binding(
                             get: { llmBackend ?? "built-in" },
                             set: { newVal in
+                                llmBackend = newVal
+                                isChangingBackend = true
                                 Task {
                                     _ = try? await api.switchLLMBackend(backend: newVal)
-                                    llmBackend = newVal
+                                    await MainActor.run { isChangingBackend = false }
                                 }
                             }
                         )) {
@@ -200,7 +203,9 @@ struct SettingsView: View {
                     ocConnected = serverStatus.backends?["openclaw"]?.connected == true
                     blockingEnabled = serverStatus.approvals?.mode == "blocking"
                     failClosedEnabled = serverStatus.failClosed == true
-                    llmBackend = serverStatus.llmStatus?.backend
+                    if !isChangingBackend {
+                        llmBackend = serverStatus.llmStatus?.backend
+                    }
                     llmConnected = serverStatus.llmStatus?.connected
                 }
             }

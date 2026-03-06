@@ -18,9 +18,10 @@ final class AppState {
 
     // Icon
     var iconStatus: IconStatus {
-        if !isConnected { return .error }
+        if !isConnected { return .idle }
         if pendingCount > 0 { return .pending }
-        return .normal
+        let anyAgent = serverStatus?.backends?.values.contains { $0.connected == true } ?? false
+        return anyAgent ? .normal : .idle
     }
 
     // UI state

@@ -16,6 +16,15 @@ struct MenuPopoverView: View {
 
     // MARK: - Header
 
+    private var haikuCostString: String? {
+        guard let usage = appState.serverStatus?.tokenUsage,
+              let prompt = usage.promptTokens, let completion = usage.completionTokens,
+              prompt + completion > 0 else { return nil }
+        let cost = Double(prompt) / 1_000_000.0 * 0.25 + Double(completion) / 1_000_000.0 * 1.25
+        if cost < 0.01 { return String(format: "$%.4f", cost) }
+        return String(format: "$%.2f", cost)
+    }
+
     private var headerView: some View {
         HStack(spacing: 8) {
             // Mini shield icon
@@ -28,12 +37,22 @@ struct MenuPopoverView: View {
                 .fontWeight(.bold)
 
             if appState.daysProtected > 0 {
-                Text("\(appState.daysProtected)d protected")
+                Text("\(appState.daysProtected)d")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.quaternary)
+                    .clipShape(Capsule())
+            }
+
+            if let cost = haikuCostString {
+                Text("≈ \(cost) saved")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.green.opacity(0.1))
                     .clipShape(Capsule())
             }
 
