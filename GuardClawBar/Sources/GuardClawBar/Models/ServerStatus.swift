@@ -86,3 +86,13 @@ struct CCSetupStatus: Codable, Sendable {
     let installed: Bool
     let path: String?
 }
+
+struct BlockingToggleResponse: Codable, Sendable {
+    let ok: Bool?
+    let enabled: Bool?
+}
+
+struct FailClosedResponse: Codable, Sendable {
+    let ok: Bool?
+    let failClosed: Bool?
+}

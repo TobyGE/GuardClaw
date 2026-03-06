@@ -77,6 +77,16 @@ actor GuardClawAPI {
         try await post("/api/models/unload", body: [:] as [String: String])
     }
 
+    // MARK: - Blocking
+
+    func toggleBlocking(enabled: Bool) async throws -> BlockingToggleResponse {
+        try await post("/api/blocking/toggle", body: ["enabled": enabled])
+    }
+
+    func toggleFailClosed(enabled: Bool) async throws -> FailClosedResponse {
+        try await post("/api/config/fail-closed", body: ["enabled": enabled])
+    }
+
     // MARK: - Events
 
     func eventHistory(limit: Int = 30, backend: String? = nil) async throws -> EventHistoryResponse {

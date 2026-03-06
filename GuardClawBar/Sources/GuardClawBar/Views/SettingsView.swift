@@ -8,6 +8,10 @@ struct SettingsView: View {
     @State private var ccHooksInstalled: Bool? = nil
     @State private var ccSetupMessage: String? = nil
     @State private var ocConnected = false
+    @State private var blockingEnabled = false
+    @State private var failClosedEnabled = false
+    @State private var llmBackend: String? = nil
+    @State private var llmConnected: Bool? = nil
 
     private let api = GuardClawAPI()
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
@@ -88,6 +92,17 @@ struct SettingsView: View {
 
                 Divider()
 
+                // -- Protection --
+                ProtectionSection(
+                    blockingEnabled: $blockingEnabled,
+                    failClosedEnabled: $failClosedEnabled,
+                    llmBackend: llmBackend,
+                    llmConnected: llmConnected,
+                    api: api
+                )
+
+                Divider()
+
                 // -- Server URL --
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Server URL")
@@ -116,7 +131,7 @@ struct SettingsView: View {
             }
             .padding(16)
         }
-        .frame(width: 300, height: 420)
+        .frame(width: 300, height: 540)
         .onAppear { fetchModels(); checkCCStatus() }
         .onReceive(timer) { _ in fetchModels(); checkCCStatus() }
     }
@@ -148,6 +163,10 @@ struct SettingsView: View {
             if let serverStatus = try? await api.status() {
                 await MainActor.run {
                     ocConnected = serverStatus.backends?["openclaw"]?.connected == true
+                    blockingEnabled = serverStatus.approvals?.mode == "blocking"
+                    failClosedEnabled = serverStatus.failClosed == true
+                    llmBackend = serverStatus.llmStatus?.backend
+                    llmConnected = serverStatus.llmStatus?.connected
                 }
             }
         }
@@ -165,6 +184,77 @@ struct SettingsView: View {
                 await MainActor.run {
                     ccSetupMessage = "Failed: \(error.localizedDescription)"
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Protection Section
+
+private struct ProtectionSection: View {
+    @Binding var blockingEnabled: Bool
+    @Binding var failClosedEnabled: Bool
+    let llmBackend: String?
+    let llmConnected: Bool?
+    let api: GuardClawAPI
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Protection")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Blocking mode toggle
+            HStack {
+                Toggle(isOn: Binding(
+                    get: { blockingEnabled },
+                    set: { newVal in
+                        Task {
+                            _ = try? await api.toggleBlocking(enabled: newVal)
+                            blockingEnabled = newVal
+                        }
+                    }
+                )) {
+                    Text("Active Blocking")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+
+            Text(blockingEnabled ? "Risky tool calls require approval" : "Monitor only — nothing blocked")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+
+            // Fail-closed toggle
+            HStack {
+                Toggle(isOn: Binding(
+                    get: { failClosedEnabled },
+                    set: { newVal in
+                        Task {
+                            _ = try? await api.toggleFailClosed(enabled: newVal)
+                            failClosedEnabled = newVal
+                        }
+                    }
+                )) {
+                    Text("Fail-Closed (Offline)")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+
+            // LLM Judge status
+            HStack {
+                Circle()
+                    .fill(llmConnected == true ? Color.green : Color.gray)
+                    .frame(width: 6, height: 6)
+                Text("Judge: \(llmBackend ?? "none")")
+                    .font(.caption)
+                Spacer()
+                Text(llmConnected == true ? "Ready" : "Offline")
+                    .font(.system(size: 9))
+                    .foregroundStyle(llmConnected == true ? .green : .secondary)
             }
         }
     }
