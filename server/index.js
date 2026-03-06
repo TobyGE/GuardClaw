@@ -1805,10 +1805,10 @@ app.post('/api/setup/claude-code', (req, res) => {
 
     // Add hooks
     const hooks = {
-      PreToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/pre-tool-use`, timeout: 300, statusMessage: '⏳ GuardClaw evaluating...' }] }],
-      PostToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/post-tool-use`, timeout: 10 }] }],
-      Stop: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/stop`, timeout: 10 }] }],
-      UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/user-prompt`, timeout: 5 }] }],
+      PreToolUse: [{ matcher: '*', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/pre-tool-use`, timeout: 300, statusMessage: '⏳ GuardClaw evaluating...' }] }],
+      PostToolUse: [{ matcher: '*', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/post-tool-use`, timeout: 10 }] }],
+      Stop: [{ matcher: '*', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/stop`, timeout: 10 }] }],
+      UserPromptSubmit: [{ matcher: '*', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/user-prompt`, timeout: 5 }] }],
     };
     for (const [event, groups] of Object.entries(hooks)) {
       if (!settings.hooks[event]) settings.hooks[event] = [];
