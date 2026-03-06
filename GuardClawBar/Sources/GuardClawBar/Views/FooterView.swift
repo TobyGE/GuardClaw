@@ -39,8 +39,7 @@ struct FooterView: View {
 
             HStack(spacing: 12) {
                 Button("Open Dashboard") {
-                    let url = URL(string: SettingsStore.shared.serverURL)!
-                    NSWorkspace.shared.open(url)
+                    (NSApp.delegate as? AppDelegate)?.openDashboard()
                 }
                 .buttonStyle(.plain)
                 .font(.caption)

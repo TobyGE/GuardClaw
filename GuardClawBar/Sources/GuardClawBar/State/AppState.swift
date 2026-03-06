@@ -8,13 +8,16 @@ final class AppState {
     var isConnected = false
     var serverStatus: ServerStatus?
 
+    // Per-backend events (fetched server-side with backend= param)
+    var ccEvents: [EventItem] = []
+    var ocEvents: [EventItem] = []
+
     // Approvals
     var pendingApprovals: [ApprovalItem] = []
     var pendingCount: Int { pendingApprovals.count }
 
-    // Per-backend events (fetched server-side with backend= param)
-    var ccEvents: [EventItem] = []
-    var ocEvents: [EventItem] = []
+    // Blocking/Rules
+    var blockingStatus: BlockingStatusResponse?
 
     // Icon
     var iconStatus: IconStatus {
@@ -33,8 +36,9 @@ final class AppState {
     let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider()]
 
     // Internals
-    private let api = GuardClawAPI()
+    let api = GuardClawAPI()
     private var pollTask: Task<Void, Never>?
+    private var sseTask: Task<Void, Never>?
     private let notificationManager = NotificationManager()
 
     // MARK: - Stats helpers
@@ -80,17 +84,89 @@ final class AppState {
                 try? await Task.sleep(for: .seconds(interval))
             }
         }
+        startSSE()
     }
 
     func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+        sseTask?.cancel()
+        sseTask = nil
         isPolling = false
+    }
+
+    // MARK: - SSE
+
+    func startSSE() {
+        sseTask?.cancel()
+        sseTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.connectSSE()
+                // Backoff before reconnect
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func connectSSE() async {
+        guard let url = URL(string: "\(SettingsStore.shared.serverURL)/api/events") else { return }
+        let client = SSEClient(url: url)
+        for await event in await client.events() {
+            guard !Task.isCancelled else { break }
+            await handleSSEEvent(event)
+        }
+    }
+
+    private func handleSSEEvent(_ event: SSEEvent) async {
+        guard let data = event.data.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        let type = json["type"] as? String ?? ""
+
+        switch type {
+        case "tool-call", "tool_call", "event":
+            // Refresh events list
+            if let eventData = try? JSONDecoder().decode(EventItem.self, from: data) {
+                let backend = eventData.safeguard?.backend ?? "claude-code"
+                if backend == "openclaw" {
+                    if !ocEvents.contains(where: { $0.id == eventData.id }) {
+                        ocEvents.insert(eventData, at: 0)
+                        if ocEvents.count > 500 { ocEvents = Array(ocEvents.prefix(500)) }
+                    }
+                } else {
+                    if !ccEvents.contains(where: { $0.id == eventData.id }) {
+                        ccEvents.insert(eventData, at: 0)
+                        if ccEvents.count > 500 { ccEvents = Array(ccEvents.prefix(500)) }
+                    }
+                }
+            }
+        case "approval-request", "approval_request":
+            // Fetch fresh approvals
+            if let resp = try? await api.pendingApprovals() {
+                let previousIds = Set(pendingApprovals.map(\.id))
+                pendingApprovals = resp.pending
+                let newApprovals = resp.pending.filter { !previousIds.contains($0.id) }
+                for approval in newApprovals {
+                    notificationManager.notifyNewApproval(approval)
+                }
+            }
+        case "approval-resolved", "approval_resolved":
+            if let id = (json["data"] as? [String: Any])?["id"] as? String {
+                pendingApprovals.removeAll { $0.id == id }
+            }
+        case "status":
+            // Refresh status
+            if let s = try? await api.status() {
+                serverStatus = s
+                isConnected = true
+            }
+        default:
+            break
+        }
     }
 
     private func poll() async {
         do {
-            // Fetch all data concurrently, using server-side backend filtering
             async let statusResult = api.status()
             async let approvalsResult = api.pendingApprovals()
             async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
@@ -110,7 +186,6 @@ final class AppState {
             isConnected = true
             lastError = nil
 
-            // Notify for new approvals
             let newApprovals = a.pending.filter { !previousPendingIds.contains($0.id) }
             for approval in newApprovals {
                 notificationManager.notifyNewApproval(approval)
@@ -136,6 +211,22 @@ final class AppState {
         }
     }
 
+    func alwaysApprove(approval: ApprovalItem) async {
+        do {
+            // Record to memory as always-approve
+            let _: GenericResponse = try await api.alwaysApprove(
+                id: approval.id,
+                toolName: approval.toolName ?? "unknown",
+                command: approval.displayInput,
+                riskScore: approval.riskScore
+            )
+            // Also approve this specific instance
+            await approve(id: approval.id, backend: approval.backend)
+        } catch {
+            lastError = "Always Approve failed: \(error.localizedDescription)"
+        }
+    }
+
     func deny(id: String, backend: String?) async {
         do {
             if backend == "openclaw" {
@@ -147,5 +238,11 @@ final class AppState {
         } catch {
             lastError = "Deny failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Blocking Rules
+
+    func refreshBlockingStatus() async {
+        blockingStatus = try? await api.blockingStatus()
     }
 }

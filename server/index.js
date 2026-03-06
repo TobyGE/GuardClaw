@@ -1839,6 +1839,90 @@ app.get('/api/setup/claude-code/status', (req, res) => {
   }
 });
 
+// Security scan endpoint
+app.post('/api/setup/security-scan', async (_req, res) => {
+  const findings = [];
+
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+
+      // MCP Servers
+      const mcpServers = settings.mcpServers || {};
+      for (const [name, cfg] of Object.entries(mcpServers)) {
+        const args = (cfg.args || []).join(' ');
+        const isRemote = args.includes('http://') || args.includes('https://') || args.includes('wss://') || args.includes('ws://');
+        if (isRemote) {
+          findings.push({
+            id: `mcp-${name}`,
+            category: 'MCP Servers',
+            severity: 'high',
+            title: `Remote MCP server: ${name}`,
+            detail: `Command: ${cfg.command || ''} ${args}`,
+            recommendation: 'Review this MCP server. Remote servers can exfiltrate data.'
+          });
+        }
+      }
+
+      // Skills
+      const skills = settings.skills || {};
+      for (const [name, skill] of Object.entries(skills)) {
+        const suspiciousNames = ['exfil', 'steal', 'leak', 'backdoor', 'shell', 'exec'];
+        const isSuspicious = suspiciousNames.some(s => name.toLowerCase().includes(s));
+        if (isSuspicious) {
+          findings.push({
+            id: `skill-${name}`,
+            category: 'Skills',
+            severity: 'high',
+            title: `Suspicious skill name: ${name}`,
+            detail: JSON.stringify(skill).substring(0, 200),
+            recommendation: 'Review or remove this skill if unrecognized.'
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[GuardClaw] Security scan: failed to read Claude settings:', err.message);
+  }
+
+  // Sensitive files
+  const sensitivePatterns = [
+    { path: path.join(os.homedir(), '.ssh'), glob: 'id_*', category: 'SSH Keys', severity: 'medium' },
+    { path: path.join(os.homedir(), '.aws'), glob: 'credentials', category: 'AWS Credentials', severity: 'high' },
+    { path: process.cwd(), glob: '.env', category: 'Env File', severity: 'medium' },
+  ];
+
+  for (const pattern of sensitivePatterns) {
+    try {
+      if (fs.existsSync(pattern.path)) {
+        const entries = fs.readdirSync(pattern.path).filter(f => f.includes(pattern.glob.replace('*', '')));
+        for (const entry of entries.slice(0, 3)) {
+          const fullPath = path.join(pattern.path, entry);
+          findings.push({
+            id: `file-${entry}`,
+            category: pattern.category,
+            severity: pattern.severity,
+            title: `Sensitive file found: ${entry}`,
+            detail: `Path: ${fullPath}`,
+            recommendation: 'Ensure this file is not accessible to untrusted agents. Consider adding to GuardClaw blacklist patterns.'
+          });
+        }
+      }
+    } catch {}
+  }
+
+  res.json({
+    ok: true,
+    findings,
+    summary: {
+      categories: new Set(findings.map(f => f.category)).size,
+      total: findings.length,
+      recommendations: findings.length
+    }
+  });
+});
+
 // Blocking configuration API
 app.get('/api/blocking/status', (req, res) => {
   res.json({

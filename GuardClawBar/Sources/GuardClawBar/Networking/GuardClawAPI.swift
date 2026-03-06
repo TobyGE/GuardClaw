@@ -109,7 +109,86 @@ actor GuardClawAPI {
         return try await get(query)
     }
 
+    // MARK: - Memory
+
+    func memoryStats() async throws -> MemoryStatsResponse {
+        try await get("/api/memory/stats")
+    }
+
+    func memoryPatterns(limit: Int = 100) async throws -> MemoryPatternsResponse {
+        try await get("/api/memory/patterns?limit=\(limit)")
+    }
+
+    func memoryReset() async throws -> GenericResponse {
+        try await post("/api/memory/reset", body: [:] as [String: String])
+    }
+
+    func alwaysApprove(id: String, toolName: String, command: String?, riskScore: Double?) async throws -> GenericResponse {
+        var body: [String: String] = ["toolName": toolName, "decision": "approve", "alwaysApprove": "true"]
+        if let cmd = command { body["command"] = cmd }
+        return try await post("/api/memory/record", body: body)
+    }
+
+    // MARK: - Blocking Rules
+
+    func blockingStatus() async throws -> BlockingStatusResponse {
+        try await get("/api/blocking/status")
+    }
+
+    func addToWhitelist(pattern: String) async throws -> WhitelistResponse {
+        try await post("/api/blocking/whitelist", body: ["pattern": pattern])
+    }
+
+    func removeFromWhitelist(pattern: String) async throws -> WhitelistResponse {
+        try await delete("/api/blocking/whitelist", body: ["pattern": pattern])
+    }
+
+    func addToBlacklist(pattern: String) async throws -> BlacklistResponse {
+        try await post("/api/blocking/blacklist", body: ["pattern": pattern])
+    }
+
+    func removeFromBlacklist(pattern: String) async throws -> BlacklistResponse {
+        try await delete("/api/blocking/blacklist", body: ["pattern": pattern])
+    }
+
+    // MARK: - Benchmark
+
+    func benchmarkResults() async throws -> BenchmarkResultsResponse {
+        try await get("/api/benchmark/results")
+    }
+
+    func benchmarkCases() async throws -> BenchmarkCasesResponse {
+        try await get("/api/benchmark/cases")
+    }
+
+    func abortBenchmark() async throws -> GenericResponse {
+        try await post("/api/benchmark/abort", body: [:] as [String: String])
+    }
+
+    // MARK: - Security Scan
+
+    func securityScan() async throws -> SecurityScanResponse {
+        try await post("/api/setup/security-scan", body: [:] as [String: String])
+    }
+
     // MARK: - Private
+
+    private func delete<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+        let url: URL
+        if path.contains("?") {
+            url = URL(string: "\(baseURL.absoluteString)\(path)")!
+        } else {
+            url = baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
         let url = baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
