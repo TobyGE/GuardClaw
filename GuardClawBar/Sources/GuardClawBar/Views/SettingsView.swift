@@ -91,14 +91,13 @@ struct SettingsView: View {
                             .font(.caption)
                         Spacer()
                         if ccHooksInstalled == true {
-                            Text("Hooks installed")
+                            Text("✓")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
-                        } else {
-                            Button("Setup") { setupClaudeCode() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
                         }
+                        Button(ccHooksInstalled == true ? "Reinstall" : "Setup") { setupClaudeCode() }
+                            .font(.system(size: 9))
+                            .controlSize(.mini)
                     }
 
                     // OpenClaw
