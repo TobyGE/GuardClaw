@@ -77,6 +77,20 @@ actor GuardClawAPI {
         try await post("/api/models/unload", body: [:] as [String: String])
     }
 
+    // MARK: - LLM Config
+
+    func switchLLMBackend(backend: String) async throws -> LLMConfigResponse {
+        try await post("/api/config/llm", body: ["backend": backend])
+    }
+
+    func detectToken() async throws -> TokenDetectResponse {
+        try await get("/api/config/detect-token")
+    }
+
+    func saveToken(token: String) async throws -> GenericResponse {
+        try await post("/api/config/token", body: ["token": token])
+    }
+
     // MARK: - Blocking
 
     func toggleBlocking(enabled: Bool) async throws -> BlockingToggleResponse {

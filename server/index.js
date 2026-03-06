@@ -15,7 +15,7 @@ import { logger } from './logger.js';
 import { shouldSkipEvent, shouldAnalyzeEvent, extractAction, classifyNonExecEvent, parseEventDetails, isExecCommand, extractCommand } from './helpers.js';
 import { configRoutes } from './routes/config.js';
 import { benchmarkRoutes } from './routes/benchmark.js';
-import modelsRouter from './routes/models.js';
+import modelsRouter, { setBackendSwitcher } from './routes/models.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
@@ -127,7 +127,7 @@ const ccLastReadLine = new Map();    // session_id → last line number processe
 const ccActiveSubagents = new Map();
 // Track when the last CC hook was received (for connection status)
 let ccLastHookTime = 0;
-const CC_CONNECTED_TIMEOUT_MS = 120_000; // consider CC disconnected after 2min of no hooks
+const CC_CONNECTED_TIMEOUT_MS = 600_000; // consider CC disconnected after 10min of no hooks
 // Track PreToolUse 'ask' decisions awaiting PostToolUse feedback (approve/deny inference)
 // Key: `${sessionKey}:${toolName}:${commandHash}` → { toolName, commandStr, displayInput, riskScore, sessionKey, timestamp }
 const ccPendingAsks = new Map();
@@ -444,23 +444,13 @@ function getSystemWarnings(backends, pollerStats, llmStatus, approvalStats) {
   }
 
 
-  if (llmStatus && !llmStatus.connected && llmStatus.backend !== 'fallback' && llmStatus.backend !== 'built-in') {
+  // LLM warnings only for non-local backends (Anthropic API etc.)
+  // Local backends (lmstudio, ollama, built-in) status is shown in Settings UI
+  if (llmStatus && !llmStatus.connected && !['fallback', 'built-in', 'lmstudio', 'ollama'].includes(llmStatus.backend)) {
     warnings.push({
       level: 'error',
       message: `${llmStatus.backend.toUpperCase()} not connected`,
-      suggestion: llmStatus.backend === 'lmstudio'
-        ? 'Start LM Studio and load a model, or switch to Built-in in Settings'
-        : llmStatus.backend === 'ollama'
-        ? 'Start Ollama service, or switch to Built-in in Settings'
-        : 'Check API credentials'
-    });
-  }
-
-  if (llmStatus && llmStatus.connected && llmStatus.models === 0 && llmStatus.backend === 'lmstudio') {
-    warnings.push({
-      level: 'warning',
-      message: 'LM Studio connected but no models loaded',
-      suggestion: 'Load a model in LM Studio for AI-powered analysis'
+      suggestion: 'Check API credentials'
     });
   }
 
@@ -508,7 +498,7 @@ app.post('/api/disconnect', (req, res) => {
 
 // ─── Sessions: list unique sessions from stored events ─────────────────────
 app.get('/api/sessions', (req, res) => {
-  const allEvents = eventStore.getRecentEvents(10000);
+  const allEvents = eventStore.getRecentEvents(999999);
   const sessionMap = new Map(); // sessionKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
   // Sub-agent detection relies on SubagentStart/SubagentStop hooks (sessionKey contains :subagent:)
 
@@ -653,7 +643,7 @@ app.get('/api/sessions', (req, res) => {
 });
 
 app.get('/api/events/history', (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 100, 10000);
+  const limit = parseInt(req.query.limit) || 100;
   const filter = req.query.filter || null;   // 'safe', 'warning', 'blocked'
   const sessionFilter = req.query.session || null;
   const backend = req.query.backend || null; // 'openclaw', 'claude-code', 'nanobot'
@@ -1105,6 +1095,10 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
   // Infer denials for any stale pending asks from this session
   inferPendingDenials(sessionKey);
+
+  // Cache transcript path for text extraction
+  const { transcript_path: txPath } = req.body;
+  if (session_id && txPath) ccTranscriptPaths.set(session_id, txPath);
 
   // Capture any assistant text output before this tool call
   if (session_id) emitIntermediateText(session_id);
@@ -1651,6 +1645,15 @@ app.use(configRoutes(routeDeps));
 app.use(benchmarkRoutes(routeDeps));
 app.use('/api/models', modelsRouter);
 
+// Auto-switch to built-in backend when a model is loaded
+setBackendSwitcher(() => {
+  if (safeguardService.backend !== 'built-in') {
+    console.log('[GuardClaw] Built-in model loaded — auto-switching backend to built-in');
+    safeguardService.backend = 'built-in';
+    safeguardService._llmClient = null; // force re-init on next call
+  }
+});
+
 // ─── Approval APIs (OC-specific) ────────────────────────────────────────────
 
 app.get('/api/approvals/stats', (req, res) => {
@@ -1782,7 +1785,7 @@ app.post('/api/setup/claude-code', (req, res) => {
     const isGCHook = (g) => g?.hooks?.some(h => h.url?.includes('/api/hooks/'));
 
     // Remove existing GuardClaw hooks
-    for (const event of ['PreToolUse', 'PostToolUse']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification']) {
       if (Array.isArray(settings.hooks[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => !isGCHook(g));
       }
@@ -1792,6 +1795,8 @@ app.post('/api/setup/claude-code', (req, res) => {
     const hooks = {
       PreToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/pre-tool-use`, timeout: 300, statusMessage: '⏳ GuardClaw evaluating...' }] }],
       PostToolUse: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/post-tool-use`, timeout: 10 }] }],
+      Stop: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/stop`, timeout: 10 }] }],
+      Notification: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/user-prompt`, timeout: 10 }] }],
     };
     for (const [event, groups] of Object.entries(hooks)) {
       if (!settings.hooks[event]) settings.hooks[event] = [];

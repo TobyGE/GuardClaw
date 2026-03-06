@@ -4,6 +4,12 @@
 import { Router } from 'express';
 import engine from '../llm-engine.js';
 
+let _switchToBuiltIn = null;
+
+export function setBackendSwitcher(fn) {
+  _switchToBuiltIn = fn;
+}
+
 const router = Router();
 
 /** GET /api/models — list available models with status */
@@ -44,6 +50,7 @@ router.delete('/:id', (req, res) => {
 router.post('/:id/load', async (req, res) => {
   try {
     const result = await engine.loadModel(req.params.id);
+    if (_switchToBuiltIn) _switchToBuiltIn();
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -55,7 +62,9 @@ router.post('/:id/setup', async (req, res) => {
   try {
     // Respond immediately, setup runs in background
     res.json({ status: 'setting_up', modelId: req.params.id });
-    engine.setupAndLoad(req.params.id).catch(err => {
+    engine.setupAndLoad(req.params.id).then(() => {
+      if (_switchToBuiltIn) _switchToBuiltIn();
+    }).catch(err => {
       console.error(`[Models] Setup failed for ${req.params.id}:`, err.message);
     });
   } catch (err) {

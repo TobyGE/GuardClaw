@@ -374,6 +374,18 @@ print(json.dumps({"done": True, "path": path}), flush=True)
         await this.unload();
       }
 
+      // Kill any stale process on MLX_PORT before starting
+      try {
+        const pids = execFileSync('lsof', ['-ti', `:${MLX_PORT}`], { encoding: 'utf8', timeout: 5000 }).trim();
+        if (pids) {
+          for (const pid of pids.split('\n')) {
+            try { process.kill(parseInt(pid), 'SIGKILL'); } catch {}
+          }
+          console.log(`[LLMEngine] Killed stale process(es) on port ${MLX_PORT}: ${pids}`);
+          await new Promise(r => setTimeout(r, 500));
+        }
+      } catch {}
+
       this._statusMessage = 'Starting model server...';
       console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
 

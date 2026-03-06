@@ -43,7 +43,7 @@ final class AppState {
 
     /// Green if any agent connected, gray if server up but no agents, red if server down
     var connectionDotColor: Color {
-        guard isConnected, let backends = serverStatus?.backends else { return .red }
+        guard isConnected, let backends = serverStatus?.backends else { return .gray }
         let anyAgentConnected = backends.values.contains { $0.connected == true }
         return anyAgentConnected ? .green : .gray
     }
@@ -92,8 +92,8 @@ final class AppState {
             // Fetch all data concurrently, using server-side backend filtering
             async let statusResult = api.status()
             async let approvalsResult = api.pendingApprovals()
-            async let ccResult = api.eventHistory(limit: 10000, backend: "claude-code")
-            async let ocResult = api.eventHistory(limit: 10000, backend: "openclaw")
+            async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
+            async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw")
 
             let s = try await statusResult
             let a = try await approvalsResult

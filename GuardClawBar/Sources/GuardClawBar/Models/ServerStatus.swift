@@ -87,6 +87,21 @@ struct CCSetupStatus: Codable, Sendable {
     let path: String?
 }
 
+struct LLMConfigResponse: Codable, Sendable {
+    let success: Bool?
+    let message: String?
+}
+
+struct TokenDetectResponse: Codable, Sendable {
+    let token: String?
+    let source: String?
+}
+
+struct GenericResponse: Codable, Sendable {
+    let success: Bool?
+    let message: String?
+}
+
 struct BlockingToggleResponse: Codable, Sendable {
     let ok: Bool?
     let enabled: Bool?

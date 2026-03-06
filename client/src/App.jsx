@@ -26,8 +26,8 @@ function App() {
     (acc, event) => {
       acc.totalEvents++;
       const score = event.safeguard?.riskScore;
-      if (score != null && score < 6) acc.safeCommands++;
-      else if (score != null && score < 9) acc.warnings++;
+      if (score != null && score <= 3) acc.safeCommands++;
+      else if (score != null && score <= 7) acc.warnings++;
       else if (score != null && score >= 9) acc.blocked++;
       return acc;
     },
@@ -121,7 +121,7 @@ function App() {
         const filterParam = filter ? `&filter=${filter}` : '';
         const backendParam = backend !== 'all' ? `&backend=${backend}` : '';
         const sessionParam = session ? `&session=${encodeURIComponent(session)}` : '';
-        const response = await fetch(`/api/events/history?limit=9999${filterParam}${backendParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=999999${filterParam}${backendParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
           setEvents(data.events || []);
@@ -243,7 +243,7 @@ function App() {
       try {
         const backendParam = backendFilter !== 'all' ? `&backend=${backendFilter}` : '';
         const sessionParam = selectedSession ? `&session=${encodeURIComponent(selectedSession)}` : '';
-        const response = await fetch(`/api/events/history?limit=9999${backendParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=999999${backendParam}${sessionParam}`);
         if (response.ok && !cancelled) {
           const data = await response.json();
           setEvents(data.events || []);
@@ -262,9 +262,9 @@ function App() {
     return events.filter(ev => {
       const score = ev.safeguard?.riskScore;
       if (score == null) return false;
-      if (eventFilter === 'safe') return score < 6;
-      if (eventFilter === 'warning') return score >= 6 && score < 9;
-      if (eventFilter === 'blocked') return score >= 9;
+      if (eventFilter === 'safe') return score <= 3;
+      if (eventFilter === 'warning') return score > 3 && score <= 7;
+      if (eventFilter === 'blocked') return score > 7;
       return true;
     });
   }, [events, eventFilter]);

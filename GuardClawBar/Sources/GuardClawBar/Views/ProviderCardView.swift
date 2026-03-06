@@ -17,7 +17,7 @@ struct ProviderCardView: View {
         appState.eventsForBackend(provider.backendKey)
     }
 
-    /// Server thresholds: safe ≤3, warning 3-7, blocked >7
+    /// Thresholds: safe ≤3, warning 4-7, blocked >7
     /// Use effectiveRiskScore (falls back to safeguard.riskScore)
     private var backendSafeCount: Int {
         backendEvents.filter { $0.effectiveRiskScore <= 3 }.count
@@ -35,7 +35,7 @@ struct ProviderCardView: View {
 
     private var backendHighRiskEvents: [EventItem] {
         backendEvents
-            .filter { $0.effectiveRiskScore >= 7 }
+            .filter { $0.effectiveRiskScore > 3 }
             .prefix(5)
             .map { $0 }
     }
@@ -58,7 +58,7 @@ struct ProviderCardView: View {
             sectionHeader("CONNECTION")
             HStack(spacing: 6) {
                 Circle()
-                    .fill(backendStatus?.connected == true ? Color.green : Color.red)
+                    .fill(backendStatus?.connected == true ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
                 Text(backendStatus?.connected == true ? "Connected" : "Disconnected")
                     .font(.subheadline)

@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var failClosedEnabled = false
     @State private var llmBackend: String? = nil
     @State private var llmConnected: Bool? = nil
+    @State private var gatewayToken: String = ""
+    @State private var tokenMessage: String? = nil
 
     private let api = GuardClawAPI()
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
@@ -22,24 +24,50 @@ struct SettingsView: View {
                 Text("Settings")
                     .font(.headline)
 
-                // -- Built-in Model --
+                // -- Judge --
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Built-in Judge Model")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if isLoadingModels && models.isEmpty {
-                        HStack {
-                            ProgressView().controlSize(.small)
-                            Text("Loading...")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                    // Backend picker row
+                    HStack {
+                        Circle()
+                            .fill(llmConnected == true ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("Judge")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("", selection: Binding(
+                            get: { llmBackend ?? "built-in" },
+                            set: { newVal in
+                                Task {
+                                    _ = try? await api.switchLLMBackend(backend: newVal)
+                                    llmBackend = newVal
+                                }
+                            }
+                        )) {
+                            Text("Built-in").tag("built-in")
+                            Text("LM Studio").tag("lmstudio")
+                            Text("Ollama").tag("ollama")
                         }
-                        .frame(height: 50)
+                        .pickerStyle(.menu)
+                        .controlSize(.mini)
+                        .frame(width: 110)
                     }
 
-                    ForEach(models) { m in
-                        ModelRowView(model: m, api: api, onRefresh: { fetchModels() })
+                    // Built-in model row (only when built-in selected)
+                    if llmBackend == "built-in" || llmBackend == nil {
+                        if isLoadingModels && models.isEmpty {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Loading...")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(height: 50)
+                        }
+
+                        ForEach(models) { m in
+                            ModelRowView(model: m, api: api, onRefresh: { fetchModels() })
+                        }
                     }
                 }
 
@@ -96,8 +124,15 @@ struct SettingsView: View {
                 ProtectionSection(
                     blockingEnabled: $blockingEnabled,
                     failClosedEnabled: $failClosedEnabled,
-                    llmBackend: llmBackend,
-                    llmConnected: llmConnected,
+                    api: api
+                )
+
+                Divider()
+
+                // -- Gateway Token --
+                GatewayTokenSection(
+                    token: $gatewayToken,
+                    message: $tokenMessage,
                     api: api
                 )
 
@@ -131,7 +166,7 @@ struct SettingsView: View {
             }
             .padding(16)
         }
-        .frame(width: 300, height: 540)
+        .frame(width: 300, height: 620)
         .onAppear { fetchModels(); checkCCStatus() }
         .onReceive(timer) { _ in fetchModels(); checkCCStatus() }
     }
@@ -194,8 +229,6 @@ struct SettingsView: View {
 private struct ProtectionSection: View {
     @Binding var blockingEnabled: Bool
     @Binding var failClosedEnabled: Bool
-    let llmBackend: String?
-    let llmConnected: Bool?
     let api: GuardClawAPI
 
     var body: some View {
@@ -204,7 +237,6 @@ private struct ProtectionSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // Blocking mode toggle
             HStack {
                 Toggle(isOn: Binding(
                     get: { blockingEnabled },
@@ -226,7 +258,6 @@ private struct ProtectionSection: View {
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
 
-            // Fail-closed toggle
             HStack {
                 Toggle(isOn: Binding(
                     get: { failClosedEnabled },
@@ -243,18 +274,72 @@ private struct ProtectionSection: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
             }
+        }
+    }
+}
 
-            // LLM Judge status
-            HStack {
-                Circle()
-                    .fill(llmConnected == true ? Color.green : Color.gray)
-                    .frame(width: 6, height: 6)
-                Text("Judge: \(llmBackend ?? "none")")
+// MARK: - Gateway Token Section
+
+private struct GatewayTokenSection: View {
+    @Binding var token: String
+    @Binding var message: String?
+    let api: GuardClawAPI
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Gateway Token")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 4) {
+                SecureField("Token", text: $token)
+                    .textFieldStyle(.roundedBorder)
                     .font(.caption)
-                Spacer()
-                Text(llmConnected == true ? "Ready" : "Offline")
+                    .onSubmit { saveToken() }
+
+                Button("Save") { saveToken() }
                     .font(.system(size: 9))
-                    .foregroundStyle(llmConnected == true ? .green : .secondary)
+                    .controlSize(.mini)
+
+                Button("Detect") { detectToken() }
+                    .font(.system(size: 9))
+                    .controlSize(.mini)
+            }
+
+            if let msg = message {
+                Text(msg)
+                    .font(.system(size: 9))
+                    .foregroundStyle(msg.contains("✓") ? .green : .secondary)
+            }
+        }
+    }
+
+    private func saveToken() {
+        guard !token.isEmpty else { return }
+        Task {
+            do {
+                _ = try await api.saveToken(token: token)
+                await MainActor.run { message = "✓ Token saved" }
+            } catch {
+                await MainActor.run { message = "Failed: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    private func detectToken() {
+        Task {
+            do {
+                let resp = try await api.detectToken()
+                await MainActor.run {
+                    if let t = resp.token {
+                        token = t
+                        message = "✓ Auto-detected from OpenClaw config"
+                    } else {
+                        message = "No token found in OpenClaw config"
+                    }
+                }
+            } catch {
+                await MainActor.run { message = "Not found" }
             }
         }
     }
