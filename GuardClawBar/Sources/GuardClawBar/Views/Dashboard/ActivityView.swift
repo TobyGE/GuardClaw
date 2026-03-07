@@ -3,6 +3,7 @@ import SwiftUI
 struct ActivityView: View {
     @Environment(AppState.self) var appState
     @State private var selectedBackend: String = "claude-code"
+    @State private var displayLimit: Int = 200
 
     private let backends = [
         ("claude-code", "Claude Code"),
@@ -23,18 +24,27 @@ struct ActivityView: View {
 
             Divider()
 
-            let events = appState.eventsForBackend(selectedBackend)
-            if events.isEmpty {
+            let allEvents = appState.eventsForBackend(selectedBackend)
+                .sorted(by: { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) })
+            if allEvents.isEmpty {
                 ContentUnavailableView(
                     "No Activity Yet",
                     systemImage: "list.bullet.rectangle",
                     description: Text("Events will appear here as tool calls are intercepted")
                 )
             } else {
+                let visibleEvents = Array(allEvents.prefix(displayLimit))
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8, pinnedViews: []) {
-                        ForEach(groupedEvents(events), id: \.id) { group in
-                            EventGroupView(group: group)
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(visibleEvents, id: \.stableId) { event in
+                            ToolCallRow(event: event)
+                        }
+
+                        if allEvents.count > displayLimit {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .padding(8)
+                                .onAppear { displayLimit += 200 }
                         }
                     }
                     .padding(12)
@@ -42,82 +52,17 @@ struct ActivityView: View {
             }
         }
         .navigationTitle("Activity")
+        .onChange(of: selectedBackend) { _, _ in displayLimit = 200 }
     }
 
-    private func groupedEvents(_ events: [EventItem]) -> [EventGroup] {
-        var groups: [EventGroup] = []
-        var currentGroup: EventGroup? = nil
-
-        for event in events.sorted(by: { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }) {
-            let sessionKey = event.sessionKey ?? "default"
-            if var group = currentGroup, group.sessionKey == sessionKey {
-                group.events.append(event)
-                currentGroup = group
-                if groups.last?.id == group.id {
-                    groups[groups.count - 1] = group
-                }
-            } else {
-                if let g = currentGroup { groups.append(g) }
-                currentGroup = EventGroup(sessionKey: sessionKey, events: [event])
-            }
-        }
-        if let g = currentGroup { groups.append(g) }
-        return groups
-    }
-}
-
-struct EventGroup: Identifiable {
-    var id: String { sessionKey + (events.first?.stableId ?? "") }
-    let sessionKey: String
-    var events: [EventItem]
-}
-
-struct EventGroupView: View {
-    let group: EventGroup
-    @State private var isExpanded = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Session header
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("Session: \(shortSessionKey)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(group.events.count) events")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                ForEach(group.events, id: \.stableId) { event in
-                    ToolCallRow(event: event)
-                }
-            }
-        }
-        .padding(10)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private var shortSessionKey: String {
-        let key = group.sessionKey
-        if key.count > 16 { return String(key.prefix(8)) + "..." + String(key.suffix(4)) }
-        return key
-    }
 }
 
 struct ToolCallRow: View {
     let event: EventItem
     @State private var expanded = false
+    @State private var markState: MarkState = .none
+
+    enum MarkState { case none, allow, deny }
 
     private var riskScore: Double { event.effectiveRiskScore }
 
@@ -129,52 +74,100 @@ struct ToolCallRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    // Risk score pill
-                    Text("\(Int(riskScore))")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(riskColor)
-                        .frame(width: 20, height: 20)
-                        .background(riskColor.opacity(0.15), in: Circle())
+            HStack(spacing: 8) {
+                // Risk score pill
+                Text("\(Int(riskScore))")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(riskColor)
+                    .frame(width: 20, height: 20)
+                    .background(riskColor.opacity(0.15), in: Circle())
 
-                    // Tool name + input
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(event.tool ?? event.type ?? "event")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .lineLimit(1)
-                        Text(event.displayText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    // Allowed/denied badge
-                    if event.allowed == 0 {
-                        Text("BLOCKED")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(.red, in: Capsule())
-                    }
-
-                    Text(event.timeAgoText)
+                // Tool name + input
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(event.tool ?? event.type ?? "event")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    Text(event.displayText)
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
+                Spacer()
+
+                // Allowed/denied badge
+                if event.allowed == 0 {
+                    Text("BLOCKED")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.red, in: Capsule())
+                }
+
+                // Mark allow / deny toggle buttons
+                if let tool = event.tool {
+                    HStack(spacing: 4) {
+                        Button {
+                            Task {
+                                let newState: MarkState = markState == .allow ? .none : .allow
+                                _ = try? await GuardClawAPI().markDecision(
+                                    toolName: tool, command: event.displayText,
+                                    decision: newState == .allow ? "approve" : "neutral"
+                                )
+                                markState = newState
+                            }
+                        } label: {
+                            Text("Mark Allow")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(markState == .allow ? .white : .green)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    markState == .allow ? Color.green : Color.green.opacity(0.15),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            Task {
+                                let newState: MarkState = markState == .deny ? .none : .deny
+                                _ = try? await GuardClawAPI().markDecision(
+                                    toolName: tool, command: event.displayText,
+                                    decision: newState == .deny ? "deny" : "neutral"
+                                )
+                                markState = newState
+                            }
+                        } label: {
+                            Text("Mark Deny")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(markState == .deny ? .white : .red)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    markState == .deny ? Color.red : Color.red.opacity(0.15),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text(event.timeAgoText)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                } label: {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             if expanded, let reasoning = event.safeguard?.reasoning {
                 Text(reasoning)

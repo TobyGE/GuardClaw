@@ -9,6 +9,21 @@ enum IconStatus {
 }
 
 enum IconRenderer {
+    /// Renders a large shield+paw icon for the Dock / app icon.
+    static func renderAppIcon(size: CGFloat = 128) -> NSImage {
+        let nsSize = NSSize(width: size, height: size)
+        let image = NSImage(size: nsSize, flipped: false) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let pad = size * 0.08
+            let iconRect = CGRect(x: pad, y: pad, width: size - pad * 2, height: size - pad * 2)
+            drawShield(in: ctx, rect: iconRect)
+            drawPaw(in: ctx, rect: iconRect)
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     /// Renders the GuardClaw shield+paw icon at 18x18pt with a status dot.
     static func render(status: IconStatus, badgeCount: Int) -> NSImage {
         let size = NSSize(width: 22, height: 22)

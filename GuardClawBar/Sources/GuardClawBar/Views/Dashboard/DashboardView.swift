@@ -169,7 +169,15 @@ struct DashboardView: View {
         allEvents.filter { $0.allowed == 0 }.count
     }
     private var recentHighRiskEvents: [EventItem] {
-        allEvents.filter { $0.effectiveRiskScore >= 8 }.sorted { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }
+        let filtered = allEvents
+            .filter { $0.effectiveRiskScore >= 8 }
+            .sorted { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }
+        // Dedup: keep only the most recent per tool+displayText
+        var seen = Set<String>()
+        return filtered.filter { event in
+            let key = "\(event.tool ?? ""):\(event.displayText)"
+            return seen.insert(key).inserted
+        }
     }
 
     private func riskScoreBadge(score: Double) -> some View {

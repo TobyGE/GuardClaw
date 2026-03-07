@@ -5,9 +5,13 @@ struct JudgeSettingsView: View {
     @State private var models: [BuiltinModel] = []
     @State private var isLoadingModels = true
     @State private var llmBackend: String = "built-in"
-    @State private var isChangingBackend = false
+    @State private var pendingBackend: String? = nil // prevent polling overwrite
     @State private var llmConnected: Bool? = nil
+    @State private var activeModel: String? = nil
     @State private var statusMessage: String? = nil
+    @State private var externalModels: [String] = []
+    @State private var selectedExternalModel: String = ""
+    @State private var isLoadingExternalModels = false
 
     private let api = GuardClawAPI()
     private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
@@ -15,42 +19,35 @@ struct JudgeSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Status header
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(llmConnected == true ? Color.green : Color.orange)
-                        .frame(width: 10, height: 10)
-                    Text(llmConnected == true ? "Judge is ready" : "Judge not connected")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    Spacer()
-                }
+                // Current status card
+                currentStatusCard
+
+                Divider()
 
                 // Backend picker
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Safety Judge")
+                    Text("Switch Backend")
                         .font(.headline)
 
                     Picker("Backend", selection: Binding(
-                        get: { llmBackend },
+                        get: { pendingBackend ?? llmBackend },
                         set: { newVal in
-                            llmBackend = newVal
+                            pendingBackend = newVal
                             switchBackend(to: newVal)
                         }
                     )) {
-                        Text("Built-in (Apple Silicon)").tag("built-in")
+                        Text("Built-in (MLX)").tag("built-in")
                         Text("LM Studio").tag("lmstudio")
                         Text("Ollama").tag("ollama")
                         Text("Anthropic Claude").tag("anthropic")
                     }
                     .pickerStyle(.segmented)
-                    .disabled(isChangingBackend)
+                    .disabled(pendingBackend != nil)
                 }
 
-                Divider()
-
                 // Backend-specific content
-                if llmBackend == "built-in" || llmBackend.isEmpty {
+                let displayBackend = pendingBackend ?? llmBackend
+                if displayBackend == "built-in" || displayBackend.isEmpty {
                     builtInSection
                 } else {
                     externalBackendSection
@@ -65,15 +62,72 @@ struct JudgeSettingsView: View {
             .padding(24)
         }
         .navigationTitle("Judge")
-        .onAppear { loadStatus() }
+        .onAppear {
+            loadStatus()
+            if llmBackend == "lmstudio" || llmBackend == "ollama" {
+                Task { await fetchExternalModels() }
+            }
+        }
         .onReceive(timer) { _ in loadStatus() }
+    }
+
+    // MARK: - Current Status
+
+    private var currentStatusCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(llmConnected == true ? Color.green : Color.orange)
+                    .frame(width: 10, height: 10)
+                Text(llmConnected == true ? "Judge Online" : "Judge Offline")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer()
+            }
+
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Backend")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(backendDisplayName(llmBackend))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Model")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(activeModel ?? "None")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(activeModel != nil ? .primary : .secondary)
+                }
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke((llmConnected == true ? Color.green : Color.orange).opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private func backendDisplayName(_ backend: String) -> String {
+        switch backend {
+        case "built-in": return "Built-in (MLX)"
+        case "lmstudio": return "LM Studio"
+        case "ollama": return "Ollama"
+        case "anthropic": return "Anthropic Claude"
+        default: return backend
+        }
     }
 
     // MARK: - Built-in Section
 
     private var builtInSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Models")
+            Text("Built-in Models")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -96,27 +150,59 @@ struct JudgeSettingsView: View {
     // MARK: - External Backend Section
 
     private var externalBackendLabel: String {
-        switch llmBackend {
-        case "lmstudio": return "LM Studio running at http://localhost:1234"
-        case "ollama": return "Ollama running at http://localhost:11434"
+        let displayBackend = pendingBackend ?? llmBackend
+        switch displayBackend {
+        case "lmstudio": return "LM Studio at http://localhost:1234"
+        case "ollama": return "Ollama at http://localhost:11434"
         case "anthropic": return "Uses ANTHROPIC_API_KEY from environment"
         default: return ""
         }
     }
 
     private var externalBackendSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(externalBackendLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button("Test Connection") {
-                Task {
-                    let result = try? await api.switchLLMBackend(backend: llmBackend)
-                    statusMessage = result?.success == true ? "✓ Connected" : "Connection failed"
+            if isLoadingExternalModels {
+                HStack { ProgressView().controlSize(.small); Text("Fetching models...").font(.caption) }
+            } else if !externalModels.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Available Models")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Picker("Model", selection: $selectedExternalModel) {
+                        Text("Auto").tag("")
+                        ForEach(externalModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    .labelsHidden()
+
+                    Button("Apply") {
+                        Task { await applyExternalModel() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(selectedExternalModel.isEmpty)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Button("Fetch Models") {
+                        Task { await fetchExternalModels() }
+                    }
+                    .controlSize(.small)
+
+                    Button("Test Connection") {
+                        Task {
+                            let result = try? await api.switchLLMBackend(backend: pendingBackend ?? llmBackend)
+                            statusMessage = result?.success == true ? "✓ Connected" : "Connection failed"
+                        }
+                    }
+                    .controlSize(.small)
                 }
             }
-            .controlSize(.small)
         }
     }
 
@@ -126,28 +212,85 @@ struct JudgeSettingsView: View {
         Task {
             if let status = try? await api.status() {
                 llmConnected = status.llmStatus?.connected
-                if !isChangingBackend {
-                    llmBackend = status.llmStatus?.backend ?? "built-in"
+                let serverBackend = status.llmStatus?.backend ?? "built-in"
+                // Only update if no pending switch
+                if pendingBackend == nil {
+                    llmBackend = serverBackend
+                } else if pendingBackend == serverBackend {
+                    // Server caught up, clear pending
+                    pendingBackend = nil
+                    llmBackend = serverBackend
                 }
             }
             if let resp = try? await api.listModels() {
                 models = resp.models
                 isLoadingModels = false
+                activeModel = resp.models.first(where: { $0.loaded })?.name
+            }
+            // If no built-in model active and using external, get model name from status
+            if activeModel == nil, let status = try? await api.status() {
+                // External backends don't report model through listModels
+                if llmBackend != "built-in" && llmConnected == true {
+                    activeModel = llmBackend == "lmstudio" ? "LM Studio model" : llmBackend == "ollama" ? "Ollama model" : "Claude"
+                }
             }
         }
     }
 
     private func switchBackend(to backend: String) {
-        isChangingBackend = true
+        externalModels = []
+        selectedExternalModel = ""
+        statusMessage = nil
         Task {
             _ = try? await api.switchLLMBackend(backend: backend)
-            isChangingBackend = false
+            // Update display immediately but keep pendingBackend so polling doesn't overwrite
+            llmBackend = backend
             loadStatus()
+            if backend == "lmstudio" || backend == "ollama" {
+                await fetchExternalModels()
+            }
+            // Clear pendingBackend after delay so server has time to catch up
+            try? await Task.sleep(for: .seconds(5))
+            if pendingBackend == backend {
+                pendingBackend = nil
+            }
+        }
+    }
+
+    private func fetchExternalModels() async {
+        isLoadingExternalModels = true
+        defer { isLoadingExternalModels = false }
+        let backend = pendingBackend ?? llmBackend
+        do {
+            let resp = try await api.fetchExternalModels(backend: backend)
+            externalModels = resp.models ?? []
+            if externalModels.isEmpty {
+                statusMessage = resp.error ?? "No models found — is \(backend) running?"
+            }
+        } catch {
+            statusMessage = "Failed to fetch models: \(error.localizedDescription)"
+        }
+    }
+
+    private func applyExternalModel() async {
+        let backend = pendingBackend ?? llmBackend
+        do {
+            let resp: LLMConfigResponse
+            if backend == "lmstudio" {
+                resp = try await api.configLLM(backend: backend, lmstudioModel: selectedExternalModel)
+            } else {
+                resp = try await api.configLLM(backend: backend, ollamaModel: selectedExternalModel)
+            }
+            statusMessage = resp.success == true ? "✓ Model set to \(selectedExternalModel)" : (resp.message ?? "Failed")
+            activeModel = selectedExternalModel
+            loadStatus()
+        } catch {
+            statusMessage = "Failed: \(error.localizedDescription)"
         }
     }
 }
 
-// MARK: - Reused ModelRowView (imported from SettingsView)
+// MARK: - Reused ModelRowView
 
 private struct ModelRowView: View {
     let model: BuiltinModel

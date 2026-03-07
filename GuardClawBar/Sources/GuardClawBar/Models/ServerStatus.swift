@@ -100,6 +100,29 @@ struct LLMConfigResponse: Codable, Sendable {
     let message: String?
 }
 
+struct ExternalModelsResponse: Codable, Sendable {
+    let models: [String]?
+    let error: String?
+}
+
+struct RuleSuggestionsResponse: Codable, Sendable {
+    let suggestions: [RuleSuggestion]
+}
+
+struct RuleSuggestion: Codable, Sendable, Identifiable {
+    let type: String // "whitelist" or "blacklist"
+    let pattern: String
+    let toolName: String?
+    let reason: String
+    let approveCount: Int?
+    let denyCount: Int?
+    let confidence: Double?
+    let source: String? // "llm" if AI-generated
+
+    var id: String { "\(type):\(pattern)" }
+    var isAI: Bool { source == "llm" }
+}
+
 struct TokenDetectResponse: Codable, Sendable {
     let token: String?
     let source: String?

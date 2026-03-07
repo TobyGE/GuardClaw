@@ -28,24 +28,7 @@ struct MainContentView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                HStack(spacing: 6) {
-                    Image(nsImage: IconRenderer.render(status: appState.iconStatus, badgeCount: 0))
-                        .resizable()
-                        .frame(width: 18, height: 18)
-                    Text("GuardClaw")
-                        .font(.headline)
-                        .fontWeight(.bold)
-                }
-            }
-            ToolbarItemGroup(placement: .primaryAction) {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(appState.connectionDotColor)
-                        .frame(width: 8, height: 8)
-                    Text(connectionLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                EmptyView()
             }
         }
         .navigationTitle("")
@@ -77,9 +60,4 @@ struct MainContentView: View {
         }
     }
 
-    private var connectionLabel: String {
-        guard appState.isConnected else { return "Disconnected" }
-        let anyAgent = appState.serverStatus?.backends?.values.contains { $0.connected == true } ?? false
-        return anyAgent ? "Agent connected" : "Server running"
-    }
 }

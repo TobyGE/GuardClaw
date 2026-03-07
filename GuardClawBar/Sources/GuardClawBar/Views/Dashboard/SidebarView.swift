@@ -20,7 +20,7 @@ enum SidebarItem: String, CaseIterable, Hashable {
         case .memory: return "brain"
         case .benchmark: return "chart.bar"
         case .judge: return "cpu"
-        case .connections: return "plug"
+        case .connections: return "link"
         case .protection: return "lock.shield"
         }
     }
@@ -48,6 +48,21 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
+            // Logo header
+            HStack(spacing: 6) {
+                Image(nsImage: {
+                    let img = IconRenderer.render(status: appState.iconStatus, badgeCount: 0)
+                    img.size = NSSize(width: 18, height: 18)
+                    return img
+                }())
+                .renderingMode(.original)
+                Text("GuardClaw")
+                    .font(.headline)
+                    .fontWeight(.bold)
+            }
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+
             ForEach(sections, id: \.0) { section, items in
                 Section(section) {
                     ForEach(items, id: \.self) { item in

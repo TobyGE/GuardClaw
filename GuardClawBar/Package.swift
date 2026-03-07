@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "GuardClawBar",
-            path: "Sources/GuardClawBar"
+            path: "Sources/GuardClawBar",
+            resources: [.process("Resources")]
         )
     ]
 )

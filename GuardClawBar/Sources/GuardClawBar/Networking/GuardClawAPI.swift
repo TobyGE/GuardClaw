@@ -83,6 +83,17 @@ actor GuardClawAPI {
         try await post("/api/config/llm", body: ["backend": backend])
     }
 
+    func configLLM(backend: String, lmstudioModel: String? = nil, ollamaModel: String? = nil) async throws -> LLMConfigResponse {
+        var body: [String: String] = ["backend": backend]
+        if let m = lmstudioModel { body["lmstudioModel"] = m }
+        if let m = ollamaModel { body["ollamaModel"] = m }
+        return try await post("/api/config/llm", body: body)
+    }
+
+    func fetchExternalModels(backend: String) async throws -> ExternalModelsResponse {
+        try await post("/api/config/llm/models", body: ["backend": backend])
+    }
+
     func detectToken() async throws -> TokenDetectResponse {
         try await get("/api/config/detect-token")
     }
@@ -123,10 +134,15 @@ actor GuardClawAPI {
         try await post("/api/memory/reset", body: [:] as [String: String])
     }
 
-    func alwaysApprove(id: String, toolName: String, command: String?, riskScore: Double?) async throws -> GenericResponse {
-        var body: [String: String] = ["toolName": toolName, "decision": "approve", "alwaysApprove": "true"]
+    func markDecision(toolName: String, command: String?, decision: String) async throws -> GenericResponse {
+        var body: [String: String] = ["toolName": toolName, "decision": decision]
         if let cmd = command { body["command"] = cmd }
+        if decision == "approve" { body["alwaysApprove"] = "true" }
         return try await post("/api/memory/record", body: body)
+    }
+
+    func ruleSuggestions(useLLM: Bool = false) async throws -> RuleSuggestionsResponse {
+        try await get("/api/rules/suggestions\(useLLM ? "?llm=true" : "")")
     }
 
     // MARK: - Blocking Rules

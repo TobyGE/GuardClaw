@@ -34,13 +34,22 @@ struct ProviderCardView: View {
     }
 
     private var backendHighRiskEvents: [EventItem] {
-        backendEvents
+        let filtered = backendEvents
             .filter {
                 let v = $0.safeguard?.verdict?.lowercased()
                 return v == "block" || v == "blocked" || $0.effectiveRiskScore >= 8
             }
-            .prefix(10)
-            .map { $0 }
+        // Dedup: keep only the most recent event per tool+displayText
+        var seen = Set<String>()
+        var result: [EventItem] = []
+        for event in filtered {
+            let key = "\(event.tool ?? ""):\(event.displayText)"
+            if seen.insert(key).inserted {
+                result.append(event)
+            }
+            if result.count >= 10 { break }
+        }
+        return result
     }
 
     var body: some View {

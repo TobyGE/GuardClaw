@@ -214,11 +214,10 @@ final class AppState {
     func alwaysApprove(approval: ApprovalItem) async {
         do {
             // Record to memory as always-approve
-            let _: GenericResponse = try await api.alwaysApprove(
-                id: approval.id,
+            let _: GenericResponse = try await api.markDecision(
                 toolName: approval.toolName ?? "unknown",
                 command: approval.displayInput,
-                riskScore: approval.riskScore
+                decision: "approve"
             )
             // Also approve this specific instance
             await approve(id: approval.id, backend: approval.backend)

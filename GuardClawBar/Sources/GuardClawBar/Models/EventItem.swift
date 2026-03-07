@@ -18,7 +18,7 @@ struct EventItem: Codable, Identifiable, Sendable {
 
     /// Best display text for this event
     var displayText: String {
-        command ?? tool ?? text ?? description ?? type ?? "Unknown"
+        command ?? description ?? text ?? tool ?? type ?? "Unknown"
     }
 
     /// Effective risk score from safeguard or top-level
@@ -26,14 +26,18 @@ struct EventItem: Codable, Identifiable, Sendable {
         safeguard?.riskScore ?? riskScore ?? 0
     }
 
-    /// Human-readable time ago string (timestamp is in milliseconds)
+    /// Human-readable time string (timestamp is in milliseconds)
+    /// Today: shows HH:mm:ss, otherwise: Xd ago
     var timeAgoText: String {
         guard let ts = timestamp else { return "" }
-        let seconds = (Date().timeIntervalSince1970 * 1000 - ts) / 1000
-        if seconds < 60 { return "\(Int(seconds))s ago" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
-        if seconds < 86400 { return "\(Int(seconds / 3600))h ago" }
-        return "\(Int(seconds / 86400))d ago"
+        let eventDate = Date(timeIntervalSince1970: ts / 1000)
+        let fmt = DateFormatter()
+        if Calendar.current.isDateInToday(eventDate) {
+            fmt.dateFormat = "HH:mm:ss"
+        } else {
+            fmt.dateFormat = "MM/dd HH:mm"
+        }
+        return fmt.string(from: eventDate)
     }
 }
 

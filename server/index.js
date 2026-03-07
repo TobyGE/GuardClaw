@@ -1035,6 +1035,7 @@ function mapClaudeCodeParams(toolName, toolInput) {
     case 'NotebookEdit': return { file_path: toolInput.notebook_path, content: toolInput.new_source };
     case 'Skill': return { command: `skill ${toolInput.skill || ''} ${toolInput.args || ''}` };
     case 'EnterWorktree': return { command: `worktree ${toolInput.name || ''}`, dangerouslyDisableSandbox: toolInput.dangerouslyDisableSandbox };
+    case 'ToolSearch': return { command: `tool_search ${toolInput.query || ''}`, query: toolInput.query };
     default: return toolInput;
   }
 }
@@ -1202,9 +1203,14 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     const formatDisplayInput = (toolName, params) => {
       switch(toolName) {
         case 'exec': return params.command || '';
-        case 'write': return (params.file_path || params.path || '?') + '\n' + (params.content || '');
-        case 'edit': return (params.file_path || params.path || '?') + '\n' + (params.old_string || params.oldText || '').slice(0, 300);
+        case 'write': return (params.file_path || params.path || '?') + '\n' + (params.content || '').slice(0, 500);
+        case 'edit': return (params.file_path || params.path || '?') + ' → ' + (params.old_string || params.oldText || '').slice(0, 200);
         case 'read': return params.file_path || params.path || JSON.stringify(params);
+        case 'grep': return `grep "${params.pattern || ''}" ${params.path || ''}`;
+        case 'glob': return `glob "${params.pattern || ''}" ${params.path || ''}`;
+        case 'tool_search': return `search: ${params.query || ''}`;
+        case 'web_fetch': return params.url || JSON.stringify(params);
+        case 'web_search': return params.query || JSON.stringify(params);
         default: return JSON.stringify(params);
       }
     };
@@ -1746,6 +1752,107 @@ app.post('/api/memory/record', (req, res) => {
   }
 
   res.json({ ok: true, ...result });
+});
+
+app.get('/api/rules/suggestions', async (req, res) => {
+  try {
+    const patterns = memoryStore.getPatterns(200);
+
+    // Aggregate by tool + directory/category instead of individual commands
+    const toolGroups = {};
+    for (const p of patterns) {
+      const total = (p.approveCount || 0) + (p.denyCount || 0);
+      if (total < 1) continue;
+      const tool = p.toolName || 'unknown';
+      // Extract directory from pattern: "edit:~/guardclaw/server/foo.js" → "~/guardclaw/server/"
+      let dir = '';
+      const match = p.pattern?.match(/^[^:]+:(.+)/);
+      if (match) {
+        const path = match[1];
+        const lastSlash = path.lastIndexOf('/');
+        dir = lastSlash > 0 ? path.substring(0, lastSlash + 1) : '';
+      }
+      const key = `${tool}:${dir || '*'}`;
+      if (!toolGroups[key]) {
+        toolGroups[key] = { tool, dir, approves: 0, denies: 0, count: 0 };
+      }
+      toolGroups[key].approves += (p.approveCount || 0);
+      toolGroups[key].denies += (p.denyCount || 0);
+      toolGroups[key].count++;
+    }
+
+    const suggestions = [];
+    for (const [key, g] of Object.entries(toolGroups)) {
+      const total = g.approves + g.denies;
+      if (total < 3) continue; // Need meaningful data
+      const approveRate = g.approves / total;
+      const displayPattern = g.dir ? `${g.tool}:${g.dir}*` : g.tool;
+
+      if (approveRate >= 0.8) {
+        suggestions.push({
+          type: 'whitelist',
+          pattern: displayPattern,
+          toolName: g.tool,
+          reason: `Approved ${g.approves}/${total} times across ${g.count} patterns`,
+          approveCount: g.approves,
+          denyCount: g.denies,
+        });
+      } else if (approveRate <= 0.2) {
+        suggestions.push({
+          type: 'blacklist',
+          pattern: displayPattern,
+          toolName: g.tool,
+          reason: `Denied ${g.denies}/${total} times across ${g.count} patterns`,
+          approveCount: g.approves,
+          denyCount: g.denies,
+        });
+      }
+    }
+
+    // LLM-generated suggestions (if requested)
+    const useLLM = req.query.llm === 'true';
+    if (useLLM) {
+      try {
+        const summary = patterns.slice(0, 50).map(p => {
+          const total = (p.approveCount || 0) + (p.denyCount || 0);
+          return `${p.toolName}:${p.pattern?.split(':').slice(1).join(':') || '?'} — ${p.approveCount}✓ ${p.denyCount}✗`;
+        }).join('\n');
+
+        const messages = [
+          { role: 'system', content: 'You are a security rule advisor. Output ONLY a JSON array, no markdown.' },
+          { role: 'user', content: `Based on this approve/deny history, suggest 3-5 useful security rules.
+Each rule should be a concise pattern (tool name or tool:path_glob) with a clear reason.
+
+HISTORY:
+${summary}
+
+Output JSON array:
+[{"type":"whitelist or blacklist","pattern":"tool:pattern","reason":"short reason"}]` }
+        ];
+
+        // Use whatever LLM the safeguard is currently using
+        const rawText = await safeguardService.rawLLMChat(messages);
+        const result = { choices: [{ message: { content: rawText || '[]' } }] };
+
+        const text = result?.choices?.[0]?.message?.content || '';
+        const match = text.match(/\[[\s\S]*\]/);
+        if (match) {
+          const llmSuggestions = JSON.parse(match[0]);
+          for (const s of llmSuggestions) {
+            if (s.pattern && s.type && s.reason) {
+              suggestions.push({ ...s, toolName: s.pattern.split(':')[0], source: 'llm' });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[Rules] LLM suggestion failed:', e.message);
+      }
+    }
+
+    res.json({ suggestions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/memory/reset', (req, res) => {

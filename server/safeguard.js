@@ -874,6 +874,49 @@ Output ONLY ONE JSON object:
     return result;
   }
 
+  /**
+   * Raw LLM chat — sends messages array, returns raw text response.
+   * Uses whatever backend is currently configured for judging.
+   */
+  async rawLLMChat(messages) {
+    try {
+      if (this.backend === 'built-in') {
+        if (!llmEngine || !llmEngine.isReady) return null;
+        const result = await llmEngine.chatCompletion({ messages, temperature: 0.3 });
+        return result?.choices?.[0]?.message?.content || null;
+      }
+      if (this.backend === 'lmstudio') {
+        const url = `${this.config.lmstudioUrl}/chat/completions`;
+        let model = this.config.lmstudioModel;
+        if (model === 'auto') model = await this.getFirstAvailableLMStudioModel();
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 500 }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const data = await resp.json();
+        return data?.choices?.[0]?.message?.content || null;
+      }
+      if (this.backend === 'ollama') {
+        const url = `${this.config.ollamaUrl}/api/chat`;
+        const model = this.config.ollamaModel || 'qwen2.5:3b';
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, messages, stream: false }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const data = await resp.json();
+        return data?.message?.content || null;
+      }
+      return null;
+    } catch (e) {
+      console.error('[SafeguardService] rawLLMChat failed:', e.message);
+      return null;
+    }
+  }
+
   async analyzeChatContent(action) {
     const text = action.fullText || action.summary || '';
     
@@ -1201,20 +1244,37 @@ Step 3 — ADJUST VERDICT based on alignment:
     const memorySection = this.buildMemoryContextSection(memoryContext);
     const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
 
-    // canvas eval: extract full JS code and show it prominently (summary is truncated to 120 chars)
-    let canvasEvalSection = '';
+    // Expand tool-specific content beyond the truncated summary
+    let detailSection = '';
+    const input = action.parsedInput || action;
     if (action.tool === 'canvas') {
-      const js = action.parsedInput?.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
+      const js = input.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
       if (js) {
         const snippet = js.length > 1000 ? js.substring(0, 1000) + '\n…[truncated]' : js;
-        canvasEvalSection = `\nJAVASCRIPT CODE:\n${snippet}`;
+        detailSection = `\nJAVASCRIPT CODE:\n${snippet}`;
       }
+    } else if (action.tool === 'edit') {
+      const filePath = input.file_path || input.path || '';
+      const oldStr = (input.old_string || input.oldText || '').substring(0, 500);
+      const newStr = (input.new_string || input.newText || '').substring(0, 500);
+      detailSection = `\nFILE: ${filePath}\nOLD_STRING:\n${oldStr}\nNEW_STRING:\n${newStr}`;
+    } else if (action.tool === 'write') {
+      const filePath = input.file_path || input.path || '';
+      const content = (input.content || '').substring(0, 800);
+      detailSection = `\nFILE: ${filePath}\nCONTENT:\n${content}`;
+    } else if (action.tool === 'grep' || action.tool === 'glob') {
+      const pattern = input.pattern || '';
+      const searchPath = input.path || '';
+      detailSection = `\nPATTERN: ${pattern}\nPATH: ${searchPath}`;
+    } else if (action.tool === 'read') {
+      const filePath = input.file_path || input.path || '';
+      detailSection = `\nFILE: ${filePath}`;
     }
 
     return `You are a security judge. Classify this tool action as SAFE, WARNING, or BLOCK.
 
 TOOL: ${action.tool}
-PARAMS: ${action.summary}${canvasEvalSection}${taskSection}${chainSection}${memorySection}
+PARAMS: ${action.summary}${detailSection}${taskSection}${chainSection}${memorySection}
 
 RULES (check in order, use FIRST match):
 
@@ -1356,19 +1416,31 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the comman
 
   // Minimal prompt for small/weak models (0.5b etc.)
   createToolAnalysisPromptMinimal(action) {
-    // canvas eval: extract full JS code (same as full prompt)
-    let canvasEvalSection = '';
+    // Expand tool-specific content for better judgment
+    let detailSection = '';
+    const input = action.parsedInput || action;
     if (action.tool === 'canvas') {
-      const js = action.parsedInput?.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
+      const js = input.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
       if (js) {
         const snippet = js.length > 500 ? js.substring(0, 500) + '\n…[truncated]' : js;
-        canvasEvalSection = `\nJAVASCRIPT CODE:\n${snippet}`;
+        detailSection = `\nJAVASCRIPT CODE:\n${snippet}`;
       }
+    } else if (action.tool === 'edit') {
+      const filePath = input.file_path || input.path || '';
+      const oldStr = (input.old_string || input.oldText || '').substring(0, 300);
+      const newStr = (input.new_string || input.newText || '').substring(0, 300);
+      detailSection = `\nFILE: ${filePath}\nOLD: ${oldStr}\nNEW: ${newStr}`;
+    } else if (action.tool === 'write') {
+      const filePath = input.file_path || input.path || '';
+      const content = (input.content || '').substring(0, 400);
+      detailSection = `\nFILE: ${filePath}\nCONTENT: ${content}`;
+    } else if (action.tool === 'read') {
+      detailSection = `\nFILE: ${input.file_path || input.path || ''}`;
     }
     return `Classify this tool action. Output JSON only.
 
 TOOL: ${action.tool}
-ACTION: ${action.summary}${canvasEvalSection}
+ACTION: ${action.summary}${detailSection}
 
 IF tool is web_search, image, tts, process, session_status, sessions_list, sessions_history:
   → {"verdict":"SAFE","reason":"Read-only tool"}

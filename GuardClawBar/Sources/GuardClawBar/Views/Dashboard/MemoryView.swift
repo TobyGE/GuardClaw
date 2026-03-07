@@ -90,8 +90,8 @@ struct MemoryView: View {
     private func statsRow(_ s: MemoryStatsResponse) -> some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             StatCard(title: "Total Decisions", value: "\(s.totalDecisions ?? 0)", icon: "brain", color: .blue)
-            StatCard(title: "Learned Patterns", value: "\(s.patterns ?? 0)", icon: "list.bullet", color: .purple)
-            StatCard(title: "Auto-Approve", value: "\(s.autoApprovePatterns ?? 0)", icon: "bolt.circle", color: .green)
+            StatCard(title: "Learned Patterns", value: "\(s.totalPatterns ?? 0)", icon: "list.bullet", color: .purple)
+            StatCard(title: "Auto-Approve", value: "\(s.autoApproveCount ?? 0)", icon: "bolt.circle", color: .green)
         }
     }
 

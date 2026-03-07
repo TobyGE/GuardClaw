@@ -60,7 +60,7 @@ export class EventStore {
     `);
 
     this._stmtGetRecent = this.db.prepare(`
-      SELECT data FROM events ORDER BY timestamp DESC LIMIT ?
+      SELECT data, timestamp FROM events ORDER BY timestamp DESC LIMIT ?
     `);
 
     this._stmtGetById = this.db.prepare(`
@@ -128,11 +128,12 @@ export class EventStore {
   _insertEvent(event) {
     const id = event.id || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     if (!event.id) event.id = id;
+    if (!event.timestamp) event.timestamp = Date.now();
 
     const safeguard = event.safeguard || {};
     this._stmtInsert.run(
       id,
-      event.timestamp || Date.now(),
+      event.timestamp,
       event.type || null,
       event.tool || event.subType || null,
       event.subType || null,
@@ -157,11 +158,15 @@ export class EventStore {
   getRecentEvents(limit = 100) {
     const rows = this._stmtGetRecent.all(limit);
     // Results are newest-first from query; reverse to oldest-first (API contract)
-    return rows.map(r => JSON.parse(r.data)).reverse();
+    return rows.map(r => {
+      const event = JSON.parse(r.data);
+      if (!event.timestamp && r.timestamp) event.timestamp = r.timestamp;
+      return event;
+    }).reverse();
   }
 
   getFilteredEvents(limit = 9999, filter = null, session = null, backend = null) {
-    let sql = 'SELECT data FROM events WHERE 1=1';
+    let sql = 'SELECT data, timestamp FROM events WHERE 1=1';
     const params = [];
 
     if (backend === 'openclaw') {
@@ -197,7 +202,11 @@ export class EventStore {
     params.push(limit);
 
     const rows = this.db.prepare(sql).all(...params);
-    return rows.map(r => JSON.parse(r.data)).reverse();
+    return rows.map(r => {
+      const event = JSON.parse(r.data);
+      if (!event.timestamp && r.timestamp) event.timestamp = r.timestamp;
+      return event;
+    }).reverse();
   }
 
   getEventCount() {

@@ -7,8 +7,17 @@ struct BenchmarkView: View {
     @State private var progressMessage = ""
     @State private var statusMessage: String? = nil
     @State private var selectedRun: BenchmarkRun? = nil
+    @State private var benchBackend: String = "current"
+    @State private var benchModel: String = ""
+    @State private var externalModels: [String] = []
 
     private let api = GuardClawAPI()
+    private let backends = [
+        ("current", "Current Judge"),
+        ("built-in", "Built-in"),
+        ("lmstudio", "LM Studio"),
+        ("ollama", "Ollama"),
+    ]
 
     var body: some View {
         ScrollView {
@@ -42,7 +51,6 @@ struct BenchmarkView: View {
             .padding(24)
         }
         .navigationTitle("Benchmark")
-        .onAppear { loadResults() }
     }
 
     // MARK: - Run Controls
@@ -55,6 +63,37 @@ struct BenchmarkView: View {
             Text("Tests the safety judge against 30 curated scenarios. Higher is better — aim for 85%+.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            // Backend & model picker
+            HStack(spacing: 12) {
+                Picker("Backend", selection: $benchBackend) {
+                    ForEach(backends, id: \.0) { key, label in
+                        Text(label).tag(key)
+                    }
+                }
+                .frame(maxWidth: 180)
+                .onChange(of: benchBackend) { _, newVal in
+                    benchModel = ""
+                    externalModels = []
+                    if newVal == "lmstudio" || newVal == "ollama" {
+                        Task {
+                            if let resp = try? await api.fetchExternalModels(backend: newVal) {
+                                externalModels = resp.models ?? []
+                            }
+                        }
+                    }
+                }
+
+                if !externalModels.isEmpty {
+                    Picker("Model", selection: $benchModel) {
+                        Text("Auto").tag("")
+                        ForEach(externalModels, id: \.self) { m in
+                            Text(m).tag(m)
+                        }
+                    }
+                    .frame(maxWidth: 200)
+                }
+            }
 
             HStack(spacing: 10) {
                 if isRunning {
@@ -142,7 +181,13 @@ struct BenchmarkView: View {
         progress = 0
         progressMessage = "Starting benchmark..."
 
-        guard let url = URL(string: "\(SettingsStore.shared.serverURL)/api/benchmark/run") else {
+        var urlStr = "\(SettingsStore.shared.serverURL)/api/benchmark/run"
+        var queryParts: [String] = []
+        if benchBackend != "current" { queryParts.append("backend=\(benchBackend)") }
+        if !benchModel.isEmpty { queryParts.append("model=\(benchModel)") }
+        if !queryParts.isEmpty { urlStr += "?" + queryParts.joined(separator: "&") }
+
+        guard let url = URL(string: urlStr) else {
             isRunning = false; return
         }
 
@@ -229,10 +274,11 @@ struct BenchmarkRunCard: View {
                 .frame(width: 48, height: 48)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(run.model ?? "Default")
+                    Text(run.model ?? "Unknown model")
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    Text("\(run.correct ?? 0)/\(run.total ?? 0) correct · \(run.backend ?? "unknown")")
+                    let backendSuffix = run.backend.map { " · \($0)" } ?? ""
+                    Text("\(run.correct ?? 0)/\(run.total ?? 0) correct\(backendSuffix)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if let latency = run.avgLatencyMs {

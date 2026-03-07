@@ -2,11 +2,13 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    static var shared: AppDelegate?
     private var statusItemController: StatusItemController?
     private(set) var appState: AppState?
     private var mainWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared = self
         // Hide from Dock, show only in menu bar
         NSApp.setActivationPolicy(.accessory)
 
@@ -18,9 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItemController = StatusItemController(appState: state)
         state.startPolling()
 
-        // Show onboarding on first launch
+        // Show onboarding on first launch, otherwise auto-open dashboard
         if !SettingsStore.shared.hasCompletedOnboarding {
             openDashboard(showOnboarding: true)
+        } else {
+            openDashboard()
         }
     }
 
@@ -64,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         NSApp.setActivationPolicy(.regular)
+        NSApp.applicationIconImage = IconRenderer.renderAppIcon(size: 256)
 
         mainWindow = window
     }

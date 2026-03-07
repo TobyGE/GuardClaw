@@ -39,7 +39,7 @@ struct FooterView: View {
 
             HStack(spacing: 12) {
                 Button("Open Dashboard") {
-                    (NSApp.delegate as? AppDelegate)?.openDashboard()
+                    AppDelegate.shared?.openDashboard()
                 }
                 .buttonStyle(.plain)
                 .font(.caption)
