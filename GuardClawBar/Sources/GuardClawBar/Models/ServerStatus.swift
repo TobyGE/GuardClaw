@@ -6,6 +6,7 @@ struct ServerStatus: Codable, Sendable {
     let eventsCount: Int?
     let safeguardEnabled: Bool?
     let llmStatus: LLMStatus?
+    let blocking: BlockingInfo?
     let approvals: ApprovalStats?
     let failClosed: Bool?
     let healthy: Bool?
@@ -46,6 +47,12 @@ struct ApprovalStats: Codable, Sendable {
     let userApproved: Int?
     let userDenied: Int?
     let pending: Int?
+    let mode: String?
+}
+
+struct BlockingInfo: Codable, Sendable {
+    let enabled: Bool?
+    let active: Bool?
     let mode: String?
 }
 

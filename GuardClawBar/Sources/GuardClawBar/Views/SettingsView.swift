@@ -200,7 +200,7 @@ struct SettingsView: View {
             if let serverStatus = try? await api.status() {
                 await MainActor.run {
                     ocConnected = serverStatus.backends?["openclaw"]?.connected == true
-                    blockingEnabled = serverStatus.approvals?.mode == "blocking"
+                    blockingEnabled = serverStatus.blocking?.active ?? serverStatus.blocking?.enabled ?? false
                     failClosedEnabled = serverStatus.failClosed == true
                     if !isChangingBackend {
                         llmBackend = serverStatus.llmStatus?.backend

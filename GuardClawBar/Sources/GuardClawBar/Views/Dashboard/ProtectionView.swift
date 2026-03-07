@@ -99,7 +99,7 @@ struct ProtectionView: View {
     private func refresh() {
         Task {
             if let s = try? await api.status() {
-                blockingEnabled = s.approvals?.mode == "blocking"
+                blockingEnabled = s.blocking?.active ?? s.blocking?.enabled ?? false
                 failClosed = s.failClosed == true
                 isLoading = false
             }
