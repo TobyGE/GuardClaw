@@ -968,7 +968,13 @@ app.post('/api/evaluate', async (req, res) => {
 
     let analysis;
 
-    if (toolName === 'exec') {
+    if (toolName === 'skill' || toolName === 'Skill') {
+      // Skill: read file content and do LLM-based instruction security review
+      const skillName = params?.skill || (params?.command || '').replace(/^skill\s+/, '').split(/\s+/)[0] || 'unknown';
+      const skillFile = readSkillFile(skillName, null);
+      console.log(`[GuardClaw] 🔍 [evaluate] Reviewing skill "${skillName}"${skillFile ? ` (${skillFile.filePath})` : ' (file not found)'}`);
+      analysis = await safeguardService.analyzeSkillContent(skillName, skillFile?.content || null);
+    } else if (toolName === 'exec') {
       // For exec, analyze the command with full LLM analysis
       const cmd = params.command || '';
       analysis = await safeguardService.analyzeCommand(cmd, chainHistory, memoryContext);
@@ -1124,6 +1130,26 @@ function emitIntermediateText(session_id) {
   } catch {}
 }
 
+// ─── Helper: locate and read a skill file for security review ────────────────
+function readSkillFile(skillName, cwd) {
+  if (!skillName || skillName === 'unknown') return null;
+  const candidates = [
+    path.join(os.homedir(), '.claude', 'skills', `${skillName}.md`),
+    path.join(os.homedir(), '.claude', 'skills', skillName),
+    cwd ? path.join(cwd, '.claude', 'skills', `${skillName}.md`) : null,
+    cwd ? path.join(cwd, '.claude', 'skills', skillName) : null,
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        return { content: fs.readFileSync(p, 'utf8').slice(0, 4000), filePath: p };
+      }
+    } catch {}
+  }
+  return null;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
   ccLastHookTime = Date.now();
   console.log(`[GuardClaw] 🔔 pre-tool-use received:`, JSON.stringify(req.body).slice(0, 500));
@@ -1228,7 +1254,17 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     // Evaluate
     let analysis;
-    if (gcToolName === 'exec') {
+    if (gcToolName === 'skill') {
+      // Skill: read the file content and do LLM-based instruction security review
+      const skillName = tool_input?.skill || (gcParams.command || '').replace(/^skill\s+/, '').split(/\s+/)[0] || 'unknown';
+      const skillFile = readSkillFile(skillName, cwd);
+      if (skillFile) {
+        console.log(`[GuardClaw] 🔍 Reviewing skill "${skillName}" (${skillFile.filePath})`);
+      } else {
+        console.log(`[GuardClaw] 🔍 Skill file not found for "${skillName}", reviewing by name only`);
+      }
+      analysis = await safeguardService.analyzeSkillContent(skillName, skillFile?.content || null);
+    } else if (gcToolName === 'exec') {
       analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, memoryContext, taskContext);
     } else {
       analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, memoryContext, taskContext);
