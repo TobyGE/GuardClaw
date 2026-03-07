@@ -77,10 +77,15 @@ export function configRoutes(deps) {
 
       const newSafeguard = new SafeguardService(process.env.ANTHROPIC_API_KEY, backend, { lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel });
       const testResult = await newSafeguard.testConnection();
-      if (testResult.connected) {
+      const allowApply = testResult.connected || backend === 'built-in';
+
+      if (allowApply) {
         Object.assign(getSafeguardService(), newSafeguard);
         console.log('[GuardClaw] LLM config updated and applied');
-        res.json({ success: true, message: 'LLM config saved and applied', testResult });
+        const message = testResult.connected
+          ? 'LLM config saved and applied'
+          : 'LLM config saved — built-in selected (load a model to activate)';
+        res.json({ success: true, message, testResult });
       } else {
         res.status(500).json({ error: 'Config saved but connection failed', testResult });
       }
