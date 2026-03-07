@@ -297,13 +297,11 @@ struct ProviderCardView: View {
     private func loadCachedAuditResults() async {
         do {
             let resp = try await GuardClawAPI().auditResults()
-            if resp.ok == true {
-                auditFindings = resp.findings.sorted {
-                    auditSeverityRank($0.severity) < auditSeverityRank($1.severity)
-                }
-                auditSummary = resp.summary
-                hasAuditScanned = true
+            auditFindings = resp.findings.sorted {
+                auditSeverityRank($0.severity) < auditSeverityRank($1.severity)
             }
+            if let s = resp.summary { auditSummary = s }
+            hasAuditScanned = resp.summary != nil
         } catch {}
     }
 

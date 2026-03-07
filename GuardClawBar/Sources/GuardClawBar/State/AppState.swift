@@ -191,7 +191,7 @@ final class AppState {
 
             // Load cached audit results (non-blocking)
             if auditSummary == nil {
-                if let audit = try? await api.auditResults(), audit.ok == true {
+                if let audit = try? await api.auditResults(), audit.summary != nil {
                     auditSummary = audit.summary
                 }
             }

@@ -2049,7 +2049,7 @@ async function runAuditScan(scanPath) {
 
   // Find Python: bundled in app → homebrew → system
   const pythonCandidates = [
-    path.join(path.dirname(process.execPath), '..', 'Resources', 'python-env', 'bin', 'python3'),
+    path.join(path.dirname(process.execPath), '..', 'python-env', 'bin', 'python3'),
     '/opt/homebrew/opt/python@3.13/bin/python3.13',
     '/opt/homebrew/bin/python3',
     '/usr/local/bin/python3',

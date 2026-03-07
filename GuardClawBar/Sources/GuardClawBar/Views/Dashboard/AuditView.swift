@@ -89,11 +89,9 @@ struct AuditView: View {
     private func loadCachedResults() async {
         do {
             let resp = try await api.auditResults()
-            if resp.ok == true {
-                findings = resp.findings.sorted { severityRank($0.severity) < severityRank($1.severity) }
-                summary = resp.summary
-                hasScanned = true
-            }
+            findings = resp.findings.sorted { severityRank($0.severity) < severityRank($1.severity) }
+            if let s = resp.summary { summary = s }
+            hasScanned = resp.summary != nil
         } catch {}
     }
 
