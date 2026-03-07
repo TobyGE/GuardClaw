@@ -6,6 +6,7 @@ enum SidebarItem: String, CaseIterable, Hashable {
     case approvals = "Approvals"
     case rules = "Rules"
     case memory = "Memory"
+    case audit = "Security Scan"
     case benchmark = "Benchmark"
     case judge = "Judge"
     case connections = "Connections"
@@ -18,6 +19,7 @@ enum SidebarItem: String, CaseIterable, Hashable {
         case .approvals: return "bell.badge"
         case .rules: return "list.bullet.indent"
         case .memory: return "brain"
+        case .audit: return "magnifyingglass.circle"
         case .benchmark: return "chart.bar"
         case .judge: return "cpu"
         case .connections: return "link"
@@ -29,6 +31,7 @@ enum SidebarItem: String, CaseIterable, Hashable {
         switch self {
         case .dashboard, .activity: return "MONITOR"
         case .approvals, .rules, .memory: return "SECURITY"
+        case .audit: return "TOOLS"
         case .benchmark: return "TOOLS"
         case .judge, .connections, .protection: return "SETTINGS"
         }
@@ -42,7 +45,7 @@ struct SidebarView: View {
     private let sections: [(String, [SidebarItem])] = [
         ("MONITOR", [.dashboard, .activity]),
         ("SECURITY", [.approvals, .rules, .memory]),
-        ("TOOLS", [.benchmark]),
+        ("TOOLS", [.audit, .benchmark]),
         ("SETTINGS", [.judge, .connections, .protection]),
     ]
 

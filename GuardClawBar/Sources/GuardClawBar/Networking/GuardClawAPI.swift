@@ -187,6 +187,18 @@ actor GuardClawAPI {
         try await post("/api/setup/security-scan", body: [:] as [String: String])
     }
 
+    // MARK: - Audit
+
+    func auditResults() async throws -> AuditScanResponse {
+        return try await get("/api/audit/results")
+    }
+
+    func auditScan(scanPath: String? = nil) async throws -> AuditScanResponse {
+        var body: [String: String] = [:]
+        if let p = scanPath { body["scanPath"] = p }
+        return try await post("/api/audit/scan", body: body)
+    }
+
     // MARK: - Private
 
     private func delete<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {

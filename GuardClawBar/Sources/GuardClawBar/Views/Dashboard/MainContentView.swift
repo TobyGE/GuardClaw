@@ -49,6 +49,8 @@ struct MainContentView: View {
             RulesView()
         case .memory:
             MemoryView()
+        case .audit:
+            AuditView()
         case .benchmark:
             BenchmarkView()
         case .judge:

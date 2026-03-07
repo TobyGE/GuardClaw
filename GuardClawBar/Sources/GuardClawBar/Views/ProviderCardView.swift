@@ -52,14 +52,23 @@ struct ProviderCardView: View {
         return result
     }
 
+    @State private var auditFindings: [AuditFinding] = []
+    @State private var auditSummary: AuditSummary? = nil
+    @State private var isAuditScanning = false
+    @State private var hasAuditScanned = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             connectionSection
+            securityScanSection
             statsSection
             if !backendApprovals.isEmpty {
                 approvalsSection
             }
             highRiskSection
+        }
+        .task {
+            await loadCachedAuditResults()
         }
     }
 
@@ -188,8 +197,141 @@ struct ProviderCardView: View {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Security Scan
 
+    private var securityScanSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                sectionHeader("SECURITY SCAN")
+                Spacer()
+                if hasAuditScanned, let s = auditSummary {
+                    let risky = (s.dangerousTools ?? 0) + (s.dangerousSkills ?? 0)
+                    if risky == 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                            Text("Clean")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                        }
+                    } else {
+                        Text("\(risky) risky")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Button {
+                    Task { await runAuditScan() }
+                } label: {
+                    if isAuditScanning {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9))
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+                .disabled(isAuditScanning)
+            }
+
+            if hasAuditScanned, let s = auditSummary {
+                HStack(spacing: 10) {
+                    auditStatLabel("Tools", total: s.totalTools ?? 0, risky: s.dangerousTools ?? 0)
+                    auditStatLabel("Skills", total: s.totalSkills ?? 0, risky: s.dangerousSkills ?? 0)
+                }
+                .font(.caption2)
+            }
+
+            if hasAuditScanned && !auditFindings.isEmpty {
+                ForEach(auditFindings.prefix(3)) { f in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(auditSeverityColor(f.severity))
+                            .frame(width: 6, height: 6)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(f.title ?? "")
+                                .font(.system(size: 9, weight: .medium))
+                                .lineLimit(1)
+                            HStack(spacing: 4) {
+                                if let source = f.source {
+                                    Text(source)
+                                        .font(.system(size: 8, weight: .medium))
+                                        .foregroundStyle(.blue)
+                                }
+                                if let name = f.sourceName ?? f.skillName {
+                                    Text(name)
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+
+    private func auditSeverityColor(_ s: String?) -> Color {
+        switch s {
+        case "critical": return .red
+        case "high": return .orange
+        case "medium": return .yellow
+        default: return .gray
+        }
+    }
+
+    private func auditStatLabel(_ label: String, total: Int, risky: Int) -> some View {
+        HStack(spacing: 3) {
+            Text("\(label): \(total)")
+                .foregroundStyle(.secondary)
+            if risky > 0 {
+                Text("(\(risky) risky)")
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func loadCachedAuditResults() async {
+        do {
+            let resp = try await GuardClawAPI().auditResults()
+            if resp.ok == true {
+                auditFindings = resp.findings.sorted {
+                    auditSeverityRank($0.severity) < auditSeverityRank($1.severity)
+                }
+                auditSummary = resp.summary
+                hasAuditScanned = true
+            }
+        } catch {}
+    }
+
+    private func runAuditScan() async {
+        isAuditScanning = true
+        defer { isAuditScanning = false }
+        do {
+            let resp = try await GuardClawAPI().auditScan()
+            auditFindings = resp.findings.sorted {
+                auditSeverityRank($0.severity) < auditSeverityRank($1.severity)
+            }
+            auditSummary = resp.summary
+            hasAuditScanned = true
+        } catch {
+            hasAuditScanned = true
+        }
+    }
+
+    private func auditSeverityRank(_ s: String?) -> Int {
+        switch s {
+        case "critical": return 0
+        case "high": return 1
+        case "medium": return 2
+        default: return 3
+        }
+    }
+
+    // MARK: - Helpers
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)

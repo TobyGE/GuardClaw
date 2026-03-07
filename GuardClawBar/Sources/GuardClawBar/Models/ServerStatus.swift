@@ -123,6 +123,56 @@ struct RuleSuggestion: Codable, Sendable, Identifiable {
     var isAI: Bool { source == "llm" }
 }
 
+// MARK: - Audit
+
+struct AuditScanResponse: Codable, Sendable {
+    let ok: Bool?
+    let findings: [AuditFinding]
+    let summary: AuditSummary?
+    let error: String?
+}
+
+struct AuditSummary: Codable, Sendable {
+    let total: Int?
+    let bySeverity: [String: Int]?
+    let byCategory: [String: Int]?
+    let totalTools: Int?
+    let totalSkills: Int?
+    let dangerousTools: Int?
+    let dangerousSkills: Int?
+}
+
+struct AuditFinding: Codable, Sendable, Identifiable {
+    let ruleId: String?
+    let title: String?
+    let description: String?
+    let severity: String?
+    let category: String?
+    let confidence: Double?
+    let tier: String?
+    let filePath: String?
+    let line: Int?
+    let snippet: String?
+    let remediation: String?
+    let cweId: String?
+    let owaspId: String?
+    let scanTarget: String?
+    let source: String?       // "Claude Official Plugin", "External Plugin", "Claude Config"
+    let sourceName: String?   // plugin name e.g. "skill-creator"
+    let skillName: String?    // skill name if applicable
+
+    var id: String { "\(ruleId ?? ""):\(filePath ?? ""):\(line ?? 0)" }
+
+    var severityColor: String {
+        switch severity {
+        case "critical": return "red"
+        case "high": return "orange"
+        case "medium": return "yellow"
+        default: return "gray"
+        }
+    }
+}
+
 struct TokenDetectResponse: Codable, Sendable {
     let token: String?
     let source: String?

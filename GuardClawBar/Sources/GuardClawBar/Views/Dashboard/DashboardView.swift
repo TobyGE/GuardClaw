@@ -9,10 +9,8 @@ struct DashboardView: View {
                 // Stats Grid
                 statsGrid
 
-                // Risk Distribution
-                if let status = appState.serverStatus, let approvals = status.approvals {
-                    riskDistributionCard(approvals: approvals)
-                }
+                // Security Scan
+                securityScanCard
 
                 // Backend Connection Status
                 if let backends = appState.serverStatus?.backends {
@@ -43,41 +41,43 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Risk Distribution
+    // MARK: - Security Scan
 
-    private func riskDistributionCard(approvals: ApprovalStats) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Risk Distribution")
-                .font(.headline)
-
-            let total = Double((approvals.autoAllowed ?? 0) + (approvals.userApproved ?? 0) + (approvals.autoBlocked ?? 0) + (approvals.userDenied ?? 0))
-            if total > 0 {
-                GeometryReader { geo in
-                    HStack(spacing: 2) {
-                        let safeW = geo.size.width * (Double((approvals.autoAllowed ?? 0) + (approvals.whitelisted ?? 0)) / total)
-                        let warnW = geo.size.width * (Double(approvals.userApproved ?? 0) / total)
-                        let blockW = geo.size.width * (Double((approvals.autoBlocked ?? 0) + (approvals.userDenied ?? 0) + (approvals.blacklisted ?? 0)) / total)
-
-                        RoundedRectangle(cornerRadius: 4).fill(.green).frame(width: max(safeW, 0))
-                        RoundedRectangle(cornerRadius: 4).fill(.orange).frame(width: max(warnW, 0))
-                        RoundedRectangle(cornerRadius: 4).fill(.red).frame(width: max(blockW, 0))
+    @ViewBuilder
+    private var securityScanCard: some View {
+        if let s = appState.auditSummary {
+            let totalRisky = (s.dangerousTools ?? 0) + (s.dangerousSkills ?? 0)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Security Scan")
+                        .font(.headline)
+                    Spacer()
+                    if totalRisky == 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.shield.fill")
+                                .foregroundStyle(.green)
+                            Text("Clean")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                    } else {
+                        Text("\(totalRisky) risky")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.red)
                     }
                 }
-                .frame(height: 16)
 
-                HStack(spacing: 16) {
-                    LegendDot(color: .green, label: "Auto-allowed: \(approvals.autoAllowed ?? 0)")
-                    LegendDot(color: .orange, label: "User-approved: \(approvals.userApproved ?? 0)")
-                    LegendDot(color: .red, label: "Blocked: \((approvals.autoBlocked ?? 0) + (approvals.userDenied ?? 0))")
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ScanStatCell(label: "Tools", value: "\(s.totalTools ?? 0)", color: .blue)
+                    ScanStatCell(label: "Skills", value: "\(s.totalSkills ?? 0)", color: .blue)
+                    ScanStatCell(label: "Risky Tools", value: "\(s.dangerousTools ?? 0)", color: (s.dangerousTools ?? 0) > 0 ? .red : .green)
+                    ScanStatCell(label: "Risky Skills", value: "\(s.dangerousSkills ?? 0)", color: (s.dangerousSkills ?? 0) > 0 ? .red : .green)
                 }
-            } else {
-                Text("No events recorded yet")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
             }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
         }
-        .padding(16)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Backend Status
@@ -232,5 +232,24 @@ struct LegendDot: View {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+    }
+}
+
+struct ScanStatCell: View {
+    let label: String
+    let value: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

@@ -19,6 +19,9 @@ final class AppState {
     // Blocking/Rules
     var blockingStatus: BlockingStatusResponse?
 
+    // Security Scan
+    var auditSummary: AuditSummary?
+
     // Icon
     var iconStatus: IconStatus {
         if !isConnected { return .idle }
@@ -185,6 +188,13 @@ final class AppState {
             ocEvents = oc.events
             isConnected = true
             lastError = nil
+
+            // Load cached audit results (non-blocking)
+            if auditSummary == nil {
+                if let audit = try? await api.auditResults(), audit.ok == true {
+                    auditSummary = audit.summary
+                }
+            }
 
             let newApprovals = a.pending.filter { !previousPendingIds.contains($0.id) }
             for approval in newApprovals {

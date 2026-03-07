@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import childProcess from 'child_process';
 import { ClawdbotClient } from './clawdbot-client.js';
 import { NanobotClient } from './nanobot-client.js';
 import { SafeguardService } from './safeguard.js';
@@ -2030,6 +2031,188 @@ app.post('/api/setup/security-scan', async (_req, res) => {
   });
 });
 
+// Agent Audit scan (powered by agent-audit Python package)
+// Cached audit scan results
+let cachedAuditResult = null;
+
+async function runAuditScan(scanPath) {
+  const targets = [];
+  targets.push(path.join(os.homedir(), '.claude'));
+  // Scan OpenClaw codebase if available
+  const ocPath = path.join(os.homedir(), 'openclaw');
+  if (fs.existsSync(ocPath)) {
+    targets.push(ocPath);
+  }
+  if (scanPath && fs.existsSync(scanPath)) {
+    targets.push(scanPath);
+  }
+
+  const python = '/opt/homebrew/opt/python@3.13/bin/python3.13';
+  const allFindings = [];
+  let scanError = null;
+
+  for (const target of targets) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const child = childProcess.spawn(python, [
+          '-m', 'agent_audit.cli.main', 'scan', target,
+          '--format', 'json', '--min-tier', 'warn'
+        ], { timeout: 60000 });
+
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', d => stdout += d);
+        child.stderr.on('data', d => stderr += d);
+        child.on('close', code => {
+          if (stdout.trim()) {
+            try {
+              resolve(JSON.parse(stdout));
+            } catch {
+              reject(new Error(`Failed to parse agent-audit output: ${stdout.substring(0, 200)}`));
+            }
+          } else {
+            reject(new Error(stderr || `agent-audit exited with code ${code}`));
+          }
+        });
+        child.on('error', reject);
+      });
+
+      if (result.findings) {
+        for (const f of result.findings) {
+          if (f.confidence < 0.2) continue;
+
+          const fp = f.location?.file_path || '';
+          let source = null;
+          let sourceName = null;
+          let skillName = null;
+          const officialMatch = fp.match(/plugins\/marketplaces\/claude-plugins-official\/plugins\/([^/]+)/);
+          const externalMatch = fp.match(/plugins\/marketplaces\/claude-plugins-official\/external_plugins\/([^/]+)/);
+          const ocSkillMatch = fp.match(/openclaw\/skills\/([^/]+)/);
+          const ocExtMatch = fp.match(/openclaw\/extensions\/([^/]+)/);
+          const ocPluginMatch = fp.match(/openclaw\/plugins\/([^/]+)/);
+          const ccSkillMatch = fp.match(/\.claude\/skills\/([^/]+)/);
+          if (officialMatch) {
+            source = 'Claude Official Plugin';
+            sourceName = officialMatch[1];
+          } else if (externalMatch) {
+            source = 'External Plugin (MCP)';
+            sourceName = externalMatch[1];
+          } else if (ocSkillMatch) {
+            source = 'OpenClaw Skill';
+            sourceName = ocSkillMatch[1];
+            skillName = ocSkillMatch[1];
+          } else if (ocExtMatch) {
+            source = 'OpenClaw Extension';
+            sourceName = ocExtMatch[1];
+          } else if (ocPluginMatch) {
+            source = 'OpenClaw Plugin';
+            sourceName = ocPluginMatch[1];
+          } else if (ccSkillMatch) {
+            source = 'Claude Skill';
+            skillName = ccSkillMatch[1];
+            sourceName = ccSkillMatch[1];
+          } else if (fp.includes('.claude/')) {
+            source = 'Claude Config';
+          } else if (fp.includes('openclaw/')) {
+            source = 'OpenClaw';
+          }
+
+          allFindings.push({
+            ruleId: f.rule_id, title: f.title, description: f.description,
+            severity: f.severity, category: f.category, confidence: f.confidence,
+            tier: f.tier, filePath: f.location?.file_path, line: f.location?.start_line,
+            snippet: f.location?.snippet, remediation: f.remediation?.description,
+            cweId: f.cwe_id, owaspId: f.owasp_id, scanTarget: target,
+            source, sourceName, skillName,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn(`[GuardClaw] agent-audit scan failed for ${target}:`, err.message);
+      scanError = err.message;
+    }
+  }
+
+  const bySeverity = {};
+  const byCategory = {};
+  for (const f of allFindings) {
+    bySeverity[f.severity] = (bySeverity[f.severity] || 0) + 1;
+    byCategory[f.category] = (byCategory[f.category] || 0) + 1;
+  }
+
+  // Count directories helper
+  const countDirs = (dir) => {
+    try {
+      if (fs.existsSync(dir)) {
+        return fs.readdirSync(dir).filter(f => {
+          try { return fs.statSync(path.join(dir, f)).isDirectory(); } catch { return false; }
+        }).length;
+      }
+    } catch {}
+    return 0;
+  };
+
+  const claudeDir = path.join(os.homedir(), '.claude');
+  const pluginsDir = path.join(claudeDir, 'plugins', 'marketplaces', 'claude-plugins-official');
+  let totalTools = 0;
+  let totalSkills = 0;
+
+  // Claude Code: official plugins + external plugins (MCP)
+  totalTools += countDirs(path.join(pluginsDir, 'plugins'));
+  totalTools += countDirs(path.join(pluginsDir, 'external_plugins'));
+  totalSkills += countDirs(path.join(claudeDir, 'skills'));
+
+  // OpenClaw: plugins + extensions + skills
+  const ocDir = path.join(os.homedir(), 'openclaw');
+  totalTools += countDirs(path.join(ocDir, 'plugins'));
+  totalTools += countDirs(path.join(ocDir, 'extensions'));
+  totalSkills += countDirs(path.join(ocDir, 'skills'));
+
+  const dangerousToolNames = new Set();
+  const dangerousSkillNames = new Set();
+  for (const f of allFindings) {
+    const isToolSource = f.source === 'Claude Official Plugin' || f.source === 'External Plugin (MCP)'
+      || f.source === 'OpenClaw Plugin' || f.source === 'OpenClaw Extension';
+    const isSkillSource = f.source === 'OpenClaw Skill' || f.source === 'Claude Skill';
+    if (f.sourceName && isToolSource) {
+      dangerousToolNames.add(f.sourceName);
+    } else if (f.sourceName && isSkillSource) {
+      dangerousSkillNames.add(f.sourceName);
+    }
+  }
+
+  const result = {
+    ok: !scanError || allFindings.length > 0,
+    findings: allFindings,
+    summary: {
+      total: allFindings.length, bySeverity, byCategory,
+      totalTools, totalSkills,
+      dangerousTools: dangerousToolNames.size,
+      dangerousSkills: dangerousSkillNames.size,
+    },
+    error: scanError,
+  };
+
+  cachedAuditResult = result;
+  return result;
+}
+
+// GET cached results (no re-scan)
+app.get('/api/audit/results', (req, res) => {
+  if (cachedAuditResult) {
+    res.json(cachedAuditResult);
+  } else {
+    res.json({ ok: false, findings: [], summary: null, error: 'No scan results yet' });
+  }
+});
+
+// POST triggers a new scan
+app.post('/api/audit/scan', async (req, res) => {
+  const { scanPath } = req.body;
+  const result = await runAuditScan(scanPath);
+  res.json(result);
+});
+
 // Blocking configuration API
 app.get('/api/blocking/status', (req, res) => {
   res.json({
@@ -2824,6 +3007,15 @@ app.listen(PORT, () => {
       console.log('');
       console.log('🎯 GuardClaw is now monitoring your agents!');
       console.log('');
+
+      // Auto security scan on startup
+      console.log('🔍 Running initial security scan...');
+      runAuditScan().then(result => {
+        const s = result.summary;
+        console.log(`✅ Security scan complete: ${s.totalTools} tools, ${s.totalSkills} skills scanned — ${s.dangerousTools} risky tools, ${s.dangerousSkills} risky skills`);
+      }).catch(err => {
+        console.warn('⚠️  Initial security scan failed:', err.message);
+      });
 
       // ─── Periodic cleanup (every 5 minutes) ─────────────────────────────
       setInterval(() => {
