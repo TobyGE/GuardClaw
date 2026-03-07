@@ -85,6 +85,17 @@ struct SecurityScanSummary: Codable, Sendable {
     let categories: Int?
     let total: Int?
     let recommendations: Int?
+    let mcpServers: Int?
+    let skills: Int?
+    let hooks: Int?
+    let ocComponents: Int?
+}
+
+struct SecurityScannedItems: Codable, Sendable {
+    let mcpServers: Int?
+    let skills: Int?
+    let hooks: Int?
+    let ocComponents: Int?
 }
 
 struct SecurityFinding: Codable, Identifiable, Sendable {
@@ -93,6 +104,7 @@ struct SecurityFinding: Codable, Identifiable, Sendable {
     let severity: String?
     let title: String?
     let detail: String?
+    let snippet: String?
     let recommendation: String?
 
     var displayId: String { id ?? UUID().uuidString }

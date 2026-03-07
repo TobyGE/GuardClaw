@@ -1948,45 +1948,164 @@ app.get('/api/setup/claude-code/status', (req, res) => {
 });
 
 // Security scan endpoint
+// Suspicious patterns for deep content scanning
+const SUSPICIOUS_CODE_PATTERNS = [
+  { re: /\b(curl|wget|nc|ncat|netcat)\s+/g, reason: 'Network exfiltration command', severity: 'high' },
+  { re: /https?:\/\/[^\s"']+/g, reason: 'External URL reference', severity: 'medium' },
+  { re: /wss?:\/\/[^\s"']+/g, reason: 'WebSocket URL reference', severity: 'high' },
+  { re: /\beval\s*\(|exec\s*\(|os\.system\s*\(|subprocess\.\w+\s*\(/g, reason: 'Dynamic code execution', severity: 'high' },
+  { re: /\b(base64|btoa|atob)\b/g, reason: 'Encoding/obfuscation detected', severity: 'medium' },
+  { re: /\b(credentials|password|secret|token|api_key|apikey|private_key)\b/gi, reason: 'Credential reference', severity: 'medium' },
+  { re: /\b(\.ssh|\.aws|\.env|\.gnupg|keychain)\b/g, reason: 'Sensitive path reference', severity: 'high' },
+  { re: /\bchmod\s+[0-7]*7[0-7]*\b|chmod\s+\+x/g, reason: 'Permission escalation', severity: 'medium' },
+  { re: /\brm\s+-rf?\s+[\/~]/g, reason: 'Destructive file deletion', severity: 'high' },
+];
+
+/** Deep-scan a directory of skills/plugins, reading file content */
+function deepScanDirectory(dirPath, category, maxFiles = 50) {
+  const findings = [];
+  if (!fs.existsSync(dirPath)) return findings;
+
+  let fileCount = 0;
+  const scanFile = (filePath, skillName) => {
+    if (fileCount >= maxFiles) return;
+    if (!filePath.match(/\.(json|yaml|yml|js|ts|py|sh|md|txt)$/)) return;
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.size > 500000) return; // skip files > 500KB
+      fileCount++;
+      const content = fs.readFileSync(filePath, 'utf8');
+      for (const pattern of SUSPICIOUS_CODE_PATTERNS) {
+        const matches = content.match(pattern.re);
+        if (matches) {
+          // Find line number of first match
+          const idx = content.search(pattern.re);
+          const line = idx >= 0 ? content.substring(0, idx).split('\n').length : 0;
+          const snippet = content.split('\n').slice(Math.max(0, line - 2), line + 1).join('\n').substring(0, 200);
+          findings.push({
+            id: `${category}-${skillName}-${pattern.reason}`.replace(/\s+/g, '-').toLowerCase(),
+            category,
+            severity: pattern.severity,
+            title: `${pattern.reason} in ${skillName}`,
+            detail: `File: ${filePath}:${line}\nMatches: ${matches.slice(0, 3).join(', ')}`,
+            snippet,
+            recommendation: `Review ${skillName} for ${pattern.reason.toLowerCase()}.`
+          });
+        }
+      }
+    } catch {}
+  };
+
+  try {
+    for (const entry of fs.readdirSync(dirPath)) {
+      const entryPath = path.join(dirPath, entry);
+      try {
+        const stat = fs.statSync(entryPath);
+        if (stat.isDirectory()) {
+          for (const sub of fs.readdirSync(entryPath)) {
+            scanFile(path.join(entryPath, sub), entry);
+          }
+        } else {
+          scanFile(entryPath, entry);
+        }
+      } catch {}
+    }
+  } catch {}
+  return findings;
+}
+
 app.post('/api/setup/security-scan', async (_req, res) => {
   const findings = [];
+  const scannedItems = { mcpServers: 0, skills: 0, hooks: 0, ocComponents: 0 };
 
   try {
     const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
     if (fs.existsSync(settingsPath)) {
       const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
 
-      // MCP Servers
+      // MCP Servers — check each server's command, args, env
       const mcpServers = settings.mcpServers || {};
       for (const [name, cfg] of Object.entries(mcpServers)) {
+        scannedItems.mcpServers++;
         const args = (cfg.args || []).join(' ');
-        const isRemote = args.includes('http://') || args.includes('https://') || args.includes('wss://') || args.includes('ws://');
-        if (isRemote) {
+        const cmd = cfg.command || '';
+        const env = JSON.stringify(cfg.env || {});
+
+        // Remote URL check
+        const allText = `${cmd} ${args} ${env}`;
+        if (/https?:\/\/|wss?:\/\//.test(allText)) {
           findings.push({
-            id: `mcp-${name}`,
+            id: `mcp-remote-${name}`,
             category: 'MCP Servers',
             severity: 'high',
             title: `Remote MCP server: ${name}`,
-            detail: `Command: ${cfg.command || ''} ${args}`,
-            recommendation: 'Review this MCP server. Remote servers can exfiltrate data.'
+            detail: `Command: ${cmd} ${args}`,
+            recommendation: 'Remote MCP servers can intercept and exfiltrate all tool calls. Only use trusted servers.'
+          });
+        }
+        // Unrecognized command check
+        const knownCmds = ['npx', 'node', 'python', 'python3', 'uvx', 'docker', 'deno', 'bun'];
+        const baseName = path.basename(cmd);
+        if (cmd && !knownCmds.includes(baseName)) {
+          findings.push({
+            id: `mcp-cmd-${name}`,
+            category: 'MCP Servers',
+            severity: 'medium',
+            title: `Uncommon MCP command: ${name}`,
+            detail: `Command: ${cmd} ${args}`,
+            recommendation: 'Verify this MCP server binary is from a trusted source.'
           });
         }
       }
 
-      // Skills
+      // Skills — deep scan: read each skill's description, files, and code content
       const skills = settings.skills || {};
+      const claudeSkillsDir = path.join(os.homedir(), '.claude', 'skills');
       for (const [name, skill] of Object.entries(skills)) {
-        const suspiciousNames = ['exfil', 'steal', 'leak', 'backdoor', 'shell', 'exec'];
-        const isSuspicious = suspiciousNames.some(s => name.toLowerCase().includes(s));
-        if (isSuspicious) {
-          findings.push({
-            id: `skill-${name}`,
-            category: 'Skills',
-            severity: 'high',
-            title: `Suspicious skill name: ${name}`,
-            detail: JSON.stringify(skill).substring(0, 200),
-            recommendation: 'Review or remove this skill if unrecognized.'
-          });
+        scannedItems.skills++;
+        const skillStr = JSON.stringify(skill);
+
+        // Check description and config for suspicious patterns
+        for (const pattern of SUSPICIOUS_CODE_PATTERNS) {
+          if (pattern.re.test(skillStr)) {
+            pattern.re.lastIndex = 0;
+            findings.push({
+              id: `skill-config-${name}-${pattern.reason}`.replace(/\s+/g, '-').toLowerCase(),
+              category: 'Claude Code Skills',
+              severity: pattern.severity,
+              title: `${pattern.reason} in skill config: ${name}`,
+              detail: skillStr.substring(0, 300),
+              recommendation: `Review skill "${name}" configuration for ${pattern.reason.toLowerCase()}.`
+            });
+          }
+          pattern.re.lastIndex = 0;
+        }
+      }
+      // Deep scan skill files on disk
+      if (fs.existsSync(claudeSkillsDir)) {
+        findings.push(...deepScanDirectory(claudeSkillsDir, 'Claude Code Skills'));
+      }
+
+      // Hooks — deep analysis
+      const hooks = settings.hooks || {};
+      for (const [hookName, hookList] of Object.entries(hooks)) {
+        for (const hook of (Array.isArray(hookList) ? hookList : [])) {
+          scannedItems.hooks++;
+          const cmd = hook.command || '';
+          for (const pattern of SUSPICIOUS_CODE_PATTERNS) {
+            if (pattern.re.test(cmd)) {
+              pattern.re.lastIndex = 0;
+              findings.push({
+                id: `hook-${hookName}-${cmd.substring(0, 20)}`.replace(/\s+/g, '-'),
+                category: 'Claude Code Hooks',
+                severity: pattern.severity,
+                title: `${pattern.reason} in hook: ${hookName}`,
+                detail: cmd.substring(0, 300),
+                recommendation: `Review this hook. ${pattern.reason} can be used for data exfiltration.`
+              });
+            }
+            pattern.re.lastIndex = 0;
+          }
         }
       }
     }
@@ -1994,39 +2113,39 @@ app.post('/api/setup/security-scan', async (_req, res) => {
     console.warn('[GuardClaw] Security scan: failed to read Claude settings:', err.message);
   }
 
-  // Sensitive files
-  const sensitivePatterns = [
-    { path: path.join(os.homedir(), '.ssh'), glob: 'id_*', category: 'SSH Keys', severity: 'medium' },
-    { path: path.join(os.homedir(), '.aws'), glob: 'credentials', category: 'AWS Credentials', severity: 'high' },
-    { path: process.cwd(), glob: '.env', category: 'Env File', severity: 'medium' },
-  ];
-
-  for (const pattern of sensitivePatterns) {
-    try {
-      if (fs.existsSync(pattern.path)) {
-        const entries = fs.readdirSync(pattern.path).filter(f => f.includes(pattern.glob.replace('*', '')));
-        for (const entry of entries.slice(0, 3)) {
-          const fullPath = path.join(pattern.path, entry);
-          findings.push({
-            id: `file-${entry}`,
-            category: pattern.category,
-            severity: pattern.severity,
-            title: `Sensitive file found: ${entry}`,
-            detail: `Path: ${fullPath}`,
-            recommendation: 'Ensure this file is not accessible to untrusted agents. Consider adding to GuardClaw blacklist patterns.'
-          });
-        }
-      }
-    } catch {}
+  // OpenClaw: deep scan skills, extensions, plugins directories
+  const ocDir = path.join(os.homedir(), 'openclaw');
+  for (const subdir of ['skills', 'extensions', 'plugins']) {
+    const subdirPath = path.join(ocDir, subdir);
+    if (fs.existsSync(subdirPath)) {
+      try {
+        scannedItems.ocComponents += fs.readdirSync(subdirPath).length;
+      } catch {}
+      const label = `OpenClaw ${subdir.charAt(0).toUpperCase() + subdir.slice(1)}`;
+      findings.push(...deepScanDirectory(subdirPath, label));
+    }
   }
+
+  // Deduplicate findings by id
+  const seen = new Set();
+  const deduped = findings.filter(f => {
+    if (seen.has(f.id)) return false;
+    seen.add(f.id);
+    return true;
+  });
 
   res.json({
     ok: true,
-    findings,
+    findings: deduped,
+    scannedItems,
     summary: {
-      categories: new Set(findings.map(f => f.category)).size,
-      total: findings.length,
-      recommendations: findings.length
+      categories: new Set(deduped.map(f => f.category)).size,
+      total: deduped.length,
+      recommendations: deduped.length,
+      mcpServers: scannedItems.mcpServers,
+      skills: scannedItems.skills,
+      hooks: scannedItems.hooks,
+      ocComponents: scannedItems.ocComponents,
     }
   });
 });

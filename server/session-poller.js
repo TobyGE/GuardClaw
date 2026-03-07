@@ -289,20 +289,24 @@ export class SessionPoller {
         console.log(`[SessionPoller] 🔍 Sample assistant message content:`, JSON.stringify(content.slice(0, 2), null, 2).substring(0, 300));
       }
       
-      for (const block of content) {
+      for (let blockIndex = 0; blockIndex < content.length; blockIndex++) {
+        const block = content[blockIndex];
         // Look for toolCall blocks (chat.history format) or tool_use blocks (event format)
         if (block.type === 'toolCall' || block.type === 'tool_use') {
           toolUseCount++;
-          
+
           const toolName = block.name;
           if (!toolName) continue;
-          
+
           // Extract action details based on tool type
           const action = this.buildActionFromBlock(block, toolName, msg);
-          
+
           if (action) {
+            // Use stable id for dedup: prefer block.id, fall back to timestamp+index+tool
+            // (never use random - that would break dedup across poll cycles)
+            const stableId = block.id || `stable-${msg.timestamp || msg.id || ''}-${blockIndex}-${toolName}`;
             toolCalls.push({
-              id: block.id || `call-${Date.now()}-${Math.random()}`,
+              id: stableId,
               tool: toolName,
               action,
               command: action.command,

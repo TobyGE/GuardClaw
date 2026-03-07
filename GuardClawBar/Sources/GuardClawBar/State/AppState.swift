@@ -21,6 +21,8 @@ final class AppState {
 
     // Security Scan
     var auditSummary: AuditSummary?
+    var securityScanResult: SecurityScanResponse?
+    var isSecurityScanning = false
 
     // Icon
     var iconStatus: IconStatus {
@@ -88,6 +90,27 @@ final class AppState {
             }
         }
         startSSE()
+        // Auto-run security scan in background on launch
+        Task { [weak self] in
+            // Wait for server to be reachable
+            try? await Task.sleep(for: .seconds(3))
+            await self?.runBackgroundSecurityScan()
+        }
+    }
+
+    /// Run security scan in background, notify on completion
+    func runBackgroundSecurityScan() async {
+        guard !isSecurityScanning else { return }
+        isSecurityScanning = true
+        do {
+            let result = try await api.securityScan()
+            securityScanResult = result
+            let count = result.findings?.count ?? 0
+            notificationManager.notifyScanComplete(findings: count)
+        } catch {
+            // Server not ready yet — will scan on next poll cycle
+        }
+        isSecurityScanning = false
     }
 
     func stopPolling() {

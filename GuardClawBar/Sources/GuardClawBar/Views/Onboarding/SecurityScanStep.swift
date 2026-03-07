@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SecurityScanStep: View {
+    @Environment(AppState.self) var appState
     @State private var scanResult: SecurityScanResponse? = nil
     @State private var isScanning = false
     @State private var errorMessage: String? = nil
@@ -15,19 +16,22 @@ struct SecurityScanStep: View {
                     Text("Security Check")
                         .font(.title2)
                         .fontWeight(.bold)
-                    Text("Scan your environment for potential security concerns.")
+                    Text("Deep scan of Claude Code skills, MCP servers, hooks, and OpenClaw plugins.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
 
-                if let result = scanResult {
+                if let result = displayResult {
                     // Summary
                     if let summary = result.summary {
-                        HStack(spacing: 20) {
-                            SummaryItem(value: "\(summary.categories ?? 0)", label: "Categories")
-                            SummaryItem(value: "\(summary.total ?? 0)", label: "Findings")
-                            SummaryItem(value: "\(summary.recommendations ?? 0)", label: "Actions")
+                        VStack(spacing: 8) {
+                            HStack(spacing: 20) {
+                                SummaryItem(value: "\(summary.mcpServers ?? 0)", label: "MCP Servers")
+                                SummaryItem(value: "\(summary.skills ?? 0)", label: "Skills")
+                                SummaryItem(value: "\(summary.hooks ?? 0)", label: "Hooks")
+                                SummaryItem(value: "\(summary.total ?? 0)", label: "Issues")
+                            }
                         }
                         .padding(12)
                         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
@@ -51,10 +55,10 @@ struct SecurityScanStep: View {
                             .foregroundStyle(.green)
                             .font(.subheadline)
                     }
-                } else if isScanning {
+                } else if isScanning || appState.isSecurityScanning {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Scanning MCP servers, skills, and sensitive files...")
+                        Text("Scanning skills, hooks, MCP servers, and plugin code...")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -74,13 +78,26 @@ struct SecurityScanStep: View {
             }
             .padding(24)
         }
+        .onAppear {
+            // Use cached result from background scan if available
+            if scanResult == nil, let cached = appState.securityScanResult {
+                scanResult = cached
+            }
+        }
+    }
+
+    /// Use either local scan result or the one from AppState background scan
+    private var displayResult: SecurityScanResponse? {
+        scanResult ?? appState.securityScanResult
     }
 
     private func runScan() async {
         isScanning = true
         errorMessage = nil
         do {
-            scanResult = try await api.securityScan()
+            let result = try await api.securityScan()
+            scanResult = result
+            appState.securityScanResult = result
         } catch {
             errorMessage = "Scan failed: \(error.localizedDescription)"
         }
@@ -137,6 +154,13 @@ struct FindingRow: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if let detail = finding.detail {
                         Text(detail).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if let snippet = finding.snippet, !snippet.isEmpty {
+                        Text(snippet)
+                            .font(.system(size: 10, design: .monospaced))
+                            .padding(6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                     }
                     if let rec = finding.recommendation {
                         Label(rec, systemImage: "lightbulb").font(.caption2).foregroundStyle(.blue)

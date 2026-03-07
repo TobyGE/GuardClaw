@@ -75,6 +75,7 @@ struct BuiltinModel: Codable, Sendable, Identifiable {
     let size: String
     let recommended: Bool?
     let downloaded: Bool
+    let incomplete: Bool?
     let downloading: Bool
     let progress: Int
     let loading: Bool

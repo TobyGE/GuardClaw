@@ -5,9 +5,8 @@ node_modules/
 .cache/
 *.pid
 
-# Allow client/dist for now (placeholder page)
-# TODO: Remove when real build process is added
-# dist/
+# Build artifacts
+dist/
 
 # Workspace files (personal configuration)
 AGENTS.md

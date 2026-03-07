@@ -104,12 +104,45 @@ function ensureVenv() {
   // Create venv
   execFileSync(sysPython, ['-m', 'venv', VENV_DIR], { timeout: 30000 });
 
+  // Upgrade pip first to avoid dependency resolver issues
+  console.log('[LLMEngine] Upgrading pip...');
+  try {
+    execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'], {
+      timeout: 60000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {}
+
   // Install mlx-lm
   console.log('[LLMEngine] Installing mlx-lm (this may take a minute)...');
-  execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', 'mlx-lm'], {
-    timeout: 300000,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  try {
+    execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', 'mlx-lm'], {
+      timeout: 300000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    // If install fails, try with --force-reinstall to resolve conflicts
+    console.warn('[LLMEngine] Initial install failed, trying --force-reinstall...');
+    try {
+      execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', '--force-reinstall', 'mlx-lm'], {
+        timeout: 300000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (retryErr) {
+      // Last resort: recreate venv from scratch
+      console.warn('[LLMEngine] Force reinstall failed, recreating venv...');
+      fs.rmSync(VENV_DIR, { recursive: true, force: true });
+      execFileSync(sysPython, ['-m', 'venv', VENV_DIR], { timeout: 30000 });
+      execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'], {
+        timeout: 60000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      execFileSync(VENV_PYTHON, ['-m', 'pip', 'install', '--quiet', 'mlx-lm'], {
+        timeout: 300000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
+  }
 
   console.log('[LLMEngine] Python environment ready');
   resolvedPython = VENV_PYTHON;
@@ -162,10 +195,29 @@ class LLMEngine extends EventEmitter {
     return path.join(MODELS_DIR, catalog.hfRepo.replace('/', '--'));
   }
 
-  /** Check if model is downloaded by looking for config.json in its directory */
+  /** Check if model is fully downloaded (config.json + safetensors weights) */
   _isDownloaded(catalog) {
     const dir = this._modelPath(catalog);
-    return fs.existsSync(path.join(dir, 'config.json'));
+    if (!fs.existsSync(path.join(dir, 'config.json'))) return false;
+    // Must have at least one .safetensors weight file
+    try {
+      const files = fs.readdirSync(dir);
+      return files.some(f => f.endsWith('.safetensors'));
+    } catch {
+      return false;
+    }
+  }
+
+  /** Check if download started but is incomplete (config.json exists but no weights) */
+  _isIncomplete(catalog) {
+    const dir = this._modelPath(catalog);
+    if (!fs.existsSync(path.join(dir, 'config.json'))) return false;
+    try {
+      const files = fs.readdirSync(dir);
+      return !files.some(f => f.endsWith('.safetensors'));
+    } catch {
+      return false;
+    }
   }
 
   /** Get model catalog with download status */
@@ -173,17 +225,19 @@ class LLMEngine extends EventEmitter {
     this._ensureDir();
     return MODEL_CATALOG.map(m => {
       const downloaded = this._isDownloaded(m);
+      const incomplete = this._isIncomplete(m);
       const downloading = this._downloading.has(m.id);
       const progress = downloading ? this._downloading.get(m.id).progress : 0;
       return {
         ...m,
         downloaded,
+        incomplete,
         downloading,
         progress,
         loading: this._loadingModelId === m.id,
         loaded: this._loadedModelId === m.id,
         statusMessage: this._statusMessage,
-        setupError: this._setupError,
+        setupError: incomplete && !downloading ? 'Download incomplete — weights missing. Click Setup to re-download.' : this._setupError,
         filePath: downloaded ? this._modelPath(m) : null,
       };
     });
@@ -201,6 +255,12 @@ class LLMEngine extends EventEmitter {
 
     if (this._isDownloaded(catalog)) {
       return { status: 'already_downloaded', path: destPath };
+    }
+
+    // Clean up incomplete download (has config.json but missing weights)
+    if (this._isIncomplete(catalog)) {
+      console.log(`[LLMEngine] Cleaning up incomplete download at ${destPath}`);
+      fs.rmSync(destPath, { recursive: true, force: true });
     }
 
     this._statusMessage = 'Setting up Python environment...';
@@ -391,7 +451,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
 
       this._process = spawn(resolvedPython, [
-        '-m', 'mlx_lm.server',
+        '-m', 'mlx_lm', 'server',
         '--model', modelPath,
         '--port', String(MLX_PORT),
       ], {
