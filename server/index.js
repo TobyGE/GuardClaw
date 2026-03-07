@@ -2047,7 +2047,18 @@ async function runAuditScan(scanPath) {
     targets.push(scanPath);
   }
 
-  const python = '/opt/homebrew/opt/python@3.13/bin/python3.13';
+  // Find Python: bundled in app → homebrew → system
+  const pythonCandidates = [
+    path.join(path.dirname(process.execPath), '..', 'Resources', 'python-env', 'bin', 'python3'),
+    '/opt/homebrew/opt/python@3.13/bin/python3.13',
+    '/opt/homebrew/bin/python3',
+    '/usr/local/bin/python3',
+    '/usr/bin/python3',
+  ];
+  const python = pythonCandidates.find(p => fs.existsSync(p));
+  if (!python) {
+    return { ok: false, findings: [], summary: null, error: 'Python not found. Install Python 3 to enable security scanning.' };
+  }
   const allFindings = [];
   let scanError = null;
 

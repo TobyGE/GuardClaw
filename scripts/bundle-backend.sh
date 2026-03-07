@@ -111,8 +111,9 @@ if [ -f "$STANDALONE_PYTHON" ]; then
   # Copy the standalone Python into the app bundle
   cp -R "${PY_EXTRACT}/python" "$PYTHON_ENV_DIR"
 
-  # Install mlx-lm into the standalone Python
+  # Install mlx-lm and agent-audit into the standalone Python
   "$PYTHON_ENV_DIR/bin/python3" -m pip install --quiet --no-cache-dir mlx-lm
+  "$PYTHON_ENV_DIR/bin/python3" -m pip install --quiet --no-cache-dir agent-audit
 
   # Clean up to reduce size
   rm -rf "$PYTHON_ENV_DIR/share"
