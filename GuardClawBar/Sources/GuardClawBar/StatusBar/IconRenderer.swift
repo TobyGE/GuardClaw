@@ -20,17 +20,7 @@ enum IconRenderer {
             drawShield(in: ctx, rect: iconRect)
             drawPaw(in: ctx, rect: iconRect)
 
-            // Status dot at bottom-right
-            let dotSize: CGFloat = 6
-            let dotRect = CGRect(
-                x: rect.maxX - dotSize - 1,
-                y: 1,
-                width: dotSize,
-                height: dotSize
-            )
-            drawStatusDot(in: ctx, rect: dotRect, status: status)
-
-            // Badge number for pending
+            // Badge number for pending approvals only
             if status == .pending && badgeCount > 0 {
                 drawBadge(in: ctx, rect: rect, count: badgeCount)
             }
