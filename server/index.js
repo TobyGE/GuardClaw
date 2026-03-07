@@ -134,6 +134,9 @@ const CC_CONNECTED_TIMEOUT_MS = 600_000; // consider CC disconnected after 10min
 // Key: `${sessionKey}:${toolName}:${commandHash}` → { toolName, commandStr, displayInput, riskScore, sessionKey, timestamp }
 const ccPendingAsks = new Map();
 const PENDING_ASK_TIMEOUT_MS = 15_000; // fallback: infer denial after 15s with no PostToolUse
+// Reduce noisy repeated "auto-approved" hook messages for identical actions.
+const ccAllowNoticeCache = new Map(); // key -> last emitted timestamp
+const CC_ALLOW_NOTICE_TTL_MS = 12_000;
 
 // Infer denials for pending asks in a session.
 // Called on each new hook — if a new hook arrives and the pending ask wasn't cleared
@@ -147,6 +150,44 @@ function inferPendingDenials(sessionKey, excludeKey = null) {
       console.log(`[GuardClaw] 🧠 Memory: user DENIED blocked action → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
     }
   }
+}
+
+function compactToolInput(toolName, params = {}) {
+  const shorten = (s, n = 100) => {
+    const str = String(s || '');
+    return str.length > n ? `${str.slice(0, n)}...` : str;
+  };
+
+  switch (toolName) {
+    case 'read':
+    case 'write':
+      return shorten(params.file_path || params.path || '');
+    case 'edit':
+      return shorten(params.file_path || params.path || '');
+    case 'exec':
+      return shorten(params.command || '', 120);
+    case 'web_fetch':
+      return shorten(params.url || '', 120);
+    case 'web_search':
+      return shorten(params.query || '', 120);
+    default:
+      return shorten(JSON.stringify(params), 120);
+  }
+}
+
+function shouldEmitAllowNotice(sessionKey, toolName, params) {
+  const key = `${sessionKey}:${toolName}:${JSON.stringify(params || {})}`;
+  const now = Date.now();
+  const last = ccAllowNoticeCache.get(key) || 0;
+  ccAllowNoticeCache.set(key, now);
+
+  // Lightweight cleanup
+  if (ccAllowNoticeCache.size > 1000) {
+    for (const [k, ts] of ccAllowNoticeCache) {
+      if (now - ts > CC_ALLOW_NOTICE_TTL_MS) ccAllowNoticeCache.delete(k);
+    }
+  }
+  return now - last > CC_ALLOW_NOTICE_TTL_MS;
 }
 const EVAL_CACHE_TTL_MS = 60_000;
 
@@ -1164,14 +1205,16 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
       if (adjScore < 9) {
-        const memMsg = `⛨ GuardClaw: auto-approved by memory (pattern: ${memoryHint.pattern})`;
-        console.log(`[GuardClaw] 🧠 ${memMsg}`);
+        const compactInput = compactToolInput(gcToolName, gcParams);
+        const allowReason = `ALLOW ${gcToolName}: ${compactInput} (score ${adjScore}, memory)`;
+        const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
+        console.log(`[GuardClaw] 🧠 ${allowReason}`);
         return res.json({
-          systemMessage: memMsg,
+          ...(emitNotice ? { systemMessage: allowReason } : {}),
           hookSpecificOutput: {
             hookEventName: 'PreToolUse',
             permissionDecision: 'allow',
-            permissionDecisionReason: memMsg,
+            permissionDecisionReason: allowReason,
           },
         });
       }
@@ -1247,16 +1290,12 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     const CC_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_CC_PASS_THRESHOLD || '8', 10);
 
     if (analysis.riskScore < CC_PASS_THRESHOLD) {
-      // Enrich reasoning with task context for rule-based verdicts
-      let reasoning = analysis.reasoning || '';
-      if (taskContext?.userPrompt && analysis.backend === 'rules') {
-        reasoning += ` | Task: "${taskContext.userPrompt.slice(0, 100)}"`;
-      }
-      const reason = reasoning ? ` — ${reasoning}` : '';
-      const msg = `⛨ GuardClaw: auto-approved (score: ${analysis.riskScore})${reason}`;
+      const compactInput = compactToolInput(gcToolName, gcParams);
+      const msg = `ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore})`;
+      const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
       console.log(`[GuardClaw] ${msg}`);
       return res.json({
-        systemMessage: msg,
+        ...(emitNotice ? { systemMessage: msg } : {}),
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
