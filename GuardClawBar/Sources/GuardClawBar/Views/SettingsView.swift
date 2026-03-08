@@ -93,13 +93,17 @@ struct SettingsView: View {
                             .font(.caption)
                         Spacer()
                         if ccHooksInstalled == true {
-                            Text("✓")
+                            Text("\u{2713}")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
+                            Button("Uninstall") { uninstallClaudeCode() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        } else {
+                            Button("Install") { setupClaudeCode() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
                         }
-                        Button(ccHooksInstalled == true ? "Reinstall" : "Setup") { setupClaudeCode() }
-                            .font(.system(size: 9))
-                            .controlSize(.mini)
                     }
 
                     // OpenClaw
@@ -114,10 +118,14 @@ struct SettingsView: View {
                             Text("\u{2713}")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
+                            Button("Uninstall") { uninstallOpenClaw() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        } else {
+                            Button("Install") { setupOpenClaw() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
                         }
-                        Button(ocPluginInstalled == true ? "Reinstall" : "Install Plugin") { setupOpenClaw() }
-                            .font(.system(size: 9))
-                            .controlSize(.mini)
                     }
 
                     if let msg = ccSetupMessage {
@@ -250,6 +258,38 @@ struct SettingsView: View {
                 await MainActor.run {
                     ocPluginInstalled = true
                     ocSetupMessage = "\u{2713} Plugin installed — restart OpenClaw"
+                }
+            } catch {
+                await MainActor.run {
+                    ocSetupMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func uninstallClaudeCode() {
+        Task {
+            do {
+                _ = try await api.uninstallClaudeCode()
+                await MainActor.run {
+                    ccHooksInstalled = false
+                    ccSetupMessage = "Hooks removed — restart Claude Code"
+                }
+            } catch {
+                await MainActor.run {
+                    ccSetupMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func uninstallOpenClaw() {
+        Task {
+            do {
+                _ = try await api.uninstallOpenClaw()
+                await MainActor.run {
+                    ocPluginInstalled = false
+                    ocSetupMessage = "Plugin removed — restart OpenClaw"
                 }
             } catch {
                 await MainActor.run {

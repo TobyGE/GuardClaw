@@ -2109,6 +2109,31 @@ app.get('/api/setup/claude-code/status', (req, res) => {
   }
 });
 
+app.post('/api/setup/claude-code/uninstall', (req, res) => {
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      return res.json({ ok: true, message: 'No settings file found' });
+    }
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const isGCHook = (g) => g?.hooks?.some(h => h.url?.includes('/api/hooks/'));
+
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'UserPromptSubmit']) {
+      if (Array.isArray(settings.hooks?.[event])) {
+        settings.hooks[event] = settings.hooks[event].filter(g => !isGCHook(g));
+        if (settings.hooks[event].length === 0) delete settings.hooks[event];
+      }
+    }
+    if (settings.hooks && Object.keys(settings.hooks).length === 0) delete settings.hooks;
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    console.log(`[GuardClaw] Claude Code hooks removed from ${settingsPath}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // OpenClaw plugin setup API
 app.post('/api/setup/openclaw', (req, res) => {
   try {
@@ -2172,6 +2197,40 @@ app.get('/api/setup/openclaw/status', (req, res) => {
     res.json({ installed: hasFiles && registered, path: pluginDir });
   } catch {
     res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/openclaw/uninstall', (req, res) => {
+  try {
+    const pluginId = 'guardclaw-interceptor';
+    const pluginDir = path.join(os.homedir(), '.openclaw', 'plugins', pluginId);
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+
+    // Remove plugin files
+    if (fs.existsSync(pluginDir)) {
+      fs.rmSync(pluginDir, { recursive: true, force: true });
+      console.log(`[GuardClaw] OC plugin removed from ${pluginDir}`);
+    }
+
+    // Unregister from openclaw.json
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (config.plugins?.allow) {
+        config.plugins.allow = config.plugins.allow.filter(p => p !== pluginId);
+      }
+      if (config.plugins?.load?.paths) {
+        config.plugins.load.paths = config.plugins.load.paths.filter(p => !p.includes(pluginId));
+      }
+      if (config.plugins?.entries?.[pluginId]) {
+        delete config.plugins.entries[pluginId];
+      }
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+      console.log(`[GuardClaw] OC plugin unregistered from ${configPath}`);
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

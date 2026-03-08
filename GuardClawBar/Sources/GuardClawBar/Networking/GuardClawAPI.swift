@@ -63,6 +63,14 @@ actor GuardClawAPI {
         try await post("/api/setup/openclaw", body: [:] as [String: String])
     }
 
+    func uninstallClaudeCode() async throws -> SetupResponse {
+        try await post("/api/setup/claude-code/uninstall", body: [:] as [String: String])
+    }
+
+    func uninstallOpenClaw() async throws -> SetupResponse {
+        try await post("/api/setup/openclaw/uninstall", body: [:] as [String: String])
+    }
+
     func openClawPluginStatus() async throws -> CCSetupStatus {
         try await get("/api/setup/openclaw/status")
     }

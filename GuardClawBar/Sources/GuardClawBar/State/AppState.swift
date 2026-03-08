@@ -175,12 +175,10 @@ final class AppState {
                 if backend == "openclaw" {
                     if !ocEvents.contains(where: { $0.id == eventData.id }) {
                         ocEvents.insert(eventData, at: 0)
-                        if ocEvents.count > 500 { ocEvents = Array(ocEvents.prefix(500)) }
                     }
                 } else {
                     if !ccEvents.contains(where: { $0.id == eventData.id }) {
                         ccEvents.insert(eventData, at: 0)
-                        if ccEvents.count > 500 { ccEvents = Array(ccEvents.prefix(500)) }
                     }
                 }
             }
@@ -287,7 +285,6 @@ final class AppState {
         let unique = newEvents.filter { !existingIds.contains($0.stableId) }
         if !unique.isEmpty {
             existing.insert(contentsOf: unique, at: 0)
-            if existing.count > 500 { existing = Array(existing.prefix(500)) }
         }
         // Update timestamp to newest event
         if let newest = newEvents.first?.timestamp {

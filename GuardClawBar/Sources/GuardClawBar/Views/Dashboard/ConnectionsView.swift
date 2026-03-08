@@ -62,8 +62,8 @@ struct ConnectionsView: View {
                         .font(.caption)
                         .foregroundStyle(.green)
                     Spacer()
-                    Button("Reinstall") {
-                        Task { await setupCC() }
+                    Button("Uninstall") {
+                        Task { await uninstallCC() }
                     }
                     .controlSize(.small)
                 }
@@ -109,8 +109,8 @@ struct ConnectionsView: View {
                         .font(.caption)
                         .foregroundStyle(.green)
                     Spacer()
-                    Button("Reinstall") {
-                        Task { await setupOCPlugin() }
+                    Button("Uninstall") {
+                        Task { await uninstallOCPlugin() }
                     }
                     .controlSize(.small)
                 }
@@ -197,6 +197,26 @@ struct ConnectionsView: View {
             _ = try await api.setupOpenClaw()
             ocPluginInstalled = true
             ocMessage = "\u{2713} Plugin installed — restart OpenClaw to activate"
+        } catch {
+            ocMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func uninstallCC() async {
+        do {
+            _ = try await api.uninstallClaudeCode()
+            ccInstalled = false
+            ccMessage = "Hooks removed — restart Claude Code"
+        } catch {
+            ccMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func uninstallOCPlugin() async {
+        do {
+            _ = try await api.uninstallOpenClaw()
+            ocPluginInstalled = false
+            ocMessage = "Plugin removed — restart OpenClaw"
         } catch {
             ocMessage = "Failed: \(error.localizedDescription)"
         }
