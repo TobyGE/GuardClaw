@@ -6,6 +6,8 @@ struct ConnectionsView: View {
     @State private var ccMessage: String? = nil
     @State private var ocPluginInstalled: Bool? = nil
     @State private var ocMessage: String? = nil
+    @State private var geminiInstalled: Bool? = nil
+    @State private var geminiMessage: String? = nil
     @State private var gatewayToken = ""
     @State private var tokenMessage: String? = nil
     @State private var isSavingToken = false
@@ -26,6 +28,11 @@ struct ConnectionsView: View {
 
                 // OpenClaw
                 openClawSection
+
+                Divider()
+
+                // Gemini CLI
+                geminiCLISection
             }
             .padding(24)
         }
@@ -33,6 +40,7 @@ struct ConnectionsView: View {
         .task {
             await checkCCStatus()
             await checkOCPluginStatus()
+            await checkGeminiStatus()
         }
     }
 
@@ -168,6 +176,60 @@ struct ConnectionsView: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    // MARK: - Gemini CLI
+
+    private var geminiConnected: Bool {
+        appState.serverStatus?.backends?["gemini-cli"]?.connected == true
+    }
+
+    private var geminiCLISection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(geminiConnected ? Color.green : Color.gray)
+                    .frame(width: 10, height: 10)
+                Text("Gemini CLI")
+                    .font(.headline)
+                Spacer()
+                Text(geminiConnected ? "Connected" : "Not connected")
+                    .font(.caption)
+                    .foregroundStyle(geminiConnected ? .green : .secondary)
+            }
+
+            Text("GuardClaw intercepts Gemini CLI tool calls via hooks installed in ~/.gemini/settings.json.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if geminiInstalled == true {
+                HStack {
+                    Label("Hooks are active.", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Uninstall") {
+                        Task { await uninstallGemini() }
+                    }
+                    .controlSize(.small)
+                }
+            } else {
+                Button {
+                    Task { await setupGemini() }
+                } label: {
+                    Label("Install Hooks", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let msg = geminiMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: - Actions
 
     private func checkCCStatus() async {
@@ -219,6 +281,32 @@ struct ConnectionsView: View {
             ocMessage = "Plugin removed — restart OpenClaw"
         } catch {
             ocMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func checkGeminiStatus() async {
+        if let status = try? await api.geminiCLIStatus() {
+            geminiInstalled = status.installed
+        }
+    }
+
+    private func setupGemini() async {
+        do {
+            _ = try await api.setupGeminiCLI()
+            geminiInstalled = true
+            geminiMessage = "\u{2713} Hooks installed — restart Gemini CLI to activate"
+        } catch {
+            geminiMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func uninstallGemini() async {
+        do {
+            _ = try await api.uninstallGeminiCLI()
+            geminiInstalled = false
+            geminiMessage = "Hooks removed — restart Gemini CLI"
+        } catch {
+            geminiMessage = "Failed: \(error.localizedDescription)"
         }
     }
 

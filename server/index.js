@@ -427,8 +427,12 @@ app.get('/api/status', async (req, res) => {
   const ccConnected = ccLastHookTime > 0 && (Date.now() - ccLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
   backends['claude-code'] = { connected: ccConnected, label: 'CC', type: 'http-hook' };
 
+  // Gemini CLI uses subprocess hooks via HTTP bridge
+  const geminiConnected = geminiLastHookTime > 0 && (Date.now() - geminiLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
+  backends['gemini-cli'] = { connected: geminiConnected, label: 'Gemini', type: 'http-hook' };
+
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
+  const anyConnected = ccConnected || geminiConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -563,11 +567,12 @@ app.get('/api/sessions', (req, res) => {
     const key = (!row.sessionKey || row.sessionKey === 'default') ? 'agent:main:main' : row.sessionKey;
 
     const isCCSession = key.startsWith('claude-code:');
+    const isGeminiSession = key.startsWith('gemini:');
     const isSubagent = key.includes(':subagent:');
 
     // For non-sub-agent OC sessions, merge by channel (e.g. all agent:main:cron:* → one "Cron" entry)
     let mapKey = key;
-    if (!isCCSession && !isSubagent && key.startsWith('agent:')) {
+    if (!isCCSession && !isGeminiSession && !isSubagent && key.startsWith('agent:')) {
       const parts = key.split(':');
       mapKey = parts.length > 2 ? `agent:main:${parts[2]}` : key;
     }
@@ -595,6 +600,10 @@ app.get('/api/sessions', (req, res) => {
         label = `Sub-agent ${shortId}`;
       } else if (isCCSession) {
         label = 'Claude Code';
+      } else if (isGeminiSession && isSubagent) {
+        label = `Sub-agent ${shortId}`;
+      } else if (isGeminiSession) {
+        label = 'Gemini CLI';
       } else if (isSubagent) {
         label = `Sub-agent ${shortId}`;
       } else {
@@ -1372,14 +1381,14 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 // Approval management endpoints (unified: CC pendingApprovals + OC approvalHandler)
 app.get('/api/approvals/pending', (req, res) => {
   const pending = [];
-  // CC approvals
+  // CC + Gemini approvals (both use pendingApprovals Map)
   for (const [id, entry] of pendingApprovals) {
     pending.push({
       id, toolName: entry.toolName, originalToolName: entry.originalToolName,
       displayInput: entry.displayInput, riskScore: entry.riskScore,
       reason: entry.reason, createdAt: entry.createdAt,
       elapsed: Math.round((Date.now() - entry.createdAt) / 1000),
-      backend: 'claude-code',
+      backend: entry.backend || 'claude-code',
     });
   }
   // OC approvals
@@ -1403,7 +1412,7 @@ app.post('/api/approvals/:id/approve', (req, res) => {
     if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
   }
   eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'approve' }) });
-  console.log(`[GuardClaw] ✅ Claude Code approved: ${entry.originalToolName} (#${req.params.id})`);
+  console.log(`[GuardClaw] Approved: ${entry.originalToolName} (#${req.params.id}) [${entry.backend || 'claude-code'}]`);
   res.json({ ok: true });
 });
 
@@ -1413,7 +1422,7 @@ app.post('/api/approvals/:id/deny', (req, res) => {
   pendingApprovals.delete(req.params.id);
   entry.resolve({ denied: true, reason: 'Denied by user' });
   eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'deny' }) });
-  console.log(`[GuardClaw] ❌ Claude Code denied: ${entry.originalToolName} (#${req.params.id})`);
+  console.log(`[GuardClaw] Denied: ${entry.originalToolName} (#${req.params.id}) [${entry.backend || 'claude-code'}]`);
   res.json({ ok: true });
 });
 
@@ -1497,6 +1506,231 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
   }
 
   res.json({});
+});
+
+// ─── Gemini CLI hooks (subprocess bridge) ────────────────────────────────────
+
+function mapGeminiTool(toolName) {
+  const map = {
+    run_shell_command: 'exec',
+    write_file: 'write',
+    replace: 'edit',
+    read_file: 'read',
+    read_many_files: 'read',
+    glob: 'glob',
+    search_file_content: 'grep',
+    list_directory: 'read',
+    google_web_search: 'web_search',
+    web_fetch: 'web_fetch',
+    save_memory: 'write',
+    write_todos: 'write',
+    codebase_investigator: 'agent_spawn',
+  };
+  return map[toolName] || toolName;
+}
+
+function mapGeminiParams(toolName, toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return {};
+  switch (toolName) {
+    case 'run_shell_command': return { command: toolInput.command || toolInput.cmd || '' };
+    case 'write_file': return { file_path: toolInput.path || toolInput.file_path, content: toolInput.content };
+    case 'replace': return { file_path: toolInput.path || toolInput.file_path, old_string: toolInput.old || toolInput.old_string, new_string: toolInput.new || toolInput.new_string };
+    case 'read_file': return { file_path: toolInput.path || toolInput.file_path };
+    case 'read_many_files': return { file_path: (toolInput.paths || []).join(', ') };
+    case 'glob': return { pattern: toolInput.pattern, path: toolInput.directory || toolInput.path };
+    case 'search_file_content': return { pattern: toolInput.query || toolInput.pattern, path: toolInput.path || toolInput.directory };
+    case 'google_web_search': return { query: toolInput.query };
+    case 'web_fetch': return { url: toolInput.url };
+    default: return toolInput;
+  }
+}
+
+let geminiLastHookTime = 0;
+
+app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+  geminiLastHookTime = Date.now();
+  // Gemini CLI sends same format as Claude Code: tool_name, tool_input, session_id
+  const toolName = req.body.toolName || req.body.tool_name;
+  const toolInput = req.body.toolInput || req.body.tool_input || {};
+  const sessionId = req.body.sessionId || req.body.session_id;
+  console.log(`[GuardClaw] Gemini pre-tool-use:`, JSON.stringify(req.body).slice(0, 500));
+  if (!toolName) return res.json({ decision: 'allow' });
+
+  const gcToolName = mapGeminiTool(toolName);
+  const gcParams = mapGeminiParams(toolName, toolInput);
+  const sessionKey = sessionId ? `gemini:${sessionId}` : 'gemini:default';
+
+  try {
+    const chainHistory = getChainHistory(sessionKey, gcToolName);
+    const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+
+    // Memory lookup
+    const mem = memoryStore.lookup(gcToolName, commandStr);
+    let memoryHint = null;
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = { pattern: mem.pattern, approveCount: mem.approveCount, denyCount: mem.denyCount, confidence: mem.confidence, suggestedAction: mem.suggestedAction };
+    }
+
+    // Auto-approve from memory
+    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+      const baseScore = 5;
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
+      const adjScore = Math.max(1, Math.min(10, baseScore + adj));
+      if (adjScore < 9) {
+        console.log(`[GuardClaw] Gemini auto-approve (memory): ${gcToolName} score=${adjScore}`);
+        return res.json({ decision: 'allow' });
+      }
+    }
+
+    // Evaluate
+    let analysis;
+    if (gcToolName === 'exec') {
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory);
+    } else {
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory);
+    }
+
+    // Memory adjustment
+    if (memoryHint) {
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, analysis.riskScore);
+      if (adj !== 0) {
+        analysis.originalRiskScore = analysis.riskScore;
+        analysis.riskScore = Math.max(1, Math.min(10, analysis.riskScore + adj));
+      }
+    }
+
+    // Store event
+    const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+    const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
+    eventStore.addEvent({
+      type: 'gemini-tool',
+      tool: gcToolName,
+      command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
+      description: displayInput.slice(0, 500),
+      sessionKey,
+      riskScore: analysis.riskScore,
+      category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
+      allowed: analysis.riskScore < 8 ? 1 : 0,
+      safeguard: {
+        riskScore: analysis.riskScore,
+        reasoning: analysis.reasoning,
+        category: analysis.category,
+        verdict,
+        allowed: analysis.riskScore < 8,
+        backend: 'gemini-cli',
+      },
+      timestamp: Date.now(),
+    });
+
+    const GEMINI_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_GEMINI_PASS_THRESHOLD || '8', 10);
+
+    if (analysis.riskScore >= GEMINI_PASS_THRESHOLD && blockingEnabled) {
+      // High risk: create pending approval and wait for user decision
+      const approvalId = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
+      console.log(`[GuardClaw] Gemini ASK: ${gcToolName} (${approvalId}) — ${blockReason}`);
+
+      const decision = await new Promise((resolve) => {
+        pendingApprovals.set(approvalId, {
+          toolName: gcToolName,
+          originalToolName: toolName,
+          displayInput: displayInput.slice(0, 500),
+          params: gcParams,
+          riskScore: analysis.riskScore,
+          reason: blockReason,
+          createdAt: Date.now(),
+          sessionKey,
+          backend: 'gemini-cli',
+          resolve,
+        });
+
+        // Notify UI of new approval
+        eventStore.notifyListeners({
+          type: 'approval-request',
+          data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'gemini-cli' }),
+        });
+
+        // Timeout after 5 minutes → block
+        setTimeout(() => {
+          if (pendingApprovals.has(approvalId)) {
+            pendingApprovals.delete(approvalId);
+            resolve({ denied: true, reason: 'Timed out waiting for approval' });
+          }
+        }, 300_000);
+      });
+
+      if (decision.denied) {
+        console.log(`[GuardClaw] Gemini DENIED: ${gcToolName} (${approvalId})`);
+        return res.json({ decision: 'block', reason: decision.reason || blockReason });
+      }
+
+      console.log(`[GuardClaw] Gemini APPROVED: ${gcToolName} (${approvalId})`);
+      return res.json({ decision: 'allow' });
+    }
+
+    const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+    const message = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
+    console.log(`[GuardClaw] Gemini ALLOW: ${compactInput} score=${analysis.riskScore}`);
+    return res.json({ decision: 'allow', message });
+
+  } catch (error) {
+    console.error('[GuardClaw] Gemini hook error:', error.message);
+    return res.json({ decision: 'allow' });
+  }
+});
+
+app.post('/api/hooks/gemini/post-tool-use', rateLimit(60_000, 120), (req, res) => {
+  geminiLastHookTime = Date.now();
+  const toolName = req.body.toolName || req.body.tool_name;
+  const toolInput = req.body.toolInput || req.body.tool_input || {};
+  const toolOutput = req.body.toolOutput || req.body.tool_output;
+  const sessionId = req.body.sessionId || req.body.session_id;
+  if (!toolName) return res.json({ decision: 'allow' });
+
+  const gcToolName = mapGeminiTool(toolName);
+  const gcParams = mapGeminiParams(toolName, toolInput);
+  const sessionKey = sessionId ? `gemini:${sessionId}` : 'gemini:default';
+
+  // Store in tool history for chain analysis
+  const resultSnippet = typeof toolOutput === 'string'
+    ? toolOutput.slice(0, 500)
+    : JSON.stringify(toolOutput || '').slice(0, 500);
+  addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
+
+  // Scan output for credentials
+  if ((gcToolName === 'read' || gcToolName === 'exec') && toolOutput) {
+    const content = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
+    const scanSlice = content.slice(0, 10000);
+    const alerts = [];
+    for (const { re, reason } of CONTENT_CREDENTIAL_ALERTS) {
+      if (re.test(scanSlice)) alerts.push(reason);
+    }
+    if (alerts.length > 0) {
+      const source = gcToolName === 'exec'
+        ? `bash: ${(gcParams.command || '').slice(0, 80)}`
+        : (gcParams.file_path || '(unknown)');
+      console.log(`[GuardClaw] Sensitive content in Gemini ${gcToolName} output: ${source} — ${alerts.join(', ')}`);
+      eventStore.addEvent({
+        type: 'gemini-tool',
+        tool: gcToolName,
+        subType: 'content-alert',
+        description: `${source}`,
+        sessionKey,
+        riskScore: 8,
+        safeguard: {
+          riskScore: 8,
+          category: 'credential-leak',
+          reasoning: `Output contains sensitive data: ${alerts.join('; ')}`,
+          allowed: true,
+          warnings: alerts,
+          backend: 'gemini-cli',
+        },
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  res.json({ decision: 'allow' });
 });
 
 // ─── Claude Code conversation hooks ──────────────────────────────────────────
@@ -2228,6 +2462,160 @@ app.post('/api/setup/openclaw/uninstall', (req, res) => {
       console.log(`[GuardClaw] OC plugin unregistered from ${configPath}`);
     }
 
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Gemini CLI setup ─────────────────────────────────────────────────────────
+
+app.post('/api/setup/gemini-cli', (req, res) => {
+  try {
+    const geminiDir = path.join(os.homedir(), '.gemini');
+    const settingsPath = path.join(geminiDir, 'settings.json');
+    const port = process.env.PORT || '3002';
+
+    if (!fs.existsSync(geminiDir)) {
+      fs.mkdirSync(geminiDir, { recursive: true });
+    }
+
+    // Find hook script: embedded in app bundle or dev source tree
+    let hookScript = null;
+    const candidates = [
+      path.join(path.dirname(process.argv[1] || ''), 'scripts', 'gemini-hook.sh'),
+      path.join(import.meta.dirname, '..', 'scripts', 'gemini-hook.sh'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { hookScript = c; break; }
+    }
+    if (!hookScript) {
+      return res.status(404).json({ error: 'Hook script not found in app bundle' });
+    }
+
+    // Ensure executable
+    try { fs.chmodSync(hookScript, 0o755); } catch {}
+
+    let settings = {};
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+    if (!settings.hooks) settings.hooks = {};
+
+    const isGCHook = (h) => h.command?.includes('gemini-hook.sh') || h.name === 'guardclaw';
+
+    // Remove existing GuardClaw hooks
+    for (const event of ['BeforeTool', 'AfterTool']) {
+      if (Array.isArray(settings.hooks[event])) {
+        settings.hooks[event] = settings.hooks[event].filter(g => {
+          if (g.hooks) return !g.hooks.some(isGCHook);
+          return !isGCHook(g);
+        });
+      }
+    }
+
+    // Add GuardClaw hooks
+    const hookCmd = `GUARDCLAW_PORT=${port} ${hookScript}`;
+    settings.hooks.BeforeTool = settings.hooks.BeforeTool || [];
+    settings.hooks.BeforeTool.push({
+      matcher: '.*',
+      hooks: [{
+        name: 'guardclaw',
+        type: 'command',
+        command: hookCmd,
+        timeout: 310000,
+      }],
+    });
+
+    settings.hooks.AfterTool = settings.hooks.AfterTool || [];
+    settings.hooks.AfterTool.push({
+      matcher: '.*',
+      hooks: [{
+        name: 'guardclaw',
+        type: 'command',
+        command: hookCmd,
+        timeout: 5000,
+      }],
+    });
+
+    // Enable hook notifications so Gemini CLI shows "Executing Hook: guardclaw"
+    if (!settings.hooksConfig) settings.hooksConfig = {};
+    settings.hooksConfig.notifications = true;
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+
+    // Install policy file to auto-allow all tools (GuardClaw hooks act as sole gatekeeper)
+    const policiesDir = path.join(geminiDir, 'policies');
+    if (!fs.existsSync(policiesDir)) fs.mkdirSync(policiesDir, { recursive: true });
+    const policyPath = path.join(policiesDir, 'guardclaw.toml');
+    const allTools = [
+      'run_shell_command', 'write_file', 'replace', 'read_file', 'read_many_files',
+      'glob', 'search_file_content', 'list_directory', 'google_web_search', 'web_fetch',
+      'save_memory', 'write_todos', 'codebase_investigator', 'edit_file', 'create_file',
+      'delete_file', 'move_file', 'patch',
+    ];
+    const policyContent = `# GuardClaw: Auto-allow all tools so GuardClaw hooks act as the sole gatekeeper.
+# Security decisions are made by GuardClaw's BeforeTool hook (block/allow).
+
+[[rule]]
+toolName = ${JSON.stringify(allTools)}
+decision = "allow"
+priority = 100
+`;
+    fs.writeFileSync(policyPath, policyContent);
+
+    console.log(`[GuardClaw] Gemini CLI hooks installed at ${settingsPath}`);
+    console.log(`[GuardClaw] Gemini CLI policy installed at ${policyPath}`);
+    res.json({ ok: true, path: settingsPath, policyPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/gemini-cli/status', (req, res) => {
+  try {
+    const settingsPath = path.join(os.homedir(), '.gemini', 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      return res.json({ installed: false });
+    }
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const isGCHook = (h) => h.command?.includes('gemini-hook.sh') || h.name === 'guardclaw';
+    const hasHooks = settings.hooks?.BeforeTool?.some(g =>
+      g.hooks?.some(isGCHook)
+    );
+    res.json({ installed: !!hasHooks, path: settingsPath });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/gemini-cli/uninstall', (req, res) => {
+  try {
+    const settingsPath = path.join(os.homedir(), '.gemini', 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      return res.json({ ok: true, message: 'No settings file found' });
+    }
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const isGCHook = (h) => h.command?.includes('gemini-hook.sh') || h.name === 'guardclaw';
+
+    for (const event of ['BeforeTool', 'AfterTool']) {
+      if (Array.isArray(settings.hooks?.[event])) {
+        settings.hooks[event] = settings.hooks[event].filter(g => {
+          if (g.hooks) return !g.hooks.some(isGCHook);
+          return !isGCHook(g);
+        });
+        if (settings.hooks[event].length === 0) delete settings.hooks[event];
+      }
+    }
+    if (settings.hooks && Object.keys(settings.hooks).length === 0) delete settings.hooks;
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+
+    // Remove policy file
+    const policyPath = path.join(os.homedir(), '.gemini', 'policies', 'guardclaw.toml');
+    if (fs.existsSync(policyPath)) fs.unlinkSync(policyPath);
+
+    console.log(`[GuardClaw] Gemini CLI hooks removed from ${settingsPath}`);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -8,6 +8,7 @@ struct ActivityView: View {
     private let backends = [
         ("claude-code", "Claude Code"),
         ("openclaw", "OpenClaw"),
+        ("gemini-cli", "Gemini CLI"),
     ]
 
     var body: some View {

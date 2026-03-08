@@ -71,6 +71,19 @@ actor GuardClawAPI {
         try await post("/api/setup/openclaw/uninstall", body: [:] as [String: String])
     }
 
+    // Gemini CLI
+    func setupGeminiCLI() async throws -> SetupResponse {
+        try await post("/api/setup/gemini-cli", body: [:] as [String: String])
+    }
+
+    func geminiCLIStatus() async throws -> CCSetupStatus {
+        try await get("/api/setup/gemini-cli/status")
+    }
+
+    func uninstallGeminiCLI() async throws -> SetupResponse {
+        try await post("/api/setup/gemini-cli/uninstall", body: [:] as [String: String])
+    }
+
     func openClawPluginStatus() async throws -> CCSetupStatus {
         try await get("/api/setup/openclaw/status")
     }

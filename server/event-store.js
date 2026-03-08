@@ -189,6 +189,8 @@ export class EventStore {
       sql += " AND sessionKey LIKE 'agent:%'";
     } else if (backend === 'claude-code') {
       sql += " AND sessionKey LIKE 'claude-code:%'";
+    } else if (backend === 'gemini-cli') {
+      sql += " AND sessionKey LIKE 'gemini:%'";
     } else if (backend === 'nanobot') {
       sql += " AND sessionKey LIKE 'nanobot%'";
     }

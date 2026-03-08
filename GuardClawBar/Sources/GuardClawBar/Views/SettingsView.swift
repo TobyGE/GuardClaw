@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var ocConnected = false
     @State private var ocPluginInstalled: Bool? = nil
     @State private var ocSetupMessage: String? = nil
+    @State private var geminiInstalled: Bool? = nil
+    @State private var geminiMessage: String? = nil
     @State private var blockingEnabled = false
     @State private var failClosedEnabled = false
     @State private var llmBackend: String? = nil
@@ -134,7 +136,41 @@ struct SettingsView: View {
                             .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
                     }
 
+                    // Gemini CLI
+                    HStack {
+                        Circle()
+                            .fill(geminiInstalled == true ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("Gemini CLI")
+                            .font(.caption)
+                        Spacer()
+                        if geminiInstalled == true {
+                            Text("\u{2713}")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green)
+                            Button("Uninstall") { uninstallGeminiCLI() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        } else {
+                            Button("Install") { setupGeminiCLI() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        }
+                    }
+
+                    if let msg = ccSetupMessage {
+                        Text(msg)
+                            .font(.system(size: 9))
+                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+                    }
+
                     if let msg = ocSetupMessage {
+                        Text(msg)
+                            .font(.system(size: 9))
+                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+                    }
+
+                    if let msg = geminiMessage {
                         Text(msg)
                             .font(.system(size: 9))
                             .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
@@ -221,6 +257,9 @@ struct SettingsView: View {
             if let status = try? await api.openClawPluginStatus() {
                 await MainActor.run { ocPluginInstalled = status.installed }
             }
+            if let status = try? await api.geminiCLIStatus() {
+                await MainActor.run { geminiInstalled = status.installed }
+            }
             if let serverStatus = try? await api.status() {
                 await MainActor.run {
                     ocConnected = serverStatus.backends?["openclaw"]?.connected == true
@@ -294,6 +333,38 @@ struct SettingsView: View {
             } catch {
                 await MainActor.run {
                     ocSetupMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func setupGeminiCLI() {
+        Task {
+            do {
+                _ = try await api.setupGeminiCLI()
+                await MainActor.run {
+                    geminiInstalled = true
+                    geminiMessage = "\u{2713} Hooks installed — restart Gemini CLI"
+                }
+            } catch {
+                await MainActor.run {
+                    geminiMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func uninstallGeminiCLI() {
+        Task {
+            do {
+                _ = try await api.uninstallGeminiCLI()
+                await MainActor.run {
+                    geminiInstalled = false
+                    geminiMessage = "Hooks removed — restart Gemini CLI"
+                }
+            } catch {
+                await MainActor.run {
+                    geminiMessage = "Failed: \(error.localizedDescription)"
                 }
             }
         }
