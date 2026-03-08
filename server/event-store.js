@@ -50,6 +50,17 @@ export class EventStore {
         key TEXT PRIMARY KEY,
         value INTEGER NOT NULL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS agent_tokens (
+        backend TEXT NOT NULL,
+        day TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read INTEGER NOT NULL DEFAULT 0,
+        cache_write INTEGER NOT NULL DEFAULT 0,
+        requests INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (backend, day)
+      );
     `);
   }
 
@@ -347,6 +358,49 @@ export class EventStore {
       console.error('[TokenCalc] Failed:', e.message);
       this._estimatedTokens = { prompt: 0, completion: 0, requests: 0 };
     }
+  }
+
+  // --- Agent token tracking ---
+
+  recordAgentTokens(backend, usage) {
+    const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const input = usage.input || 0;
+    const output = usage.output || 0;
+    const cacheRead = usage.cacheRead || 0;
+    const cacheWrite = usage.cacheWrite || 0;
+    this.db.prepare(`
+      INSERT INTO agent_tokens (backend, day, input_tokens, output_tokens, cache_read, cache_write, requests)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+      ON CONFLICT(backend, day) DO UPDATE SET
+        input_tokens = input_tokens + ?,
+        output_tokens = output_tokens + ?,
+        cache_read = cache_read + ?,
+        cache_write = cache_write + ?,
+        requests = requests + 1
+    `).run(backend, day, input, output, cacheRead, cacheWrite, input, output, cacheRead, cacheWrite);
+  }
+
+  getAgentTokens(backend) {
+    const day = new Date().toISOString().slice(0, 10);
+    const today = this.db.prepare(
+      `SELECT input_tokens, output_tokens, cache_read, cache_write, requests FROM agent_tokens WHERE backend = ? AND day = ?`
+    ).get(backend, day);
+    const allRows = this.db.prepare(
+      `SELECT SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(cache_read) as cache_read, SUM(cache_write) as cache_write, SUM(requests) as requests FROM agent_tokens WHERE backend = ?`
+    ).get(backend);
+    const defaults = { input_tokens: 0, output_tokens: 0, cache_read: 0, cache_write: 0, requests: 0 };
+    const normalize = (row) => row ? Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v ?? 0])) : defaults;
+    return {
+      today: normalize(today),
+      cumulative: normalize(allRows),
+    };
+  }
+
+  getAllAgentTokens() {
+    return {
+      openclaw: this.getAgentTokens('openclaw'),
+      'claude-code': this.getAgentTokens('claude-code'),
+    };
   }
 
   // Legacy compat — no-ops

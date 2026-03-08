@@ -451,6 +451,7 @@ app.get('/api/status', async (req, res) => {
     llmStatus,
     llmConfig,
     tokenUsage: eventStore.getTokenUsage(),
+    agentTokens: eventStore.getAllAgentTokens(),
 
     // Approval status
     approvals: approvalStats,
@@ -1714,6 +1715,27 @@ app.post('/api/hooks/llm-input', (req, res) => {
     imagesCount: imagesCount || 0,
     historyLength: historyLength || 0,
     timestamp: Date.now(),
+  });
+
+  res.json({});
+});
+
+// ─── LLM output hook: token tracking ──────────────────────
+
+app.post('/api/hooks/llm-output', (req, res) => {
+  const { sessionKey, usage, provider, model } = req.body;
+  if (!usage) return res.json({});
+
+  // Determine backend from sessionKey
+  let backend = 'openclaw';
+  if (sessionKey?.startsWith('claude-code:')) backend = 'claude-code';
+  else if (sessionKey?.startsWith('nanobot')) backend = 'nanobot';
+
+  eventStore.recordAgentTokens(backend, {
+    input: usage.input_tokens || usage.prompt_tokens || usage.input || 0,
+    output: usage.output_tokens || usage.completion_tokens || usage.output || 0,
+    cacheRead: usage.cache_read_input_tokens || usage.cache_read || usage.cacheRead || 0,
+    cacheWrite: usage.cache_creation_input_tokens || usage.cache_write || usage.cacheWrite || 0,
   });
 
   res.json({});

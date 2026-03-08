@@ -17,6 +17,11 @@ struct DashboardView: View {
                     backendStatusCard(backends: backends)
                 }
 
+                // Token Usage
+                if let tokens = appState.serverStatus?.agentTokens {
+                    tokenUsageCard(tokens: tokens)
+                }
+
                 // Recent High-Risk Summary
                 let highRisk = recentHighRiskEvents
                 if !highRisk.isEmpty {
@@ -169,6 +174,79 @@ struct DashboardView: View {
         }
         .padding(16)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Token Usage
+
+    private func tokenUsageCard(tokens: AgentTokensMap) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Token Usage")
+                .font(.headline)
+
+            let pairs: [(String, AgentTokenPair?)] = [
+                ("OpenClaw", tokens.openclaw),
+                ("Claude Code", tokens.claudeCode),
+            ]
+
+            ForEach(pairs, id: \.0) { label, pair in
+                if let pair, (pair.cumulative?.totalTokens ?? 0) > 0 || (pair.cumulative?.requests ?? 0) > 0 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(label)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        HStack(spacing: 20) {
+                            tokenColumn("Today", record: pair.today)
+                            tokenColumn("Cumulative", record: pair.cumulative)
+                        }
+                    }
+                }
+            }
+
+            if (tokens.openclaw?.cumulative?.totalTokens ?? 0) == 0 &&
+               (tokens.claudeCode?.cumulative?.totalTokens ?? 0) == 0 {
+                Text("No token data yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func tokenColumn(_ title: String, record: AgentTokenRecord?) -> some View {
+        let input = record?.input_tokens ?? 0
+        let output = record?.output_tokens ?? 0
+        let cache = (record?.cache_read ?? 0) + (record?.cache_write ?? 0)
+        let reqs = record?.requests ?? 0
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(formatTokenCount(input + output)) tokens")
+                .font(.caption)
+                .fontWeight(.medium)
+            HStack(spacing: 8) {
+                Text("In: \(formatTokenCount(input))")
+                Text("Out: \(formatTokenCount(output))")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            if cache > 0 {
+                Text("Cache: \(formatTokenCount(cache))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text("\(reqs) requests")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000.0) }
+        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000.0) }
+        return "\(count)"
     }
 
     // MARK: - Helpers

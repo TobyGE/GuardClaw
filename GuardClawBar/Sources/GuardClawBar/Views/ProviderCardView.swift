@@ -74,6 +74,15 @@ struct ProviderCardView: View {
 
     // MARK: - Connection
 
+    private var agentTokenPair: AgentTokenPair? {
+        let tokens = appState.serverStatus?.agentTokens
+        switch provider.backendKey {
+        case "openclaw": return tokens?.openclaw
+        case "claude-code": return tokens?.claudeCode
+        default: return nil
+        }
+    }
+
     private var connectionSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             sectionHeader("CONNECTION")
@@ -87,6 +96,26 @@ struct ProviderCardView: View {
                     Text("(\(type))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            // Token usage
+            if let pair = agentTokenPair {
+                let todayTotal = pair.today?.totalTokens ?? 0
+                let cumTotal = pair.cumulative?.totalTokens ?? 0
+                let todayReqs = pair.today?.requests ?? 0
+                let cumReqs = pair.cumulative?.requests ?? 0
+                if cumTotal > 0 || cumReqs > 0 {
+                    HStack(spacing: 8) {
+                        Image(systemName: "flame")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.orange)
+                        Text("Today: \(formatTokenCount(todayTotal)) (\(todayReqs) req)")
+                            .font(.caption2)
+                        Text("Total: \(formatTokenCount(cumTotal)) (\(cumReqs) req)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

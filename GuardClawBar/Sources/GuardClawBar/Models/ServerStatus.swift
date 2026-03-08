@@ -13,6 +13,32 @@ struct ServerStatus: Codable, Sendable {
     let warnings: [StatusWarning]?
     let install: InstallInfo?
     let tokenUsage: TokenUsage?
+    let agentTokens: AgentTokensMap?
+}
+
+struct AgentTokensMap: Codable, Sendable {
+    let openclaw: AgentTokenPair?
+    let claudeCode: AgentTokenPair?
+
+    enum CodingKeys: String, CodingKey {
+        case openclaw
+        case claudeCode = "claude-code"
+    }
+}
+
+struct AgentTokenPair: Codable, Sendable {
+    let today: AgentTokenRecord?
+    let cumulative: AgentTokenRecord?
+}
+
+struct AgentTokenRecord: Codable, Sendable {
+    let input_tokens: Int?
+    let output_tokens: Int?
+    let cache_read: Int?
+    let cache_write: Int?
+    let requests: Int?
+
+    var totalTokens: Int { (input_tokens ?? 0) + (output_tokens ?? 0) }
 }
 
 struct TokenUsage: Codable, Sendable {

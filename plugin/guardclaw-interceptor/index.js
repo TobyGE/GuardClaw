@@ -297,6 +297,24 @@ export default function (api) {
     }).catch(err => api.logger.warn(`[GuardClaw] llm_input hook failed: ${err.message}`));
   });
 
+  // ─── llm_output: capture token usage ─────────────────────────────────────
+  api.on('llm_output', async (event, context) => {
+    const sessionKey = context.sessionKey || 'agent:main:main';
+    if (!event.usage) return;
+    fetch(`${GUARDCLAW_URL}/api/hooks/llm-output`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKey,
+        runId: event.runId,
+        provider: event.provider,
+        model: event.model,
+        usage: event.usage,
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(err => api.logger.warn(`[GuardClaw] llm_output hook failed: ${err.message}`));
+  });
+
   // ─── message_received: track incoming user messages ───────────────────────
   api.on('message_received', async (event, context) => {
     // Map webchat to main session — webchat messages are the main agent's input
