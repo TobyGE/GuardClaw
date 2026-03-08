@@ -633,17 +633,23 @@ export class SafeguardService {
       };
     }
 
-    // Skill: potentially arbitrary code execution
+    // Skill: route to the dedicated skill-content review path.
+    // The caller may provide content from disk; if not, we still review by name.
     if (action.tool === 'skill') {
-      this.cacheStats.ruleCalls++;
-      return {
-        riskScore: 5,
-        category: 'skill-execution',
-        reasoning: `Skill execution: ${action.command || action.summary || 'unknown'}`,
-        allowed: true,
-        warnings: ['Skill may execute arbitrary agent logic'],
-        backend: 'rules',
-      };
+      const skillName =
+        action.skillName ||
+        action.skill ||
+        action.parsedInput?.skill ||
+        action.command ||
+        action.summary ||
+        'unknown';
+      const skillContent =
+        action.content ||
+        action.skillContent ||
+        action.parsedInput?.content ||
+        action.parsedInput?.skillContent ||
+        null;
+      return this.analyzeSkillContent(skillName, skillContent);
     }
 
     // Worktree: flag if sandbox disabled
