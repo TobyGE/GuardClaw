@@ -277,6 +277,85 @@ export default function (api) {
     return {};
   });
 
+  // ─── llm_input: capture user prompt + model info for every LLM call ──────
+  api.on('llm_input', async (event, context) => {
+    // debug logging removed
+    const sessionKey = context.sessionKey || 'agent:main:main';
+    fetch(`${GUARDCLAW_URL}/api/hooks/llm-input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKey,
+        runId: event.runId,
+        provider: event.provider,
+        model: event.model,
+        prompt: event.prompt,
+        imagesCount: event.imagesCount || 0,
+        historyLength: Array.isArray(event.historyMessages) ? event.historyMessages.length : 0,
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(err => api.logger.warn(`[GuardClaw] llm_input hook failed: ${err.message}`));
+  });
+
+  // ─── message_received: track incoming user messages ───────────────────────
+  api.on('message_received', async (event, context) => {
+    // Map webchat to main session — webchat messages are the main agent's input
+    const rawKey = context.sessionKey ||
+      (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
+    const sessionKey = rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+    fetch(`${GUARDCLAW_URL}/api/hooks/message-received`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKey,
+        from: event.from,
+        content: event.content,
+        timestamp: event.timestamp,
+        metadata: event.metadata,
+        channelId: context.channelId,
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(err => api.logger.warn(`[GuardClaw] message_received hook failed: ${err.message}`));
+  });
+
+  // ─── message_sending: track outgoing agent replies (before send) ────────
+  api.on('message_sending', async (event, context) => {
+    const rawKey = context.sessionKey ||
+      (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
+    const sessionKey = rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+    fetch(`${GUARDCLAW_URL}/api/hooks/message-sending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKey,
+        to: event.to,
+        content: event.content,
+        metadata: event.metadata,
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(err => api.logger.warn(`[GuardClaw] message_sending hook failed: ${err.message}`));
+    return {};
+  });
+
+  // ─── message_sent: log after agent reply is sent ────────────────────────
+  api.on('message_sent', async (event, context) => {
+    const rawKey = context.sessionKey ||
+      (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
+    const sessionKey = rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+    fetch(`${GUARDCLAW_URL}/api/hooks/message-sent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKey,
+        to: event.to,
+        content: event.content,
+        success: event.success,
+        error: event.error,
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(err => api.logger.warn(`[GuardClaw] message_sent hook failed: ${err.message}`));
+  });
+
   // ─── after_tool_call: capture tool output for chain analysis ───────────────
   api.on('after_tool_call', async (event, _context) => {
     const resultKey = `${event.toolName}:${JSON.stringify(event.params)}`;
