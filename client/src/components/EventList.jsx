@@ -82,6 +82,16 @@ function groupEventsIntoTurns(events) {
       flushOC();
       flushCC();
       pendingPrompt = event;
+    } else if (type === 'user-message') {
+      // User message → flush both pending buffers, show as standalone turn
+      flushOC();
+      flushCC();
+      turns.push({ parent: event, toolCalls: [], isUserMessage: true, id: event.id || `user-msg-${event.timestamp}` });
+    } else if (type === 'agent-reply') {
+      // Agent reply → flush both pending buffers, show as standalone turn
+      flushOC();
+      flushCC();
+      turns.push({ parent: event, toolCalls: [], isAgentReply: true, id: event.id || `agent-reply-${event.timestamp}` });
     } else if (isCCTool || isCCText) {
       pendingCCTools.push(event);
     } else if (isCCReply) {

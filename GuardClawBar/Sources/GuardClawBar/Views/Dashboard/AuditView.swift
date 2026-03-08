@@ -89,7 +89,7 @@ struct AuditView: View {
     private func loadCachedResults() async {
         do {
             let resp = try await api.auditResults()
-            findings = resp.findings.sorted { severityRank($0.severity) < severityRank($1.severity) }
+            findings = resp.findings.filter { $0.severity == "critical" && $0.llmVerdict != "FALSE_POSITIVE" }.sorted { severityRank($0.severity) < severityRank($1.severity) }
             if let s = resp.summary { summary = s }
             hasScanned = resp.summary != nil
         } catch {}
@@ -112,32 +112,45 @@ struct AuditView: View {
                     value: "\(s.dangerousSkills ?? 0)",
                     color: (s.dangerousSkills ?? 0) > 0 ? .red : .green
                 )
+                vulnerabilityPill(count: findings.count)
                 Spacer()
             }
 
-            if let bySev = s.bySeverity, !bySev.isEmpty {
-                HStack(spacing: 12) {
-                    if let critical = bySev["critical"], critical > 0 {
-                        Text("\(critical) Critical")
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                    }
-                    if let high = bySev["high"], high > 0 {
-                        Text("\(high) High")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                    if let medium = bySev["medium"], medium > 0 {
-                        Text("\(medium) Medium")
-                            .font(.caption2)
-                            .foregroundStyle(.yellow)
-                    }
+            // Show risky tool/skill names
+            let riskyNames = (s.dangerousToolList ?? []) + (s.dangerousSkillList ?? [])
+            if !riskyNames.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                    Text("Risky: " + riskyNames.joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundStyle(.red)
                     Spacer()
                 }
             }
         }
         .padding(16)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func vulnerabilityPill(count: Int) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                if count > 0 {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .font(.system(size: 14))
+                }
+                Text("\(count)")
+                    .font(.title2)
+                    .fontWeight(.bold)
+            }
+            .foregroundStyle(count > 0 ? .red : .green)
+            Text("Vulnerabilities")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 60)
     }
 
     private func summaryPill(label: String, value: String, color: Color) -> some View {
@@ -156,140 +169,141 @@ struct AuditView: View {
     // MARK: - Findings
 
     private var findingsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Findings")
                 .font(.headline)
 
-            ForEach(findings) { finding in
-                findingRow(finding)
+            // Group findings by sourceName (risky tool/skill)
+            let grouped = Dictionary(grouping: findings) { $0.sourceName ?? $0.source ?? "Unknown" }
+            ForEach(Array(grouped.keys.sorted()), id: \.self) { key in
+                if let items = grouped[key] {
+                    riskyComponentCard(name: key, findings: items)
+                }
             }
         }
     }
 
-    private func findingRow(_ f: AuditFinding) -> some View {
-        let isExpanded = expandedId == f.id
-        let color = severityColor(f.severity)
+    private func riskyComponentCard(name: String, findings items: [AuditFinding]) -> some View {
+        let source = items.first?.source ?? ""
 
-        return VStack(alignment: .leading, spacing: 0) {
-            // Header row
+        return VStack(alignment: .leading, spacing: 10) {
+            // Header
             HStack(spacing: 8) {
-                // Severity dot
-                Circle()
-                    .fill(color)
-                    .frame(width: 8, height: 8)
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.title3)
+                    .foregroundStyle(.red)
 
-                // Title + source context
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(f.title ?? "")
+                    Text(name)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                    Text("\(source) — \(items.count) vulnerabilities found")
                         .font(.caption)
-                        .fontWeight(.medium)
-                        .lineLimit(1)
-                    HStack(spacing: 4) {
-                        if let source = f.source {
-                            Text(source)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(.blue)
-                        }
-                        if let name = f.sourceName ?? f.skillName {
-                            Text(name)
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
-
-                // Severity label
-                Text(f.severity?.capitalized ?? "")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(color)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        expandedId = isExpanded ? nil : f.id
-                    }
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
             }
 
-            // Expanded detail
-            if isExpanded {
+            // Individual vulnerabilities — always visible
+            ForEach(items) { f in
                 VStack(alignment: .leading, spacing: 6) {
-                    if let desc = f.description {
-                        Text(desc)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    // Vulnerability title + file
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 6, height: 6)
+                        Text(f.description ?? f.title ?? "Vulnerability")
+                            .font(.caption)
+                            .fontWeight(.medium)
                     }
 
                     if let filePath = f.filePath {
                         let short = filePath
                             .replacingOccurrences(of: NSHomeDirectory(), with: "~")
-                            .replacingOccurrences(of: "~/.claude/plugins/marketplaces/claude-plugins-official/", with: "plugins/")
                         HStack(spacing: 4) {
                             Image(systemName: "doc.text")
                                 .font(.caption2)
                             Text("\(short):\(f.line ?? 0)")
-                                .font(.caption2)
-                                .fontDesign(.monospaced)
+                                .font(.system(size: 10, design: .monospaced))
                         }
                         .foregroundStyle(.blue)
                     }
 
                     if let snippet = f.snippet, !snippet.isEmpty {
                         Text(snippet)
-                            .font(.system(size: 10, design: .monospaced))
-                            .padding(8)
+                            .font(.system(size: 9, design: .monospaced))
+                            .padding(6)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
                     }
 
-                    if let remediation = f.remediation {
-                        HStack(alignment: .top, spacing: 4) {
-                            Image(systemName: "lightbulb")
+                    // LLM explanation per vulnerability
+                    if let explanation = f.llmExplanation {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "brain.head.profile")
                                 .font(.caption2)
                                 .foregroundStyle(.orange)
-                            Text(remediation)
+                            Text(explanation)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                    }
-
-                    HStack(spacing: 12) {
-                        if let ruleId = f.ruleId {
-                            Text(ruleId).font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(.tertiary)
-                        }
-                        if let cwe = f.cweId {
-                            Text(cwe).font(.system(size: 9, weight: .medium)).foregroundStyle(.tertiary)
-                        }
-                        if let owasp = f.owaspId {
-                            Text(owasp).font(.system(size: 9, weight: .medium)).foregroundStyle(.purple.opacity(0.6))
-                        }
-                        if let conf = f.confidence {
-                            Text("\(String(format: "%.0f%%", conf * 100)) confidence")
-                                .font(.system(size: 9)).foregroundStyle(.tertiary)
-                        }
+                        .padding(6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                     }
                 }
-                .padding(.top, 8)
-                .padding(.leading, 4)
+                .padding(10)
+                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            // Action buttons
+            HStack(spacing: 12) {
+                Button {
+                    // TODO: block this extension
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.caption2)
+                        Text("Block Extension")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.red, in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    // TODO: uninstall this extension
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.caption2)
+                        Text("Uninstall")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.red.opacity(0.1), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isExpanded ? color.opacity(0.05) : Color.gray.opacity(0.1))
-        )
+        .padding(16)
+        .background(.red.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isExpanded ? color.opacity(0.3) : .clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.red.opacity(0.2), lineWidth: 1)
         )
     }
+
 
     private func severityColor(_ severity: String?) -> Color {
         switch severity {
@@ -307,7 +321,7 @@ struct AuditView: View {
         errorMessage = nil
         do {
             let resp = try await api.auditScan()
-            findings = resp.findings.sorted { severityRank($0.severity) < severityRank($1.severity) }
+            findings = resp.findings.filter { $0.severity == "critical" && $0.llmVerdict != "FALSE_POSITIVE" }.sorted { severityRank($0.severity) < severityRank($1.severity) }
             summary = resp.summary
             hasScanned = true
             if let err = resp.error {

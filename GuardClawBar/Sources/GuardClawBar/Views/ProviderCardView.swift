@@ -240,8 +240,31 @@ struct ProviderCardView: View {
                 HStack(spacing: 10) {
                     auditStatLabel("Tools", total: s.totalTools ?? 0, risky: s.dangerousTools ?? 0)
                     auditStatLabel("Skills", total: s.totalSkills ?? 0, risky: s.dangerousSkills ?? 0)
+                    let vulns = s.vulnerabilities ?? 0
+                    HStack(spacing: 2) {
+                        if vulns > 0 {
+                            Image(systemName: "exclamationmark.shield.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.red)
+                        }
+                        Text("\(vulns) Vulns")
+                            .foregroundStyle(vulns > 0 ? .red : .green)
+                    }
                 }
                 .font(.caption2)
+
+                // Show risky tool/skill names
+                let riskyNames = (s.dangerousToolList ?? []) + (s.dangerousSkillList ?? [])
+                if !riskyNames.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.red)
+                        Text(riskyNames.joined(separator: ", "))
+                            .font(.system(size: 9))
+                            .foregroundStyle(.red)
+                    }
+                }
             }
 
             if hasAuditScanned && !auditFindings.isEmpty {

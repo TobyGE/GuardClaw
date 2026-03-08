@@ -608,8 +608,108 @@ function AgentTurnItem({ turn }) {
   );
 }
 
+/* ---------- UserMessageBubble: incoming user message in the timeline ---------- */
+function UserMessageBubble({ event }) {
+  const [expanded, setExpanded] = useState(false);
+  const content = event.content || '';
+  const from = event.from || event.channelId || 'user';
+  const hasMore = content.includes('\n')
+    ? content.split('\n').filter(l => l.trim()).length > 3
+    : content.length > 200;
+
+  return (
+    <div className="px-6 py-3 hover:bg-gc-border/5 transition-colors border-l-2 border-blue-500/50">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center space-x-2 mb-1.5">
+            <span className="text-lg leading-none">💬</span>
+            <span className="text-xs font-semibold text-blue-400">User Message</span>
+            {from && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
+                {from}
+              </span>
+            )}
+          </div>
+          {content && (
+            <div
+              className={`text-sm text-gc-text whitespace-pre-wrap break-words ${hasMore ? 'cursor-pointer' : ''}`}
+              onClick={() => hasMore && setExpanded(v => !v)}
+            >
+              <p className={!expanded && hasMore ? 'line-clamp-3' : ''}>{content}</p>
+              {hasMore && !expanded && (
+                <span className="text-blue-400 text-xs mt-1 block select-none">show more ▼</span>
+              )}
+              {hasMore && expanded && (
+                <span className="text-blue-400 text-xs mt-1 block select-none">show less ▲</span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="text-xs text-gc-text-dim ml-4 whitespace-nowrap flex-shrink-0">
+          {formatTime(event.timestamp || Date.now())}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- AgentReplyBubble: outgoing agent reply in the timeline ---------- */
+function AgentReplyBubble({ event }) {
+  const [expanded, setExpanded] = useState(false);
+  const content = event.content || '';
+  const to = event.to || '';
+  const hasMore = content.includes('\n')
+    ? content.split('\n').filter(l => l.trim()).length > 3
+    : content.length > 200;
+
+  return (
+    <div className="px-6 py-3 hover:bg-gc-border/5 transition-colors border-l-2 border-green-500/50">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center space-x-2 mb-1.5">
+            <span className="text-lg leading-none">🤖</span>
+            <span className="text-xs font-semibold text-green-400">Agent Reply</span>
+            {to && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 font-mono">
+                → {to}
+              </span>
+            )}
+          </div>
+          {content && (
+            <div
+              className={`text-sm text-gc-text-dim whitespace-pre-wrap break-words ${hasMore ? 'cursor-pointer' : ''}`}
+              onClick={() => hasMore && setExpanded(v => !v)}
+            >
+              <p className={!expanded && hasMore ? 'line-clamp-3' : ''}>{content}</p>
+              {hasMore && !expanded && (
+                <span className="text-blue-400 text-xs mt-1 block select-none">show more ▼</span>
+              )}
+              {hasMore && expanded && (
+                <span className="text-blue-400 text-xs mt-1 block select-none">show less ▲</span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="text-xs text-gc-text-dim ml-4 whitespace-nowrap flex-shrink-0">
+          {formatTime(event.timestamp || Date.now())}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurnItem({ turn }) {
   const { parent, toolCalls } = turn;
+
+  // ── User message turn ──
+  if (turn.isUserMessage && parent) {
+    return <UserMessageBubble event={parent} />;
+  }
+
+  // ── Agent reply turn ──
+  if (turn.isAgentReply && parent) {
+    return <AgentReplyBubble event={parent} />;
+  }
 
   // ── Agent turns: CC (isCCTurn) + OC orphan (no parent) + OC full turn (has parent + tools) ──
   if (turn.isCCTurn || toolCalls.length > 0) {

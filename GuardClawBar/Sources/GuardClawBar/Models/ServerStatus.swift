@@ -148,6 +148,9 @@ struct AuditSummary: Codable, Sendable {
     let totalSkills: Int?
     let dangerousTools: Int?
     let dangerousSkills: Int?
+    let dangerousToolList: [String]?
+    let dangerousSkillList: [String]?
+    let vulnerabilities: Int?
 }
 
 struct AuditFinding: Codable, Sendable, Identifiable {
@@ -168,6 +171,9 @@ struct AuditFinding: Codable, Sendable, Identifiable {
     let source: String?       // "Claude Official Plugin", "External Plugin", "Claude Config"
     let sourceName: String?   // plugin name e.g. "skill-creator"
     let skillName: String?    // skill name if applicable
+    let llmVerdict: String?   // "TRUE_RISK", "FALSE_POSITIVE", "NEEDS_REVIEW"
+    let llmConfidence: Double?
+    let llmExplanation: String?
 
     var id: String { "\(ruleId ?? ""):\(filePath ?? ""):\(line ?? 0)" }
 

@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import childProcess from 'child_process';
+import crypto from 'crypto';
 import { ClawdbotClient } from './clawdbot-client.js';
 import { NanobotClient } from './nanobot-client.js';
 import { SafeguardService } from './safeguard.js';
@@ -22,7 +23,7 @@ import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
 import { BenchmarkStore } from './benchmark-store.js';
-import { getDataDir } from './data-dir.js';
+import { getDataDir, getGuardClawDir } from './data-dir.js';
 
 dotenv.config();
 
@@ -1694,6 +1695,81 @@ app.post('/api/hooks/subagent-stop', (req, res) => {
   res.json({});
 });
 
+// ─── LLM input hook: capture user prompts from all channels (incl webchat) ───
+
+app.post('/api/hooks/llm-input', (req, res) => {
+  const { sessionKey, runId, provider, model, prompt, imagesCount, historyLength } = req.body;
+  const key = sessionKey || 'agent:main:main';
+  const truncated = typeof prompt === 'string' ? prompt.slice(0, 2000) : '';
+  console.log(`[GuardClaw] 💬 llm-input: session=${key}, model=${model}, prompt_len=${truncated.length}, history=${historyLength}`);
+
+  eventStore.addEvent({
+    type: 'user-message',
+    sessionKey: key,
+    content: truncated,
+    from: 'user',
+    model,
+    provider,
+    runId,
+    imagesCount: imagesCount || 0,
+    historyLength: historyLength || 0,
+    timestamp: Date.now(),
+  });
+
+  res.json({});
+});
+
+// ─── Message hooks: user message + agent reply tracking ──────────────────────
+
+app.post('/api/hooks/message-received', (req, res) => {
+  const { sessionKey, from, content, timestamp, metadata, channelId } = req.body;
+  // Normalize: webchat messages belong to main agent session
+  const rawKey = sessionKey || 'agent:main:main';
+  const key = rawKey === 'agent:main:webchat' || rawKey.includes('webchat') ? 'agent:main:main' : rawKey;
+  const truncated = typeof content === 'string'
+    ? content.substring(0, 2000)
+    : JSON.stringify(content || '').substring(0, 2000);
+  console.log(`[GuardClaw] 💬 message-received: from=${from}, session=${key} (raw=${rawKey}), len=${truncated.length}`);
+
+  eventStore.addEvent({
+    type: 'user-message',
+    sessionKey: key,
+    from,
+    content: truncated,
+    channelId,
+    timestamp: timestamp ? new Date(timestamp).getTime() : Date.now(),
+  });
+
+  res.json({ ok: true });
+});
+
+app.post('/api/hooks/message-sending', (req, res) => {
+  const { sessionKey, to, content, metadata } = req.body;
+  const rawKey = sessionKey || 'agent:main:main';
+  const key = rawKey === 'agent:main:webchat' || rawKey.includes('webchat') ? 'agent:main:main' : rawKey;
+  const truncated = typeof content === 'string'
+    ? content.substring(0, 2000)
+    : JSON.stringify(content || '').substring(0, 2000);
+  console.log(`[GuardClaw] 🤖 message-sending: to=${to}, session=${key}, len=${truncated.length}`);
+
+  eventStore.addEvent({
+    type: 'agent-reply',
+    sessionKey: key,
+    to,
+    content: truncated,
+    timestamp: Date.now(),
+  });
+
+  res.json({ ok: true });
+});
+
+app.post('/api/hooks/message-sent', (req, res) => {
+  const { sessionKey, to, content, success, error } = req.body;
+  console.log(`[GuardClaw] ✅ message-sent: to=${to}, session=${sessionKey}, success=${success}`);
+  // Just log — we already stored the agent-reply event in message-sending
+  res.json({ ok: true });
+});
+
 // ─── Chat Inject API (used by plugin to trigger agent retry after approval) ──
 
 app.post('/api/chat-inject', async (req, res) => {
@@ -2228,8 +2304,173 @@ app.post('/api/setup/security-scan', async (_req, res) => {
 // Agent Audit scan (powered by agent-audit Python package)
 // Cached audit scan results
 let cachedAuditResult = null;
+let auditScanProgress = { phase: 'idle', current: 0, total: 0, message: '' };
 
-async function runAuditScan(scanPath) {
+const AUDIT_CACHE_PATH = path.join(getGuardClawDir(), 'audit-cache.json');
+
+/** Compute a hash of scanned directories based on top-level entry count + mtimes */
+function computeScanHash(dirs) {
+  const hash = crypto.createHash('md5');
+  for (const dir of dirs) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      // Only scan top-level + one level deep (skip node_modules etc)
+      const entries = fs.readdirSync(dir).filter(e => !e.startsWith('.') && e !== 'node_modules' && e !== 'dist');
+      hash.update(`${dir}:${entries.length}:`);
+      for (const entry of entries) {
+        try {
+          const fullPath = path.join(dir, entry);
+          const st = fs.statSync(fullPath);
+          hash.update(`${entry}:${st.mtimeMs}:`);
+          // One level deep for subdirs
+          if (st.isDirectory()) {
+            try {
+              const subs = fs.readdirSync(fullPath);
+              hash.update(`${subs.length}:`);
+              for (const sub of subs.slice(0, 20)) {
+                try {
+                  const subSt = fs.statSync(path.join(fullPath, sub));
+                  hash.update(`${subSt.mtimeMs}:`);
+                } catch {}
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  return hash.digest('hex');
+}
+
+/** Load cached scan results from disk */
+function loadAuditCache() {
+  try {
+    if (fs.existsSync(AUDIT_CACHE_PATH)) {
+      const data = JSON.parse(fs.readFileSync(AUDIT_CACHE_PATH, 'utf8'));
+      if (data.result && data.hash) return data;
+    }
+  } catch {}
+  return null;
+}
+
+/** Save scan results to disk */
+function saveAuditCache(hash, result) {
+  try {
+    const dir = path.dirname(AUDIT_CACHE_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(AUDIT_CACHE_PATH, JSON.stringify({ hash, result, savedAt: Date.now() }, null, 2));
+  } catch (e) {
+    console.warn('[GuardClaw] Failed to save audit cache:', e.message);
+  }
+}
+
+/** LLM judge review of scan findings — enriches with verdict + better explanation */
+async function llmReviewFindings(findings) {
+  if (!findings.length) return findings;
+  // Only review critical findings + top high findings (cap at 15 for speed)
+  const critical = findings.filter(f => f.severity === 'critical');
+  const high = findings.filter(f => f.severity === 'high');
+  const toReview = [...critical, ...high.slice(0, Math.max(0, 15 - critical.length))];
+  if (!toReview.length) return findings;
+
+  const lmUrl = safeguardService?.config?.lmstudioUrl;
+  if (!lmUrl) return findings;
+
+  // Get first available model
+  let model = safeguardService?.config?.lmstudioModel || 'auto';
+  if (model === 'auto') {
+    try {
+      model = await safeguardService.getFirstAvailableLMStudioModel();
+    } catch { return findings; }
+  }
+  if (!model) return findings;
+
+  console.log(`[SecurityScan] LLM reviewing ${toReview.length} high/critical findings...`);
+  auditScanProgress = { phase: 'llm-review', current: 0, total: toReview.length, message: `Reviewing ${toReview.length} findings with LLM...` };
+
+  for (let i = 0; i < toReview.length; i++) {
+    const finding = toReview[i];
+    auditScanProgress.current = i + 1;
+    auditScanProgress.message = `LLM reviewing ${i + 1}/${toReview.length}: ${finding.title?.substring(0, 50) || 'finding'}`;
+    try {
+      const prompt = `You are a security auditor reviewing a static analysis finding for an AI agent plugin/skill.
+
+FINDING:
+- Title: ${finding.title}
+- Severity: ${finding.severity}
+- Description: ${finding.description || ''}
+- File: ${finding.filePath || ''}
+- Code snippet: ${finding.snippet || 'N/A'}
+- Source: ${finding.source || ''} ${finding.sourceName || ''}
+
+Determine if this is a TRUE security risk or a FALSE POSITIVE.
+
+RULES (check in order):
+1. TEST FILES: If the file path ends with .test.ts, .test.js, .spec.ts, .spec.js, or is inside __tests__/ or /test/ directory → almost always FALSE_POSITIVE. Test files use mock/dummy credentials for unit testing. Even if the snippet contains "PRIVATE KEY" or "sk-" headers, test fixtures are NOT real secrets. Only mark TRUE_RISK if you see a REAL 2048+ bit key or 40+ char high-entropy token.
+2. DOCUMENTATION: .md files containing example connection strings like "postgres://user:pass@localhost" are TRUE_RISK if the credentials look production-ready, FALSE_POSITIVE if clearly example/placeholder (e.g. "user:password@localhost").
+3. REDACTED SNIPPETS: If the snippet shows "----*******************----" that means the actual content was redacted by the scanner. Do NOT assume redacted content is high-entropy — it was masked regardless of actual content.
+4. For all other files: Is the code actually dangerous in context?
+
+Output ONLY valid JSON:
+{"verdict":"TRUE_RISK|FALSE_POSITIVE|NEEDS_REVIEW","confidence":0.0-1.0,"explanation":"1-2 sentences explaining why"}`;
+
+      // Retry up to 2 times with 30s timeout
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 30000);
+          const resp = await fetch(`${lmUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: 'system', content: '/no_think\nYou are a security auditor. Output ONLY valid JSON, no markdown, no explanations outside JSON.' },
+                { role: 'user', content: prompt }
+              ],
+              temperature: 0.1,
+              max_tokens: 200
+            })
+          });
+          clearTimeout(timer);
+
+          if (resp.ok) {
+            const data = await resp.json();
+            const text = data.choices?.[0]?.message?.content || '';
+            const jsonMatch = text.match(/\{[\s\S]*?\}/);
+            if (jsonMatch) {
+              const review = JSON.parse(jsonMatch[0]);
+              finding.llmVerdict = review.verdict;
+              finding.llmConfidence = review.confidence;
+              finding.llmExplanation = review.explanation;
+              break; // Success, no retry needed
+            }
+          }
+        } catch (e) {
+          if (attempt === 0) continue; // Retry once
+        }
+      }
+    } catch (e) {
+      // LLM failed after retries
+    }
+    // If no verdict was set, default to TRUE_RISK (conservative)
+    if (!finding.llmVerdict) {
+      finding.llmVerdict = 'TRUE_RISK';
+      finding.llmConfidence = 0.5;
+      finding.llmExplanation = 'LLM review unavailable — treating as potential risk.';
+    }
+  }
+
+  const trueRisks = toReview.filter(f => f.llmVerdict === 'TRUE_RISK').length;
+  const falsePos = toReview.filter(f => f.llmVerdict === 'FALSE_POSITIVE').length;
+  console.log(`[SecurityScan] LLM review done: ${trueRisks} true risks, ${falsePos} false positives, ${toReview.length - trueRisks - falsePos} needs review`);
+  auditScanProgress = { phase: 'done', current: 0, total: 0, message: 'Scan complete' };
+
+  return findings;
+}
+
+async function runAuditScan(scanPath, forceRescan = false) {
   const targets = [];
   targets.push(path.join(os.homedir(), '.claude'));
   // Scan OpenClaw codebase if available
@@ -2239,6 +2480,17 @@ async function runAuditScan(scanPath) {
   }
   if (scanPath && fs.existsSync(scanPath)) {
     targets.push(scanPath);
+  }
+
+  // Check if we can use cached results (no changes detected)
+  if (!forceRescan) {
+    const currentHash = computeScanHash(targets);
+    const cached = loadAuditCache();
+    if (cached && cached.hash === currentHash) {
+      console.log('[SecurityScan] No changes detected, using cached results');
+      cachedAuditResult = cached.result;
+      return cached.result;
+    }
   }
 
   // Find Python: bundled in app → homebrew → system
@@ -2256,7 +2508,10 @@ async function runAuditScan(scanPath) {
   const allFindings = [];
   let scanError = null;
 
+  auditScanProgress = { phase: 'scanning', current: 0, total: targets.length, message: 'Running static analysis...' };
   for (const target of targets) {
+    auditScanProgress.current++;
+    auditScanProgress.message = `Scanning ${path.basename(target)}...`;
     try {
       const result = await new Promise((resolve, reject) => {
         const child = childProcess.spawn(python, [
@@ -2376,6 +2631,7 @@ async function runAuditScan(scanPath) {
   const dangerousToolNames = new Set();
   const dangerousSkillNames = new Set();
   for (const f of allFindings) {
+    if (f.severity !== 'critical') continue; // Only critical findings count as risky
     const isToolSource = f.source === 'Claude Official Plugin' || f.source === 'External Plugin (MCP)'
       || f.source === 'OpenClaw Plugin' || f.source === 'OpenClaw Extension';
     const isSkillSource = f.source === 'OpenClaw Skill' || f.source === 'Claude Skill';
@@ -2386,6 +2642,9 @@ async function runAuditScan(scanPath) {
     }
   }
 
+  // LLM review of findings (enrich with verdict)
+  await llmReviewFindings(allFindings);
+
   const result = {
     ok: !scanError || allFindings.length > 0,
     findings: allFindings,
@@ -2394,13 +2653,24 @@ async function runAuditScan(scanPath) {
       totalTools, totalSkills,
       dangerousTools: dangerousToolNames.size,
       dangerousSkills: dangerousSkillNames.size,
+      dangerousToolList: [...dangerousToolNames],
+      dangerousSkillList: [...dangerousSkillNames],
+      vulnerabilities: allFindings.filter(f => f.severity === 'critical' && f.llmVerdict !== 'FALSE_POSITIVE').length,
     },
     error: scanError,
   };
 
   cachedAuditResult = result;
+  // Persist to disk
+  const scanHash = computeScanHash(targets);
+  saveAuditCache(scanHash, result);
   return result;
 }
+
+// GET scan progress
+app.get('/api/audit/progress', (req, res) => {
+  res.json(auditScanProgress);
+});
 
 // GET cached results (no re-scan)
 app.get('/api/audit/results', (req, res) => {
@@ -2411,10 +2681,10 @@ app.get('/api/audit/results', (req, res) => {
   }
 });
 
-// POST triggers a new scan
+// POST triggers a new scan (force=true to bypass cache)
 app.post('/api/audit/scan', async (req, res) => {
-  const { scanPath } = req.body;
-  const result = await runAuditScan(scanPath);
+  const { scanPath, force } = req.body;
+  const result = await runAuditScan(scanPath, force === true);
   res.json(result);
 });
 
@@ -3213,11 +3483,12 @@ app.listen(PORT, () => {
       console.log('🎯 GuardClaw is now monitoring your agents!');
       console.log('');
 
-      // Auto security scan on startup
+      // Auto security scan on startup (uses cache if no changes)
       console.log('🔍 Running initial security scan...');
       runAuditScan().then(result => {
         const s = result.summary;
-        console.log(`✅ Security scan complete: ${s.totalTools} tools, ${s.totalSkills} skills scanned — ${s.dangerousTools} risky tools, ${s.dangerousSkills} risky skills`);
+        const llmReviewed = result.findings.filter(f => f.llmVerdict).length;
+        console.log(`✅ Security scan complete: ${s.totalTools} tools, ${s.totalSkills} skills — ${s.dangerousTools} risky tools, ${s.dangerousSkills} risky skills${llmReviewed ? ` (${llmReviewed} LLM-reviewed)` : ''}`);
       }).catch(err => {
         console.warn('⚠️  Initial security scan failed:', err.message);
       });

@@ -68,11 +68,27 @@ struct DashboardView: View {
                     }
                 }
 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                let vulns = s.vulnerabilities ?? 0
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
                     ScanStatCell(label: "Tools", value: "\(s.totalTools ?? 0)", color: .blue)
                     ScanStatCell(label: "Skills", value: "\(s.totalSkills ?? 0)", color: .blue)
                     ScanStatCell(label: "Risky Tools", value: "\(s.dangerousTools ?? 0)", color: (s.dangerousTools ?? 0) > 0 ? .red : .green)
                     ScanStatCell(label: "Risky Skills", value: "\(s.dangerousSkills ?? 0)", color: (s.dangerousSkills ?? 0) > 0 ? .red : .green)
+                    ScanStatCell(label: "Vulnerabilities", value: "\(vulns)", color: vulns > 0 ? .red : .green)
+                }
+
+                // Show risky tool/skill names
+                let riskyNames = (s.dangerousToolList ?? []) + (s.dangerousSkillList ?? [])
+                if !riskyNames.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.red)
+                        Text(riskyNames.joined(separator: ", "))
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                        Spacer()
+                    }
                 }
             }
             .padding(16)
