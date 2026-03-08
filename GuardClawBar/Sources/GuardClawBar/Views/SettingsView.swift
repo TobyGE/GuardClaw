@@ -19,7 +19,7 @@ struct SettingsView: View {
     @State private var tokenMessage: String? = nil
 
     private let api = GuardClawAPI()
-    private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {

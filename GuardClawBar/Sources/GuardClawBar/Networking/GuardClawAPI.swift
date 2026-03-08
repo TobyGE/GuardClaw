@@ -122,9 +122,10 @@ actor GuardClawAPI {
 
     // MARK: - Events
 
-    func eventHistory(limit: Int = 30, backend: String? = nil) async throws -> EventHistoryResponse {
+    func eventHistory(limit: Int = 30, backend: String? = nil, since: Int? = nil) async throws -> EventHistoryResponse {
         var query = "/api/events/history?limit=\(limit)"
         if let backend { query += "&backend=\(backend)" }
+        if let since { query += "&since=\(since)" }
         return try await get(query)
     }
 

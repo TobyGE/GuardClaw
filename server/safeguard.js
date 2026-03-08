@@ -2173,6 +2173,12 @@ Output ONLY ONE JSON object (pick exactly one verdict):
       };
     }
 
+    // Cache entire testConnection result for 30s to avoid spamming LM Studio/Ollama
+    const now = Date.now();
+    if (this._connCacheResult && this._connCacheTime && (now - this._connCacheTime) < 30000) {
+      return this._connCacheResult;
+    }
+
     try {
       if (this.backend === 'built-in') {
         const ready = llmEngine.isReady;
@@ -2249,17 +2255,10 @@ Output ONLY ONE JSON object (pick exactly one verdict):
           message += ' - ⚠️ Model not loaded for inference';
         }
         
-        return {
-          connected: true,
-          backend: 'lmstudio',
-          url: this.config.lmstudioUrl,
-          models: modelCount,
-          modelNames,
-          activeModel,
-          canInfer,
-          inferError,
-          message
-        };
+        const lmResult = { connected: true, backend: 'lmstudio', url: this.config.lmstudioUrl, models: modelCount, modelNames, activeModel, canInfer, inferError, message };
+        this._connCacheResult = lmResult;
+        this._connCacheTime = now;
+        return lmResult;
       }
 
       if (this.backend === 'ollama') {
@@ -2277,36 +2276,28 @@ Output ONLY ONE JSON object (pick exactly one verdict):
         const modelCount = data.models?.length || 0;
         const modelNames = data.models?.map(m => m.name) || [];
         
-        return {
-          connected: true,
-          backend: 'ollama',
-          url: this.config.ollamaUrl,
-          models: modelCount,
-          modelNames,
-          message: `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)`
-        };
+        const ollamaResult = { connected: true, backend: 'ollama', url: this.config.ollamaUrl, models: modelCount, modelNames, message: `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)` };
+        this._connCacheResult = ollamaResult;
+        this._connCacheTime = now;
+        return ollamaResult;
       }
 
       if (this.backend === 'anthropic') {
-        return {
-          connected: !!this.client,
-          backend: 'anthropic',
-          message: this.client ? 'API key configured' : 'API key missing'
-        };
+        const anthropicResult = { connected: !!this.client, backend: 'anthropic', message: this.client ? 'API key configured' : 'API key missing' };
+        this._connCacheResult = anthropicResult;
+        this._connCacheTime = now;
+        return anthropicResult;
       }
 
-      return {
-        connected: false,
-        backend: this.backend,
-        message: 'Unknown backend type'
-      };
+      const unknownResult = { connected: false, backend: this.backend, message: 'Unknown backend type' };
+      this._connCacheResult = unknownResult;
+      this._connCacheTime = now;
+      return unknownResult;
     } catch (error) {
-      return {
-        connected: false,
-        backend: this.backend,
-        error: error.message,
-        message: `Failed to connect: ${error.message}`
-      };
+      const errResult = { connected: false, backend: this.backend, error: error.message, message: `Failed to connect: ${error.message}` };
+      this._connCacheResult = errResult;
+      this._connCacheTime = now;
+      return errResult;
     }
   }
 

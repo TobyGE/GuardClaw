@@ -140,12 +140,15 @@ final class AppState {
     private func connectSSE() async -> Bool {
         guard let url = URL(string: "\(SettingsStore.shared.serverURL)/api/events") else { return false }
 
-        // Load recent event history once on connect
-        if ccEvents.isEmpty && ocEvents.isEmpty {
-            async let cc = try? api.eventHistory(limit: 200, backend: "claude-code")
-            async let oc = try? api.eventHistory(limit: 200, backend: "openclaw")
+        // Load full event history once on first SSE connect
+        if !eventsInitialized {
+            async let cc = try? api.eventHistory(limit: 999999, backend: "claude-code")
+            async let oc = try? api.eventHistory(limit: 999999, backend: "openclaw")
             if let ccResult = await cc { ccEvents = ccResult.events }
             if let ocResult = await oc { ocEvents = ocResult.events }
+            if let ts = ccEvents.first?.timestamp { ccLastTimestamp = Int(ts) }
+            if let ts = ocEvents.first?.timestamp { ocLastTimestamp = Int(ts) }
+            eventsInitialized = true
         }
 
         var receivedEvents = false
@@ -207,25 +210,48 @@ final class AppState {
     }
 
     private var eventPollCounter = 0
+    private var ccLastTimestamp: Int?  // milliseconds epoch for server query
+    private var ocLastTimestamp: Int?
+    private var eventsInitialized = false
 
     private func poll() async {
         do {
             eventPollCounter += 1
             let previousPendingIds = Set(pendingApprovals.map(\.id))
 
-            // Events: full refresh every 6th poll (~30s at 5s interval), SSE handles incremental
+            // Events: delta poll every 6th cycle (~30s), first poll fetches all
             let shouldFetchEvents = eventPollCounter % 6 == 1
 
             if shouldFetchEvents {
                 async let statusResult = api.status()
                 async let approvalsResult = api.pendingApprovals()
-                async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
-                async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw")
 
-                serverStatus = try await statusResult
-                pendingApprovals = (try await approvalsResult).pending
-                ccEvents = (try await ccResult).events
-                ocEvents = (try await ocResult).events
+                if eventsInitialized {
+                    // Delta: only fetch events newer than last known timestamp
+                    async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code", since: ccLastTimestamp)
+                    async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw", since: ocLastTimestamp)
+
+                    serverStatus = try await statusResult
+                    pendingApprovals = (try await approvalsResult).pending
+
+                    let newCC = (try await ccResult).events
+                    let newOC = (try await ocResult).events
+                    mergeNewEvents(&ccEvents, newEvents: newCC, lastTimestamp: &ccLastTimestamp)
+                    mergeNewEvents(&ocEvents, newEvents: newOC, lastTimestamp: &ocLastTimestamp)
+                } else {
+                    // First poll: fetch all events
+                    async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
+                    async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw")
+
+                    serverStatus = try await statusResult
+                    pendingApprovals = (try await approvalsResult).pending
+
+                    ccEvents = (try await ccResult).events
+                    ocEvents = (try await ocResult).events
+                    if let ts = ccEvents.first?.timestamp { ccLastTimestamp = Int(ts) }
+                    if let ts = ocEvents.first?.timestamp { ocLastTimestamp = Int(ts) }
+                    eventsInitialized = true
+                }
             } else {
                 async let statusResult = api.status()
                 async let approvalsResult = api.pendingApprovals()
@@ -251,6 +277,24 @@ final class AppState {
         } catch {
             isConnected = false
             lastError = error.localizedDescription
+        }
+    }
+
+    /// Merge new events into existing array (newest first), update lastTimestamp, cap at 500
+    private func mergeNewEvents(_ existing: inout [EventItem], newEvents: [EventItem], lastTimestamp: inout Int?) {
+        guard !newEvents.isEmpty else { return }
+        let existingIds = Set(existing.map(\.stableId))
+        let unique = newEvents.filter { !existingIds.contains($0.stableId) }
+        if !unique.isEmpty {
+            existing.insert(contentsOf: unique, at: 0)
+            if existing.count > 500 { existing = Array(existing.prefix(500)) }
+        }
+        // Update timestamp to newest event
+        if let newest = newEvents.first?.timestamp {
+            let newestInt = Int(newest)
+            if newestInt > (lastTimestamp ?? 0) {
+                lastTimestamp = newestInt
+            }
         }
     }
 

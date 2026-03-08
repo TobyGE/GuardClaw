@@ -554,14 +554,13 @@ app.post('/api/disconnect', (req, res) => {
 
 // ─── Sessions: list unique sessions from stored events ─────────────────────
 app.get('/api/sessions', (req, res) => {
-  const allEvents = eventStore.getRecentEvents(999999);
-  const sessionMap = new Map(); // sessionKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
-  // Sub-agent detection relies on SubagentStart/SubagentStop hooks (sessionKey contains :subagent:)
+  // Use SQL GROUP BY instead of loading all events into memory
+  const summaries = eventStore.getSessionSummaries();
+  const sessionMap = new Map(); // mapKey → { key, label, parent, eventCount, lastEventTime, firstEventTime }
 
-  for (const event of allEvents) {
+  for (const row of summaries) {
     // Normalize legacy session keys to the canonical format
-    const key = (!event.sessionKey || event.sessionKey === 'default') ? 'agent:main:main' : event.sessionKey;
-    if (!key) continue;
+    const key = (!row.sessionKey || row.sessionKey === 'default') ? 'agent:main:main' : row.sessionKey;
 
     const isCCSession = key.startsWith('claude-code:');
     const isSubagent = key.includes(':subagent:');
@@ -575,8 +574,9 @@ app.get('/api/sessions', (req, res) => {
 
     const existing = sessionMap.get(mapKey);
     if (existing) {
-      existing.eventCount++;
-      existing.lastEventTime = Math.max(existing.lastEventTime, event.timestamp || 0);
+      existing.eventCount += row.eventCount;
+      existing.lastEventTime = Math.max(existing.lastEventTime, row.lastEventTime || 0);
+      existing.firstEventTime = Math.min(existing.firstEventTime, row.firstEventTime || 0);
       if (!existing.keys.includes(key)) existing.keys.push(key);
     } else {
       // Derive parent key and short ID for sub-agents
@@ -584,10 +584,8 @@ app.get('/api/sessions', (req, res) => {
       const shortId = isSubagent ? key.split(':subagent:')[1]?.substring(0, 8) : null;
       if (isSubagent) {
         if (isCCSession) {
-          // CC: claude-code:<uuid>:subagent:<id> → claude-code:<uuid>
           parentKey = key.replace(/:subagent:[^:]+$/, '');
         } else {
-          // OC: agent:main:subagent:<uuid> → agent:main:main
           parentKey = key.replace(/:subagent:[^:]+$/, ':main');
         }
       }
@@ -621,13 +619,12 @@ app.get('/api/sessions', (req, res) => {
         label,
         parent: parentKey,
         isSubagent,
-        eventCount: 1,
-        firstEventTime: event.timestamp || 0,
-        lastEventTime: event.timestamp || 0,
+        eventCount: row.eventCount,
+        firstEventTime: row.firstEventTime || 0,
+        lastEventTime: row.lastEventTime || 0,
         active: true,
       });
     }
-
   }
 
   // Label CC sessions that have sub-agents (detected via SubagentStart hook) as "Main"
@@ -703,9 +700,10 @@ app.get('/api/events/history', (req, res) => {
   const filter = req.query.filter || null;   // 'safe', 'warning', 'blocked'
   const sessionFilter = req.query.session || null;
   const backend = req.query.backend || null; // 'openclaw', 'claude-code', 'nanobot'
+  const since = req.query.since ? parseInt(req.query.since) : null; // timestamp for delta polling
 
   // Filtering pushed down to SQLite for performance
-  let events = eventStore.getFilteredEvents(limit, filter, sessionFilter, backend);
+  let events = eventStore.getFilteredEvents(limit, filter, sessionFilter, backend, since);
 
   res.json({
     events: events.reverse(), // Newest first

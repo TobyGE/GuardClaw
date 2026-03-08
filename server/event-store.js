@@ -176,9 +176,14 @@ export class EventStore {
     }).reverse();
   }
 
-  getFilteredEvents(limit = 9999, filter = null, session = null, backend = null) {
+  getFilteredEvents(limit = 9999, filter = null, session = null, backend = null, since = null) {
     let sql = 'SELECT data, timestamp FROM events WHERE 1=1';
     const params = [];
+
+    if (since) {
+      sql += ' AND timestamp > ?';
+      params.push(since);
+    }
 
     if (backend === 'openclaw') {
       sql += " AND sessionKey LIKE 'agent:%'";
@@ -401,6 +406,22 @@ export class EventStore {
       openclaw: this.getAgentTokens('openclaw'),
       'claude-code': this.getAgentTokens('claude-code'),
     };
+  }
+
+  // --- Session summaries (SQL aggregation, no full event load) ---
+
+  getSessionSummaries() {
+    const rows = this.db.prepare(`
+      SELECT
+        sessionKey,
+        COUNT(*) as eventCount,
+        MIN(timestamp) as firstEventTime,
+        MAX(timestamp) as lastEventTime
+      FROM events
+      WHERE sessionKey IS NOT NULL AND sessionKey != ''
+      GROUP BY sessionKey
+    `).all();
+    return rows;
   }
 
   // Legacy compat — no-ops
