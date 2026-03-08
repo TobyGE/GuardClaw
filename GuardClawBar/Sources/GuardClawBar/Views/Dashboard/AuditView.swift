@@ -8,6 +8,7 @@ struct AuditView: View {
     @State private var errorMessage: String? = nil
     @State private var scanProgressMessage: String = ""
     @State private var expandedId: String? = nil
+    @State private var configChanged = false
 
     private let api = GuardClawAPI()
 
@@ -36,6 +37,35 @@ struct AuditView: View {
                 }
                 .padding(16)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+
+                // Config changed warning
+                if configChanged && hasScanned && !isScanning {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Configuration changed since last scan")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            Text("MCP plugins or settings have been modified. Re-scan recommended.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Re-scan") {
+                            Task { await runScan() }
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
+                    .padding(12)
+                    .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(.orange.opacity(0.3), lineWidth: 1)
+                    )
+                }
 
                 // Summary
                 if let summary, hasScanned {
@@ -98,6 +128,7 @@ struct AuditView: View {
             findings = resp.findings.filter { $0.severity == "critical" && $0.llmVerdict != "FALSE_POSITIVE" }.sorted { severityRank($0.severity) < severityRank($1.severity) }
             if let s = resp.summary { summary = s }
             hasScanned = resp.summary != nil
+            configChanged = resp.configChanged == true
         } catch {}
     }
 
@@ -344,6 +375,7 @@ struct AuditView: View {
             findings = resp.findings.filter { $0.severity == "critical" && $0.llmVerdict != "FALSE_POSITIVE" }.sorted { severityRank($0.severity) < severityRank($1.severity) }
             summary = resp.summary
             hasScanned = true
+            configChanged = false
             if let err = resp.error {
                 errorMessage = err
             }

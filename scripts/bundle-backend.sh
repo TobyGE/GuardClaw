@@ -65,6 +65,9 @@ cp -R "$PROJECT_ROOT/client/dist" "$BACKEND_DIR/client/dist"
 # Copy package.json (needed for ES module resolution)
 cp "$PROJECT_ROOT/package.json" "$BACKEND_DIR/package.json"
 
+# Copy OC plugin (for one-click install from Dashboard)
+cp -R "$PROJECT_ROOT/plugin" "$BACKEND_DIR/plugin"
+
 # Copy node_modules (production deps only if possible)
 if [ -d "$PROJECT_ROOT/node_modules" ]; then
   echo "--- Copying node_modules..."

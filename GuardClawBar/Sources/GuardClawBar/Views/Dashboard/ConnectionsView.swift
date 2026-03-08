@@ -1,15 +1,20 @@
 import SwiftUI
 
 struct ConnectionsView: View {
+    @Environment(AppState.self) var appState
     @State private var ccInstalled: Bool? = nil
     @State private var ccMessage: String? = nil
-    @State private var ocConnected = false
+    @State private var ocPluginInstalled: Bool? = nil
+    @State private var ocMessage: String? = nil
     @State private var gatewayToken = ""
     @State private var tokenMessage: String? = nil
     @State private var isSavingToken = false
 
     private let api = GuardClawAPI()
-    private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+
+    private var ocConnected: Bool {
+        appState.serverStatus?.backends?["openclaw"]?.connected == true
+    }
 
     var body: some View {
         ScrollView {
@@ -25,8 +30,10 @@ struct ConnectionsView: View {
             .padding(24)
         }
         .navigationTitle("Connections")
-        .onAppear { refresh() }
-        .onReceive(timer) { _ in refresh() }
+        .task {
+            await checkCCStatus()
+            await checkOCPluginStatus()
+        }
     }
 
     // MARK: - Claude Code
@@ -50,9 +57,16 @@ struct ConnectionsView: View {
                 .foregroundStyle(.secondary)
 
             if ccInstalled == true {
-                Label("Hooks are active. Restart Claude Code to pick up any changes.", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
+                HStack {
+                    Label("Hooks are active.", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Reinstall") {
+                        Task { await setupCC() }
+                    }
+                    .controlSize(.small)
+                }
             } else {
                 Button {
                     Task { await setupCC() }
@@ -65,7 +79,7 @@ struct ConnectionsView: View {
             if let msg = ccMessage {
                 Text(msg)
                     .font(.caption)
-                    .foregroundStyle(msg.contains("✓") ? .green : .red)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
             }
         }
         .padding(16)
@@ -88,7 +102,42 @@ struct ConnectionsView: View {
                     .foregroundStyle(ocConnected ? .green : .secondary)
             }
 
-            Text("Paste your OpenClaw gateway token to enable real-time interception for OpenClaw agents.")
+            // Plugin status
+            if ocPluginInstalled == true {
+                HStack {
+                    Label("Interceptor plugin installed.", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Reinstall") {
+                        Task { await setupOCPlugin() }
+                    }
+                    .controlSize(.small)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("The GuardClaw interceptor plugin needs to be installed in OpenClaw to enable tool call blocking.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        Task { await setupOCPlugin() }
+                    } label: {
+                        Label("Install Plugin", systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+            if let msg = ocMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+            }
+
+            Divider()
+
+            // Token section
+            Text("Gateway token for real-time event streaming.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -112,7 +161,7 @@ struct ConnectionsView: View {
             if let msg = tokenMessage {
                 Text(msg)
                     .font(.caption)
-                    .foregroundStyle(msg.contains("✓") ? .green : .secondary)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .secondary)
             }
         }
         .padding(16)
@@ -121,14 +170,15 @@ struct ConnectionsView: View {
 
     // MARK: - Actions
 
-    private func refresh() {
-        Task {
-            if let status = try? await api.claudeCodeStatus() {
-                ccInstalled = status.installed
-            }
-            if let s = try? await api.status() {
-                ocConnected = s.backends?["openclaw"]?.connected == true
-            }
+    private func checkCCStatus() async {
+        if let status = try? await api.claudeCodeStatus() {
+            ccInstalled = status.installed
+        }
+    }
+
+    private func checkOCPluginStatus() async {
+        if let status = try? await api.openClawPluginStatus() {
+            ocPluginInstalled = status.installed
         }
     }
 
@@ -136,9 +186,19 @@ struct ConnectionsView: View {
         do {
             _ = try await api.setupClaudeCode()
             ccInstalled = true
-            ccMessage = "✓ Hooks installed — restart Claude Code to activate"
+            ccMessage = "\u{2713} Hooks installed — restart Claude Code to activate"
         } catch {
             ccMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func setupOCPlugin() async {
+        do {
+            _ = try await api.setupOpenClaw()
+            ocPluginInstalled = true
+            ocMessage = "\u{2713} Plugin installed — restart OpenClaw to activate"
+        } catch {
+            ocMessage = "Failed: \(error.localizedDescription)"
         }
     }
 
@@ -147,7 +207,7 @@ struct ConnectionsView: View {
             let resp = try await api.detectToken()
             if let t = resp.token {
                 gatewayToken = t
-                tokenMessage = "✓ Auto-detected from OpenClaw config"
+                tokenMessage = "\u{2713} Auto-detected from OpenClaw config"
             } else {
                 tokenMessage = "No token found"
             }
@@ -160,7 +220,7 @@ struct ConnectionsView: View {
         isSavingToken = true
         do {
             _ = try await api.saveToken(token: gatewayToken)
-            tokenMessage = "✓ Token saved, reconnecting..."
+            tokenMessage = "\u{2713} Token saved, reconnecting..."
         } catch {
             tokenMessage = "Failed: \(error.localizedDescription)"
         }

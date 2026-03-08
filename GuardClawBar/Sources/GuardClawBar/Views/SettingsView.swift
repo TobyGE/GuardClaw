@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var ccHooksInstalled: Bool? = nil
     @State private var ccSetupMessage: String? = nil
     @State private var ocConnected = false
+    @State private var ocPluginInstalled: Bool? = nil
+    @State private var ocSetupMessage: String? = nil
     @State private var blockingEnabled = false
     @State private var failClosedEnabled = false
     @State private var llmBackend: String? = nil
@@ -108,15 +110,26 @@ struct SettingsView: View {
                         Text("OpenClaw")
                             .font(.caption)
                         Spacer()
-                        Text(ocConnected ? "Connected" : "Not connected")
+                        if ocPluginInstalled == true {
+                            Text("\u{2713}")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green)
+                        }
+                        Button(ocPluginInstalled == true ? "Reinstall" : "Install Plugin") { setupOpenClaw() }
                             .font(.system(size: 9))
-                            .foregroundStyle(ocConnected ? .green : .secondary)
+                            .controlSize(.mini)
                     }
 
                     if let msg = ccSetupMessage {
                         Text(msg)
                             .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("✓") ? .green : .red)
+                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+                    }
+
+                    if let msg = ocSetupMessage {
+                        Text(msg)
+                            .font(.system(size: 9))
+                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
                     }
                 }
 
@@ -197,6 +210,9 @@ struct SettingsView: View {
             if let status = try? await api.claudeCodeStatus() {
                 await MainActor.run { ccHooksInstalled = status.installed }
             }
+            if let status = try? await api.openClawPluginStatus() {
+                await MainActor.run { ocPluginInstalled = status.installed }
+            }
             if let serverStatus = try? await api.status() {
                 await MainActor.run {
                     ocConnected = serverStatus.backends?["openclaw"]?.connected == true
@@ -217,11 +233,27 @@ struct SettingsView: View {
                 _ = try await api.setupClaudeCode()
                 await MainActor.run {
                     ccHooksInstalled = true
-                    ccSetupMessage = "✓ Hooks installed — restart Claude Code to activate"
+                    ccSetupMessage = "\u{2713} Hooks installed — restart Claude Code"
                 }
             } catch {
                 await MainActor.run {
                     ccSetupMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func setupOpenClaw() {
+        Task {
+            do {
+                _ = try await api.setupOpenClaw()
+                await MainActor.run {
+                    ocPluginInstalled = true
+                    ocSetupMessage = "\u{2713} Plugin installed — restart OpenClaw"
+                }
+            } catch {
+                await MainActor.run {
+                    ocSetupMessage = "Failed: \(error.localizedDescription)"
                 }
             }
         }

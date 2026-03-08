@@ -1,13 +1,18 @@
 import SwiftUI
 
 struct ProtectionView: View {
-    @State private var blockingEnabled = false
-    @State private var failClosed = false
-    @State private var isLoading = true
+    @Environment(AppState.self) var appState
     @State private var statusMessage: String? = nil
 
     private let api = GuardClawAPI()
-    private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+
+    private var blockingEnabled: Bool {
+        appState.serverStatus?.blocking?.active ?? appState.serverStatus?.blocking?.enabled ?? false
+    }
+
+    private var failClosed: Bool {
+        appState.serverStatus?.failClosed == true
+    }
 
     var body: some View {
         ScrollView {
@@ -20,7 +25,7 @@ struct ProtectionView: View {
                         ? "Risky tool calls require approval before executing."
                         : "Monitor only — GuardClaw watches but doesn't block anything.",
                     color: blockingEnabled ? .green : .orange,
-                    isOn: $blockingEnabled,
+                    isOn: blockingEnabled,
                     onToggle: toggleBlocking
                 )
 
@@ -32,18 +37,14 @@ struct ProtectionView: View {
                         ? "If the judge is unreachable, all tool calls are BLOCKED."
                         : "If the judge is unreachable, tool calls proceed (fail-open).",
                     color: failClosed ? .blue : .gray,
-                    isOn: $failClosed,
+                    isOn: failClosed,
                     onToggle: toggleFailClosed
                 )
-
-                if isLoading {
-                    HStack { ProgressView().controlSize(.small); Text("Loading...").font(.caption) }
-                }
 
                 if let msg = statusMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(msg.contains("✓") ? .green : .orange)
+                        .foregroundStyle(msg.contains("\u{2713}") ? .green : .orange)
                 }
 
                 // Explanation
@@ -68,18 +69,16 @@ struct ProtectionView: View {
             .padding(24)
         }
         .navigationTitle("Protection")
-        .onAppear { refresh() }
-        .onReceive(timer) { _ in refresh() }
     }
 
-    private func protectionCard(title: String, icon: String, description: String, color: Color, isOn: Binding<Bool>, onToggle: @escaping (Bool) -> Void) -> some View {
+    private func protectionCard(title: String, icon: String, description: String, color: Color, isOn: Bool, onToggle: @escaping (Bool) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label(title, systemImage: icon)
                     .font(.headline)
                 Spacer()
                 Toggle("", isOn: Binding(
-                    get: { isOn.wrappedValue },
+                    get: { isOn },
                     set: { onToggle($0) }
                 ))
                 .toggleStyle(.switch)
@@ -92,41 +91,27 @@ struct ProtectionView: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(color.opacity(isOn.wrappedValue ? 0.4 : 0.1), lineWidth: 1.5)
+                .stroke(color.opacity(isOn ? 0.4 : 0.1), lineWidth: 1.5)
         )
     }
 
-    private func refresh() {
-        Task {
-            if let s = try? await api.status() {
-                blockingEnabled = s.blocking?.active ?? s.blocking?.enabled ?? false
-                failClosed = s.failClosed == true
-                isLoading = false
-            }
-        }
-    }
-
     private func toggleBlocking(_ newVal: Bool) {
-        blockingEnabled = newVal
         Task {
             do {
                 _ = try await api.toggleBlocking(enabled: newVal)
-                statusMessage = "✓ Blocking \(newVal ? "enabled" : "disabled")"
+                statusMessage = "\u{2713} Blocking \(newVal ? "enabled" : "disabled")"
             } catch {
-                blockingEnabled = !newVal
                 statusMessage = "Failed: \(error.localizedDescription)"
             }
         }
     }
 
     private func toggleFailClosed(_ newVal: Bool) {
-        failClosed = newVal
         Task {
             do {
                 _ = try await api.toggleFailClosed(enabled: newVal)
-                statusMessage = "✓ Fail-closed \(newVal ? "enabled" : "disabled")"
+                statusMessage = "\u{2713} Fail-closed \(newVal ? "enabled" : "disabled")"
             } catch {
-                failClosed = !newVal
                 statusMessage = "Failed: \(error.localizedDescription)"
             }
         }

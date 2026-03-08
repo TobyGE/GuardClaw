@@ -2209,30 +2209,39 @@ Output ONLY ONE JSON object (pick exactly one verdict):
           activeModel = autoModel ? `auto → ${autoModel}` : 'auto (no chat model found)';
         }
         
-        // Test if model can actually perform inference
+        // Test if model can actually perform inference (cached for 60s to avoid spamming LM Studio)
         let canInfer = false;
         let inferError = null;
-        try {
-          const testModel = activeModel.includes('→') ? activeModel.split('→')[1].trim() : activeModel;
-          const testResponse = await fetch(`${baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: testModel,
-              messages: [{ role: 'user', content: 'test' }],
-              max_tokens: 1
-            }),
-            signal: AbortSignal.timeout(10000)
-          });
-          
-          if (testResponse.ok) {
-            canInfer = true;
-          } else {
-            const errorData = await testResponse.json();
-            inferError = errorData.error?.message || `HTTP ${testResponse.status}`;
+        const now = Date.now();
+        if (this._inferCacheTime && (now - this._inferCacheTime) < 300000) {
+          canInfer = this._inferCacheOk;
+          inferError = this._inferCacheError;
+        } else {
+          try {
+            const testModel = activeModel.includes('\u2192') ? activeModel.split('\u2192')[1].trim() : activeModel;
+            const testResponse = await fetch(`${baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: testModel,
+                messages: [{ role: 'user', content: 'test' }],
+                max_tokens: 1
+              }),
+              signal: AbortSignal.timeout(10000)
+            });
+
+            if (testResponse.ok) {
+              canInfer = true;
+            } else {
+              const errorData = await testResponse.json();
+              inferError = errorData.error?.message || `HTTP ${testResponse.status}`;
+            }
+          } catch (error) {
+            inferError = error.message;
           }
-        } catch (error) {
-          inferError = error.message;
+          this._inferCacheTime = now;
+          this._inferCacheOk = canInfer;
+          this._inferCacheError = inferError;
         }
         
         let message = modelCount > 0 ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)` : 'Connected but no models available';

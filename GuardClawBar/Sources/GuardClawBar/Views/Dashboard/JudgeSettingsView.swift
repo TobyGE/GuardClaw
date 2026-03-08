@@ -14,7 +14,6 @@ struct JudgeSettingsView: View {
     @State private var isLoadingExternalModels = false
 
     private let api = GuardClawAPI()
-    private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {
@@ -62,13 +61,15 @@ struct JudgeSettingsView: View {
             .padding(24)
         }
         .navigationTitle("Judge")
-        .onAppear {
+        .task {
             loadStatus()
             if llmBackend == "lmstudio" || llmBackend == "ollama" {
-                Task { await fetchExternalModels() }
+                await fetchExternalModels()
             }
         }
-        .onReceive(timer) { _ in loadStatus() }
+        .onChange(of: appState.serverStatus?.llmStatus?.connected) { _, _ in
+            loadStatusFromAppState()
+        }
     }
 
     // MARK: - Current Status
@@ -208,31 +209,31 @@ struct JudgeSettingsView: View {
 
     // MARK: - Actions
 
+    /// Read LLM status from AppState (no API call)
+    private func loadStatusFromAppState() {
+        let status = appState.serverStatus
+        llmConnected = status?.llmStatus?.connected
+        let serverBackend = status?.llmStatus?.backend ?? "built-in"
+        if pendingBackend == nil {
+            llmBackend = serverBackend
+        } else if pendingBackend == serverBackend {
+            pendingBackend = nil
+            llmBackend = serverBackend
+        }
+        // External model name
+        if activeModel == nil && llmBackend != "built-in" && llmConnected == true {
+            activeModel = llmBackend == "lmstudio" ? "LM Studio model" : llmBackend == "ollama" ? "Ollama model" : "Claude"
+        }
+    }
+
+    /// Initial load: read AppState + fetch model list once
     private func loadStatus() {
+        loadStatusFromAppState()
         Task {
-            if let status = try? await api.status() {
-                llmConnected = status.llmStatus?.connected
-                let serverBackend = status.llmStatus?.backend ?? "built-in"
-                // Only update if no pending switch
-                if pendingBackend == nil {
-                    llmBackend = serverBackend
-                } else if pendingBackend == serverBackend {
-                    // Server caught up, clear pending
-                    pendingBackend = nil
-                    llmBackend = serverBackend
-                }
-            }
             if let resp = try? await api.listModels() {
                 models = resp.models
                 isLoadingModels = false
                 activeModel = resp.models.first(where: { $0.loaded })?.name
-            }
-            // If no built-in model active and using external, get model name from status
-            if activeModel == nil, let status = try? await api.status() {
-                // External backends don't report model through listModels
-                if llmBackend != "built-in" && llmConnected == true {
-                    activeModel = llmBackend == "lmstudio" ? "LM Studio model" : llmBackend == "ollama" ? "Ollama model" : "Claude"
-                }
             }
         }
     }

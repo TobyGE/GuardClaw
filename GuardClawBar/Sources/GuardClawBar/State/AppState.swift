@@ -126,21 +126,36 @@ final class AppState {
     func startSSE() {
         sseTask?.cancel()
         sseTask = Task { [weak self] in
+            var backoff: Double = 1
             while !Task.isCancelled {
-                await self?.connectSSE()
-                // Backoff before reconnect
-                try? await Task.sleep(for: .seconds(5))
+                let connected = await self?.connectSSE() ?? false
+                if connected { backoff = 1 } // Reset on successful connection
+                do { try await Task.sleep(for: .seconds(backoff)) } catch { break }
+                backoff = min(backoff * 2, 30)
             }
         }
     }
 
-    private func connectSSE() async {
-        guard let url = URL(string: "\(SettingsStore.shared.serverURL)/api/events") else { return }
+    @discardableResult
+    private func connectSSE() async -> Bool {
+        guard let url = URL(string: "\(SettingsStore.shared.serverURL)/api/events") else { return false }
+
+        // Load recent event history once on connect
+        if ccEvents.isEmpty && ocEvents.isEmpty {
+            async let cc = try? api.eventHistory(limit: 200, backend: "claude-code")
+            async let oc = try? api.eventHistory(limit: 200, backend: "openclaw")
+            if let ccResult = await cc { ccEvents = ccResult.events }
+            if let ocResult = await oc { ocEvents = ocResult.events }
+        }
+
+        var receivedEvents = false
         let client = SSEClient(url: url)
         for await event in await client.events() {
             guard !Task.isCancelled else { break }
+            receivedEvents = true
             await handleSSEEvent(event)
         }
+        return receivedEvents
     }
 
     private func handleSSEEvent(_ event: SSEEvent) async {
@@ -191,24 +206,34 @@ final class AppState {
         }
     }
 
+    private var eventPollCounter = 0
+
     private func poll() async {
         do {
-            async let statusResult = api.status()
-            async let approvalsResult = api.pendingApprovals()
-            async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
-            async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw")
-
-            let s = try await statusResult
-            let a = try await approvalsResult
-            let cc = try await ccResult
-            let oc = try await ocResult
-
+            eventPollCounter += 1
             let previousPendingIds = Set(pendingApprovals.map(\.id))
 
-            serverStatus = s
-            pendingApprovals = a.pending
-            ccEvents = cc.events
-            ocEvents = oc.events
+            // Events: full refresh every 6th poll (~30s at 5s interval), SSE handles incremental
+            let shouldFetchEvents = eventPollCounter % 6 == 1
+
+            if shouldFetchEvents {
+                async let statusResult = api.status()
+                async let approvalsResult = api.pendingApprovals()
+                async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
+                async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw")
+
+                serverStatus = try await statusResult
+                pendingApprovals = (try await approvalsResult).pending
+                ccEvents = (try await ccResult).events
+                ocEvents = (try await ocResult).events
+            } else {
+                async let statusResult = api.status()
+                async let approvalsResult = api.pendingApprovals()
+
+                serverStatus = try await statusResult
+                pendingApprovals = (try await approvalsResult).pending
+            }
+
             isConnected = true
             lastError = nil
 
@@ -219,7 +244,7 @@ final class AppState {
                 }
             }
 
-            let newApprovals = a.pending.filter { !previousPendingIds.contains($0.id) }
+            let newApprovals = pendingApprovals.filter { !previousPendingIds.contains($0.id) }
             for approval in newApprovals {
                 notificationManager.notifyNewApproval(approval)
             }

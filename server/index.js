@@ -2111,6 +2111,72 @@ app.get('/api/setup/claude-code/status', (req, res) => {
   }
 });
 
+// OpenClaw plugin setup API
+app.post('/api/setup/openclaw', (req, res) => {
+  try {
+    const pluginId = 'guardclaw-interceptor';
+    const destDir = path.join(os.homedir(), '.openclaw', 'plugins', pluginId);
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+
+    // Find plugin source: embedded in app bundle or dev source tree
+    let srcDir = null;
+    const candidates = [
+      path.join(path.dirname(process.argv[1] || ''), 'plugin', pluginId),  // embedded backend
+      path.join(import.meta.dirname, '..', 'plugin', pluginId),            // dev source tree
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(path.join(c, 'index.js'))) { srcDir = c; break; }
+    }
+    if (!srcDir) {
+      return res.status(404).json({ error: 'Plugin source not found in app bundle' });
+    }
+
+    // Copy plugin files to ~/.openclaw/plugins/guardclaw-interceptor/
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const file of fs.readdirSync(srcDir)) {
+      fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+    }
+    console.log(`[GuardClaw] OC plugin copied to ${destDir}`);
+
+    // Register in openclaw.json
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (!config.plugins) config.plugins = {};
+      if (!config.plugins.allow) config.plugins.allow = [];
+      if (!config.plugins.allow.includes(pluginId)) config.plugins.allow.push(pluginId);
+      if (!config.plugins.load) config.plugins.load = {};
+      if (!config.plugins.load.paths) config.plugins.load.paths = [];
+      if (!config.plugins.load.paths.includes(destDir)) config.plugins.load.paths.push(destDir);
+      if (!config.plugins.entries) config.plugins.entries = {};
+      config.plugins.entries[pluginId] = { enabled: true };
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+      console.log(`[GuardClaw] OC plugin registered in ${configPath}`);
+    } else {
+      console.warn(`[GuardClaw] openclaw.json not found at ${configPath}, plugin files copied but not registered`);
+    }
+
+    res.json({ ok: true, path: destDir });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/openclaw/status', (req, res) => {
+  try {
+    const pluginDir = path.join(os.homedir(), '.openclaw', 'plugins', 'guardclaw-interceptor');
+    const hasFiles = fs.existsSync(path.join(pluginDir, 'index.js'));
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    let registered = false;
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      registered = config.plugins?.entries?.['guardclaw-interceptor']?.enabled === true;
+    }
+    res.json({ installed: hasFiles && registered, path: pluginDir });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
 // Security scan endpoint
 // Suspicious patterns for deep content scanning
 const SUSPICIOUS_CODE_PATTERNS = [
@@ -2685,10 +2751,23 @@ app.get('/api/audit/progress', (req, res) => {
   res.json(auditScanProgress);
 });
 
-// GET cached results (no re-scan)
+// GET cached results (no re-scan) — includes configChanged flag if configs modified since last scan
 app.get('/api/audit/results', (req, res) => {
   if (cachedAuditResult) {
-    res.json(cachedAuditResult);
+    // Check if config files changed since last scan
+    let configChanged = false;
+    const cached = loadAuditCache();
+    if (cached && cached.hash) {
+      const scanTargets = [
+        path.join(os.homedir(), '.claude'),
+        path.join(os.homedir(), '.config', 'Claude'),
+        path.join(os.homedir(), 'Library', 'Application Support', 'Claude'),
+        path.join(os.homedir(), '.openclaw'),
+      ];
+      const currentHash = computeScanHash(scanTargets);
+      configChanged = currentHash !== cached.hash;
+    }
+    res.json({ ...cachedAuditResult, configChanged });
   } else {
     res.json({ ok: false, findings: [], summary: null, error: 'No scan results yet' });
   }

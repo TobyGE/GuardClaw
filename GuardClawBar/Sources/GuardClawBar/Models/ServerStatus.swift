@@ -171,6 +171,7 @@ struct AuditScanResponse: Codable, Sendable {
     let findings: [AuditFinding]
     let summary: AuditSummary?
     let error: String?
+    let configChanged: Bool?
 }
 
 struct AuditSummary: Codable, Sendable {

@@ -80,6 +80,12 @@ final class BackendManager: @unchecked Sendable {
     func start() {
         guard !isRunning else { return }
 
+        // Check if port is already in use (e.g. manually started server)
+        if isPortInUse(port) {
+            print("[BackendManager] Port \(port) already in use — skipping launch, connecting to existing server.")
+            return
+        }
+
         if hasEmbeddedBackend {
             guard let node = embeddedNode, let entry = embeddedServerEntry, let dir = backendDir else { return }
             launch(node: node, entry: entry, workDir: dir, mode: "embedded")
@@ -156,6 +162,24 @@ final class BackendManager: @unchecked Sendable {
     }
 
     // MARK: - Helpers
+
+    private func isPortInUse(_ port: Int) -> Bool {
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else { return false }
+        defer { close(sock) }
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(port).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
+    }
 
     private func resolveViaWhich(_ binary: String) -> URL? {
         let task = Process()
