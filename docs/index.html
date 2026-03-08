@@ -7,7 +7,7 @@
     <meta name="keywords" content="AI agent security, LLM safety, tool monitoring, GuardClaw, OpenClaw, local AI">
     <meta property="og:title" content="GuardClaw — AI Agent Security Monitor">
     <meta property="og:description" content="Every tool call risk-scored before execution. 100% local, zero cloud.">
-    <meta property="og:image" content="https://tobyge.github.io/GuardClaw/screenshots/dashboard.jpg">
+    <meta property="og:image" content="https://tobyge.github.io/GuardClaw/screenshots/dashboard-overview-2026-03.png">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <title>GuardClaw — AI Agent Security Monitor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -137,6 +137,16 @@
             line-height: 1.7;
         }
         .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+        .oss-badges {
+            margin-top: 20px; display: flex; justify-content: center;
+            gap: 10px; flex-wrap: wrap;
+        }
+        .oss-badge {
+            font-size: 0.8rem; color: var(--text-dim); text-decoration: none;
+            background: var(--bg-card); border: 1px solid var(--border);
+            padding: 6px 12px; border-radius: 999px;
+        }
+        .oss-badge:hover { border-color: var(--border-hover); color: var(--text); }
         .btn {
             padding: 14px 32px; border-radius: 10px; font-weight: 600;
             font-size: 1rem; text-decoration: none; display: inline-flex;
@@ -166,6 +176,18 @@
             background: linear-gradient(135deg, rgba(59,130,246,0.1), transparent, rgba(139,92,246,0.1));
             pointer-events: none;
         }
+        .ui-updates { padding: 0 0 80px; }
+        .updates-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;
+        }
+        .update-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 14px; overflow: hidden;
+        }
+        .update-card img { width: 100%; display: block; }
+        .update-copy { padding: 16px 18px; }
+        .update-copy h3 { font-size: 1rem; margin-bottom: 4px; }
+        .update-copy p { color: var(--text-dim); font-size: 0.9rem; }
 
         /* ─── Stats ─── */
         .stats {
@@ -342,6 +364,7 @@
         /* ─── Responsive ─── */
         @media (max-width: 900px) {
             .container { padding: 0 20px; }
+            .updates-grid { grid-template-columns: 1fr; }
             .features-grid { grid-template-columns: 1fr 1fr; }
             .how-steps { grid-template-columns: 1fr 1fr; gap: 32px; }
             .how-steps::before { display: none; }
@@ -393,6 +416,7 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
         <ul class="nav-links">
+            <li><a href="#ui-updates">UI</a></li>
             <li><a href="#features">Features</a></li>
             <li><a href="#how-it-works">How It Works</a></li>
             <li><a href="#claude-code">Claude Code</a></li>
@@ -407,7 +431,7 @@
     <div class="container">
         <div class="hero-badge">
             <span class="dot"></span>
-            Monitoring AI agents in real-time
+            Monitoring AI agents in real-time · Mar 2026 UI
         </div>
         <h1>Security for<br><span class="gradient">AI Agents</span></h1>
         <p class="hero-sub">
@@ -419,6 +443,12 @@
             <a href="#install" class="btn btn-primary">Get Started</a>
             <a href="https://github.com/TobyGE/GuardClaw" class="btn btn-ghost">View on GitHub</a>
         </div>
+        <div class="oss-badges">
+            <a class="oss-badge" href="https://github.com/TobyGE/GuardClaw/blob/main/LICENSE">MIT License</a>
+            <a class="oss-badge" href="https://github.com/TobyGE/GuardClaw/stargazers">Community Stars</a>
+            <span class="oss-badge">Local-Only Runtime</span>
+            <span class="oss-badge">Open Source</span>
+        </div>
     </div>
 </section>
 
@@ -426,8 +456,47 @@
 <section class="screenshot-section">
     <div class="container">
         <div class="screenshot-wrap">
-            <img src="screenshots/dashboard.png?v=4" alt="GuardClaw Dashboard — real-time AI agent security monitoring">
+            <img src="screenshots/dashboard-overview-2026-03.png" alt="GuardClaw Dashboard — real-time AI agent security monitoring">
             <div class="screenshot-glow"></div>
+        </div>
+    </div>
+</section>
+
+<section class="ui-updates" id="ui-updates">
+    <div class="container">
+        <div class="section-header">
+            <h2>Latest UI Updates</h2>
+            <p>Updated dashboard, security scan, judge controls, and menu bar experience.</p>
+        </div>
+        <div class="updates-grid">
+            <article class="update-card">
+                <img src="screenshots/security-scan-clean-2026-03.png" alt="Security Scan page showing clean scan state">
+                <div class="update-copy">
+                    <h3>Security Scan</h3>
+                    <p>Static audit view with tools/skills risk summary and one-click scan run.</p>
+                </div>
+            </article>
+            <article class="update-card">
+                <img src="screenshots/judge-backend-mlx-qwen-2026-03.png" alt="Judge backend settings with built-in MLX model">
+                <div class="update-copy">
+                    <h3>Judge Backend Controls</h3>
+                    <p>Built-in MLX backend and model switching for local judge runtime.</p>
+                </div>
+            </article>
+            <article class="update-card">
+                <img src="screenshots/menubar-claude-tab-2026-03.png" alt="Menu bar app with Claude Code tab stats">
+                <div class="update-copy">
+                    <h3>Menu Bar Monitoring</h3>
+                    <p>Claude Code/OpenClaw tabs, quick risk counts, and jump-to-dashboard actions.</p>
+                </div>
+            </article>
+            <article class="update-card">
+                <img src="screenshots/menubar-essential-offline-2026-03.png" alt="GuardClaw Essential compact menu bar card">
+                <div class="update-copy">
+                    <h3>Essential Compact View</h3>
+                    <p>Compact status card for at-a-glance connectivity and high-risk status.</p>
+                </div>
+            </article>
         </div>
     </div>
 </section>
@@ -496,6 +565,11 @@
                 <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.5-3 5.7V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.3C6.2 13.5 5 11.4 5 9a7 7 0 0 1 7-7z"/><path d="M9 21h6"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></div>
                 <h3>Adaptive Memory</h3>
                 <p>Learns from your approve/deny decisions. Risk scores adjust automatically, and frequently approved patterns skip the LLM entirely.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h7"/><circle cx="18" cy="17" r="3"/></svg></div>
+                <h3>Gemini CLI Integration</h3>
+                <p>New provider onboarding and full event integration for Gemini CLI sessions in the same dashboard.</p>
             </div>
         </div>
     </div>

@@ -9,6 +9,18 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/TobyGE/GuardClaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TobyGE/GuardClaw" alt="License"></a>
+  <a href="https://github.com/TobyGE/GuardClaw/stargazers"><img src="https://img.shields.io/github/stars/TobyGE/GuardClaw?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/TobyGE/GuardClaw/network/members"><img src="https://img.shields.io/github/forks/TobyGE/GuardClaw?style=social" alt="GitHub forks"></a>
+  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/lint.yml?label=lint" alt="Lint status"></a>
+  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/deploy-pages.yml"><img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/deploy-pages.yml?label=pages" alt="Pages deploy status"></a>
+  <a href="https://github.com/TobyGE/GuardClaw/actions/workflows/release-guardclawbar.yml"><img src="https://img.shields.io/github/actions/workflow/status/TobyGE/GuardClaw/release-guardclawbar.yml?label=GuardClawBar%20release" alt="GuardClawBar release status"></a>
+  <img src="https://img.shields.io/badge/Local--Only-100%25-brightgreen" alt="Local only">
+  <img src="https://img.shields.io/badge/OS-macOS-blue" alt="macOS">
+  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+">
+</p>
+
+<p align="center">
   <a href="#the-problem">The Problem</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
@@ -19,7 +31,17 @@
 
 ---
 
-![GuardClaw Dashboard](docs/screenshots/dashboard.png?v=4)
+![GuardClaw Dashboard](docs/screenshots/dashboard-overview-2026-03.png)
+
+## UI Preview (Mar 2026)
+
+| Dashboard | Security Scan |
+|-----------|---------------|
+| ![Dashboard](docs/screenshots/dashboard-overview-2026-03.png) | ![Security Scan](docs/screenshots/security-scan-clean-2026-03.png) |
+
+| Judge Backend | Menu Bar |
+|---------------|----------|
+| ![Judge](docs/screenshots/judge-backend-mlx-qwen-2026-03.png) | ![Menu Bar](docs/screenshots/menubar-claude-tab-2026-03.png) |
 
 ## The Problem
 
@@ -205,6 +227,16 @@ Use **Mark Safe** / **Mark Risky** on any event to train memory directly.
 
 Prefer native over browser? **[GuardClawBar](docs/GUARDCLAWBAR.md)** sits in your menu bar — approve/deny tool calls, get desktop notifications, and monitor agents without opening a tab. [Download the DMG →](https://github.com/TobyGE/GuardClaw/releases)
 
+![GuardClawBar Essential](docs/screenshots/menubar-essential-offline-2026-03.png)
+
+## What's New (Mar 2026)
+
+- Gemini CLI full integration landed (provider onboarding + event flow)
+- Claude Code hook and OpenClaw plugin now support one-click install/uninstall from UI
+- New **Security Scan** page for MCP config, credential, code vulnerability, and OWASP agentic checks
+- New **Judge** settings page with built-in MLX backend and model switch workflow
+- Session/event polling and SQL aggregation optimized to reduce dashboard/API overhead
+
 ## Architecture
 
 - **Local LLM judge** — per-model prompt configs optimized for small models (qwen3-4b recommended)
@@ -239,7 +271,7 @@ See the [full roadmap](docs/ROADMAP.md) for details.
 
 **Coming up:** Post-execution audit with runtime taint analysis · Pollution source backtrace · Event search & filtering · Cross-session chain analysis
 
-**Recently shipped:** Claude Code auto-approve with context-aware reasoning · Adaptive memory · Human feedback loop · SQLite persistence · Real-time dashboard · 3-tier verdict system (100% benchmark accuracy) · Multi-platform support
+**Recently shipped:** Gemini CLI integration · One-click CC/OpenClaw setup actions · Security Scan UI · Built-in MLX Judge backend switcher · Claude Code auto-approve with context-aware reasoning · Adaptive memory · Human feedback loop · SQLite persistence · Real-time dashboard · 3-tier verdict system (100% benchmark accuracy) · Multi-platform support
 
 ## Links
 
