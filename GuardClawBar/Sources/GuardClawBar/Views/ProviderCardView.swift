@@ -56,6 +56,7 @@ struct ProviderCardView: View {
     @State private var auditSummary: AuditSummary? = nil
     @State private var isAuditScanning = false
     @State private var hasAuditScanned = false
+    @State private var scanProgressMessage: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -265,6 +266,18 @@ struct ProviderCardView: View {
                 .disabled(isAuditScanning)
             }
 
+            if isAuditScanning {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(scanProgressMessage.isEmpty ? "Scanning..." : scanProgressMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                }
+            }
+
             if hasAuditScanned, let s = auditSummary {
                 HStack(spacing: 10) {
                     auditStatLabel("Tools", total: s.totalTools ?? 0, risky: s.dangerousTools ?? 0)
@@ -359,7 +372,25 @@ struct ProviderCardView: View {
 
     private func runAuditScan() async {
         isAuditScanning = true
-        defer { isAuditScanning = false }
+        scanProgressMessage = "Starting scan..."
+        defer {
+            isAuditScanning = false
+            scanProgressMessage = ""
+        }
+
+        // Poll progress in background
+        let progressTask = Task {
+            let api = GuardClawAPI()
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch { break }
+                if let p = try? await api.auditProgress(), let msg = p.message, !msg.isEmpty {
+                    await MainActor.run { scanProgressMessage = msg }
+                }
+            }
+        }
+
         do {
             let resp = try await GuardClawAPI().auditScan()
             auditFindings = resp.findings.sorted {
@@ -368,8 +399,11 @@ struct ProviderCardView: View {
             auditSummary = resp.summary
             hasAuditScanned = true
         } catch {
+            print("[AuditScan] Error: \(error)")
             hasAuditScanned = true
         }
+
+        progressTask.cancel()
     }
 
     private func auditSeverityRank(_ s: String?) -> Int {

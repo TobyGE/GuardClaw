@@ -114,7 +114,12 @@ final class BackendManager: @unchecked Sendable {
 
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
+            if data.isEmpty {
+                // EOF — process closed stdout, stop reading
+                handle.readabilityHandler = nil
+                return
+            }
+            if let str = String(data: data, encoding: .utf8) {
                 print("[Backend] \(str.trimmingCharacters(in: .whitespacesAndNewlines))")
             }
         }

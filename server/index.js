@@ -1339,7 +1339,8 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     if (analysis.riskScore < CC_PASS_THRESHOLD) {
       const compactInput = compactToolInput(gcToolName, gcParams);
-      const msg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore})`;
+      const reason = analysis.reasoning || analysis.category || '';
+      const msg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${reason}`;
       const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
       console.log(`[GuardClaw] ${msg}`);
       return res.json({
@@ -2694,10 +2695,22 @@ app.get('/api/audit/results', (req, res) => {
 });
 
 // POST triggers a new scan (force=true to bypass cache)
+let activeScanPromise = null;
 app.post('/api/audit/scan', async (req, res) => {
   const { scanPath, force } = req.body;
-  const result = await runAuditScan(scanPath, force === true);
-  res.json(result);
+  // Dedup: if a scan is already running, wait for it
+  if (activeScanPromise) {
+    console.log('[SecurityScan] Scan already in progress, waiting...');
+    const result = await activeScanPromise;
+    return res.json(result);
+  }
+  activeScanPromise = runAuditScan(scanPath, force === true);
+  try {
+    const result = await activeScanPromise;
+    res.json(result);
+  } finally {
+    activeScanPromise = null;
+  }
 });
 
 // Blocking configuration API
@@ -3495,15 +3508,15 @@ app.listen(PORT, () => {
       console.log('🎯 GuardClaw is now monitoring your agents!');
       console.log('');
 
-      // Auto security scan on startup (uses cache if no changes)
-      console.log('🔍 Running initial security scan...');
-      runAuditScan().then(result => {
-        const s = result.summary;
-        const llmReviewed = result.findings.filter(f => f.llmVerdict).length;
-        console.log(`✅ Security scan complete: ${s.totalTools} tools, ${s.totalSkills} skills — ${s.dangerousTools} risky tools, ${s.dangerousSkills} risky skills${llmReviewed ? ` (${llmReviewed} LLM-reviewed)` : ''}`);
-      }).catch(err => {
-        console.warn('⚠️  Initial security scan failed:', err.message);
-      });
+      // Load cached audit results on startup (no auto-scan)
+      const cached = loadAuditCache();
+      if (cached && cached.result) {
+        cachedAuditResult = cached.result;
+        const s = cached.result.summary;
+        console.log(`Loaded cached scan: ${s.totalTools} tools, ${s.totalSkills} skills — ${s.dangerousTools} risky tools, ${s.dangerousSkills} risky skills`);
+      } else {
+        console.log('No cached scan results. Click scan in Bar to run.');
+      }
 
       // ─── Periodic cleanup (every 5 minutes) ─────────────────────────────
       setInterval(() => {

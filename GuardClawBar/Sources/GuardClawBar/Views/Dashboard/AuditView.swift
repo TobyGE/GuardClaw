@@ -6,6 +6,7 @@ struct AuditView: View {
     @State private var isScanning = false
     @State private var hasScanned = false
     @State private var errorMessage: String? = nil
+    @State private var scanProgressMessage: String = ""
     @State private var expandedId: String? = nil
 
     private let api = GuardClawAPI()
@@ -61,11 +62,16 @@ struct AuditView: View {
                 }
 
                 if isScanning {
-                    HStack {
-                        ProgressView().controlSize(.small)
-                        Text("Scanning ~/.claude and project files...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text(scanProgressMessage.isEmpty ? "Scanning..." : scanProgressMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .tint(.blue)
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -318,7 +324,21 @@ struct AuditView: View {
 
     private func runScan() async {
         isScanning = true
+        scanProgressMessage = "Starting scan..."
         errorMessage = nil
+
+        // Poll progress in background
+        let progressTask = Task {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch { break }
+                if let p = try? await api.auditProgress(), let msg = p.message, !msg.isEmpty {
+                    await MainActor.run { scanProgressMessage = msg }
+                }
+            }
+        }
+
         do {
             let resp = try await api.auditScan()
             findings = resp.findings.filter { $0.severity == "critical" && $0.llmVerdict != "FALSE_POSITIVE" }.sorted { severityRank($0.severity) < severityRank($1.severity) }
@@ -331,7 +351,10 @@ struct AuditView: View {
             errorMessage = "Scan failed: \(error.localizedDescription)"
             hasScanned = true
         }
+
+        progressTask.cancel()
         isScanning = false
+        scanProgressMessage = ""
     }
 
     private func severityRank(_ s: String?) -> Int {

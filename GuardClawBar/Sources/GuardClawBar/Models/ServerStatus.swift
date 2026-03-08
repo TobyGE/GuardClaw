@@ -159,6 +159,13 @@ struct RuleSuggestion: Codable, Sendable, Identifiable {
 
 // MARK: - Audit
 
+struct AuditScanProgress: Codable, Sendable {
+    let phase: String?    // "idle", "scanning", "llm-review", "done"
+    let current: Int?
+    let total: Int?
+    let message: String?
+}
+
 struct AuditScanResponse: Codable, Sendable {
     let ok: Bool?
     let findings: [AuditFinding]

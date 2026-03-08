@@ -193,10 +193,27 @@ actor GuardClawAPI {
         return try await get("/api/audit/results")
     }
 
+    func auditProgress() async throws -> AuditScanProgress {
+        return try await get("/api/audit/progress")
+    }
+
     func auditScan(scanPath: String? = nil) async throws -> AuditScanResponse {
         var body: [String: String] = [:]
         if let p = scanPath { body["scanPath"] = p }
-        return try await post("/api/audit/scan", body: body)
+        // Scan involves AST + LLM review, needs much longer timeout
+        let url = baseURL.appendingPathComponent("api/audit/scan")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 300 // 5 minutes
+        request.httpBody = try JSONEncoder().encode(body)
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 300
+        let longSession = URLSession(configuration: config)
+        let (data, response) = try await longSession.data(for: request)
+        try validateResponse(response)
+        return try JSONDecoder().decode(AuditScanResponse.self, from: data)
     }
 
     // MARK: - Private

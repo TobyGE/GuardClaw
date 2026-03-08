@@ -595,7 +595,10 @@ export class SafeguardService {
         };
       }
       this.cacheStats.ruleCalls++;
-      return { riskScore: 1, category: 'safe', reasoning: `Search tool: ${action.tool}`, allowed: true, warnings: [], backend: 'rules' };
+      const searchInfo = action.tool === 'grep' ? `pattern="${action.pattern || ''}" in ${action.path || '.'}`
+        : action.tool === 'glob' ? `pattern="${action.pattern || ''}" in ${action.path || '.'}`
+        : action.file_path || action.path || '';
+      return { riskScore: 1, category: 'safe', reasoning: `Read-only ${action.tool}: ${searchInfo}`, allowed: true, warnings: [], backend: 'rules' };
     }
 
     // Agent spawn: always flag — sub-agents run with full permissions
