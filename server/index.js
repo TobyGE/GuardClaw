@@ -171,6 +171,16 @@ function compactToolInput(toolName, params = {}) {
       return shorten(params.url || '', 120);
     case 'web_search':
       return shorten(params.query || '', 120);
+    case 'grep':
+      return `"${shorten(params.pattern || '', 40)}" in ${shorten(params.path || '.', 80)}`;
+    case 'glob':
+      return `"${shorten(params.pattern || '', 40)}" in ${shorten(params.path || '.', 80)}`;
+    case 'agent_spawn':
+      return shorten(params.description || params.prompt || '', 120);
+    case 'skill':
+      return shorten(params.skill || params.command || '', 80);
+    case 'tool_search':
+      return shorten(params.query || '', 80);
     default:
       return shorten(JSON.stringify(params), 120);
   }
@@ -1234,7 +1244,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
       if (adjScore < 9) {
         const compactInput = compactToolInput(gcToolName, gcParams);
-        const allowReason = `ALLOW ${gcToolName}: ${compactInput} (score ${adjScore}, memory)`;
+        const allowReason = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${adjScore}, memory)`;
         const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
         console.log(`[GuardClaw] 🧠 ${allowReason}`);
         return res.json({
@@ -1329,7 +1339,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     if (analysis.riskScore < CC_PASS_THRESHOLD) {
       const compactInput = compactToolInput(gcToolName, gcParams);
-      const msg = `ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore})`;
+      const msg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore})`;
       const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
       console.log(`[GuardClaw] ${msg}`);
       return res.json({
@@ -1342,36 +1352,16 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       });
     }
 
-    // High risk → ask user in terminal if blocking enabled, otherwise pass-through
-    if (blockingEnabled) {
-      const askMsg = `⛨ GuardClaw: high-risk action detected (score: ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
-      console.log(`[GuardClaw] ❓ Claude Code asking user: ${tool_name} (score ${analysis.riskScore})`);
-      // Track this 'ask' so we can infer approve/deny from PostToolUse
-      const askKey = `${sessionKey}:${gcToolName}:${commandStr.slice(0, 200)}`;
-      ccPendingAsks.set(askKey, {
-        toolName: gcToolName, commandStr, displayInput, riskScore: analysis.riskScore,
-        sessionKey, timestamp: Date.now(),
-      });
-      // Fallback: infer denial after timeout if no PostToolUse comes
-      setTimeout(() => {
-        const pending = ccPendingAsks.get(askKey);
-        if (pending) {
-          ccPendingAsks.delete(askKey);
-          memoryStore.recordDecision(pending.toolName, pending.displayInput, pending.riskScore, 'deny', pending.sessionKey);
-          console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (timeout) → ${pending.toolName}: ${pending.commandStr.slice(0, 80)}`);
-        }
-      }, PENDING_ASK_TIMEOUT_MS);
-      return res.json({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'ask',
-          permissionDecisionReason: askMsg,
-        },
-      });
-    }
-
-    console.log(`[GuardClaw] ⛨ Claude Code pass-through: ${tool_name} (score ${analysis.riskScore}) — user will decide`);
-    return res.json({});
+    // High risk → block directly, GuardClaw is the permission authority
+    const blockMsg = `⛨ GuardClaw BLOCKED (score ${analysis.riskScore}): ${analysis.reasoning || analysis.category}`;
+    console.log(`[GuardClaw] 🚫 ${blockMsg}`);
+    return res.json({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'block',
+        permissionDecisionReason: blockMsg,
+      },
+    });
 
   } catch (error) {
     console.error('[GuardClaw] Claude Code hook error:', error.message);
