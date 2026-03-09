@@ -63,48 +63,46 @@ GuardClaw sits between the agent and tools, scores each action with a local LLM,
 
 Recommended model: `qwen/qwen3-4b-2507`
 
-### Install
+### 1) Install and start GuardClaw
 
 ```bash
 git clone https://github.com/TobyGE/GuardClaw.git
 cd GuardClaw
 npm install && npm install --prefix client && npm run build
 npm link
-```
-
-### Claude Code
-
-```bash
-# Install Claude Code hooks (writes to ~/.claude/settings.json)
-node scripts/install-claude-code.js
-
-# Start GuardClaw
 guardclaw start
 ```
 
-Safe operations can be auto-approved; high-risk operations stay in your approval path.
+### 2) Run onboarding in the dashboard (`localhost:3002`)
+
+Use the built-in onboarding flow to finish setup in order:
+
+1. **Judge**: choose backend (Built-in MLX / LM Studio / Ollama) and activate a model
+2. **Connections**: install hooks/plugin for Claude Code, Gemini CLI, or OpenClaw
+3. **Security Check**: run initial scan for skills, hooks, MCP servers, and plugin code
+4. **Protection**: choose `Strict` (recommended), `Balanced`, or `Monitor`
+
+`Strict` enables fail-closed by default, so risky calls stop if GuardClaw or the local judge is unavailable.
+
+Restart the target client after installing hooks/plugin (Claude Code, Gemini CLI, OpenClaw).
+
+### 3) Verify with a real task
+
+- run a safe command and confirm it is scored and logged
+- run a risky command and confirm it is gated based on your protection level
 
 ![Claude Code auto-approve](docs/screenshots/cc-auto-approve.png)
 
-Uninstall hooks:
+### Optional: Manual CLI setup
+
+If you prefer terminal-only setup:
 
 ```bash
-node scripts/install-claude-code.js --uninstall
-```
+# Claude Code hooks
+node scripts/install-claude-code.js
 
-### OpenClaw
-
-```bash
-# Auto-detect token
+# OpenClaw token + plugin
 guardclaw config detect-token --save
-
-# Start in monitor mode
-guardclaw start
-```
-
-Enable active blocking:
-
-```bash
 guardclaw plugin install
 openclaw gateway restart
 bash scripts/patch-openclaw.sh

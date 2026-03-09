@@ -655,8 +655,8 @@
 <section class="install-section" id="install">
     <div class="container">
         <div class="section-header">
-            <h2>Get Started in 60 Seconds</h2>
-            <p>Requires <a href="https://lmstudio.ai" style="color:var(--accent)">LM Studio</a> or <a href="https://ollama.ai" style="color:var(--accent)">Ollama</a> running locally, plus <a href="https://github.com/openclaw/openclaw" style="color:var(--accent)">OpenClaw</a>, <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent)">Claude Code</a>, <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent)">Gemini CLI</a>, or <a href="https://github.com/HKUDS/nanobot" style="color:var(--accent)">nanobot</a>.</p>
+            <h2>Quick Start</h2>
+            <p>Start GuardClaw, then complete onboarding in the dashboard: Judge → Connections → Security Check → Protection.</p>
         </div>
         <div class="code-block">
             <div class="code-header">
@@ -664,19 +664,33 @@
                 <span class="code-dot code-dot-y"></span>
                 <span class="code-dot code-dot-g"></span>
             </div>
-            <span class="line"><span class="comment"># Install</span></span>
+            <span class="line"><span class="comment"># Install and start GuardClaw</span></span>
             <span class="line"><span class="cmd">git clone</span> https://github.com/TobyGE/GuardClaw.git</span>
             <span class="line"><span class="cmd">cd</span> GuardClaw</span>
             <span class="line"><span class="cmd">npm install</span> && <span class="cmd">npm install</span> <span class="flag">--prefix</span> client && <span class="cmd">npm run</span> build</span>
             <span class="line"><span class="cmd">npm link</span></span>
-            <span class="line"></span>
-            <span class="line"><span class="comment"># Configure & start</span></span>
-            <span class="line"><span class="cmd">guardclaw config</span> detect-token <span class="flag">--save</span></span>
             <span class="line"><span class="cmd">guardclaw start</span>  <span class="comment"># → opens localhost:3002</span></span>
-            <span class="line"></span>
-            <span class="line"><span class="comment"># Optional: enable active blocking</span></span>
-            <span class="line"><span class="cmd">guardclaw plugin</span> install</span>
-            <span class="line"><span class="cmd">openclaw gateway</span> restart</span>
+        </div>
+        <div class="blocking-grid" style="margin-top: 28px;">
+            <div class="blocking-text">
+                <h3>Onboarding Flow (Recommended)</h3>
+                <ul class="blocking-list">
+                    <li><span class="check">1</span> <strong>Judge</strong>: pick Built-in MLX, LM Studio, or Ollama and activate a model</li>
+                    <li><span class="check">2</span> <strong>Connections</strong>: install hooks/plugin for Claude Code, Gemini CLI, or OpenClaw</li>
+                    <li><span class="check">3</span> <strong>Security Check</strong>: run the initial scan for skills, hooks, MCP servers, and plugins</li>
+                    <li><span class="check">4</span> <strong>Protection</strong>: choose Strict (recommended), Balanced, or Monitor mode</li>
+                </ul>
+                <p style="margin-top: 8px;">Strict enables fail-closed by default, so risky calls stop if GuardClaw or the local judge is unavailable.</p>
+                <p style="margin-top: 8px;">After installing hooks/plugin, restart the corresponding client to activate interception.</p>
+            </div>
+            <div class="blocking-text">
+                <h3>Prerequisites</h3>
+                <ul class="blocking-list">
+                    <li><span class="check">✓</span> <a href="https://lmstudio.ai" style="color:var(--accent)">LM Studio</a> or <a href="https://ollama.ai" style="color:var(--accent)">Ollama</a></li>
+                    <li><span class="check">✓</span> <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent)">Claude Code</a>, <a href="https://github.com/openclaw/openclaw" style="color:var(--accent)">OpenClaw</a>, <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent)">Gemini CLI</a>, or <a href="https://github.com/HKUDS/nanobot" style="color:var(--accent)">nanobot</a></li>
+                    <li><span class="check">✓</span> Recommended judge model: <code>qwen/qwen3-4b-2507</code></li>
+                </ul>
+            </div>
         </div>
     </div>
 </section>
