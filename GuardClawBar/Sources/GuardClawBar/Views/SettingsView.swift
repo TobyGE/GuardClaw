@@ -443,6 +443,12 @@ private struct ProtectionSection: View {
     @Binding var failClosedEnabled: Bool
     let api: GuardClawAPI
 
+    private var failClosedSummary: String {
+        failClosedEnabled
+            ? "When GuardClaw or the judge is unreachable, risky tool calls are blocked instead of slipping through unreviewed."
+            : "Risk: if the judge times out, crashes, or is offline, risky tool calls can continue without GuardClaw approval."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Protection")
@@ -486,6 +492,10 @@ private struct ProtectionSection: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
             }
+
+            Text(failClosedSummary)
+                .font(.system(size: 9))
+                .foregroundStyle(failClosedEnabled ? Color.secondary : Color.orange)
         }
     }
 }

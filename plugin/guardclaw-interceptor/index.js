@@ -33,7 +33,7 @@ export default function (api) {
   // health check completes. Flips to false as soon as GuardClaw is unreachable.
   let guardclawAvailable = true;
   let guardclawPid = null; // fetched from /api/health, used for PID-based kill detection
-  let failClosedEnabled = false; // default OFF — synced from /api/health every 15s; opt-in via dashboard
+  let failClosedEnabled = true; // default ON — synced from /api/health every 15s
   let blockingEnabled = true;   // cached from /api/health; false = monitor mode (no blocking)
 
   const checkGuardClawHealth = async () => {

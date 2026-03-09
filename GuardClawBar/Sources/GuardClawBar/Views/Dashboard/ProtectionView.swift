@@ -14,6 +14,16 @@ struct ProtectionView: View {
         appState.serverStatus?.failClosed == true
     }
 
+    private var failClosedDetailTitle: String {
+        failClosed ? "Fail-open risk removed" : "Fail-open risk active"
+    }
+
+    private var failClosedDetailBody: String {
+        failClosed
+            ? "If GuardClaw or the local judge times out, crashes, or is offline, risky actions stop and wait for recovery instead of running without review."
+            : "If GuardClaw or the local judge times out, crashes, or is offline, risky actions may continue without review. This favors availability over safety."
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -34,12 +44,28 @@ struct ProtectionView: View {
                     title: "Fail-Closed (Offline)",
                     icon: "lock.fill",
                     description: failClosed
-                        ? "If the judge is unreachable, all tool calls are BLOCKED."
-                        : "If the judge is unreachable, tool calls proceed (fail-open).",
+                        ? "If the judge is unreachable, risky tool calls are blocked until protection recovers."
+                        : "If the judge is unreachable, risky tool calls may proceed without GuardClaw review.",
                     color: failClosed ? .blue : .gray,
                     isOn: failClosed,
                     onToggle: toggleFailClosed
                 )
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(failClosedDetailTitle)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        Text(failClosedDetailBody)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    Label("Offline Judge Behavior", systemImage: failClosed ? "checkmark.shield" : "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(failClosed ? Color.secondary : Color.orange)
+                }
 
                 if let msg = statusMessage {
                     Text(msg)
@@ -110,7 +136,9 @@ struct ProtectionView: View {
         Task {
             do {
                 _ = try await api.toggleFailClosed(enabled: newVal)
-                statusMessage = "\u{2713} Fail-closed \(newVal ? "enabled" : "disabled")"
+                statusMessage = newVal
+                    ? "\u{2713} Fail-closed enabled — risky calls stop if GuardClaw goes offline"
+                    : "Fail-closed disabled — risky calls may continue if GuardClaw or the judge fails"
             } catch {
                 statusMessage = "Failed: \(error.localizedDescription)"
             }

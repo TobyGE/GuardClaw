@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ProtectionStep: View {
     let onFinish: () -> Void
-    @State private var selectedLevel = "balanced"
+    @State private var selectedLevel = "strict"
     @State private var isApplying = false
 
     private let api = GuardClawAPI()
@@ -23,7 +23,7 @@ struct ProtectionStep: View {
                     id: "strict",
                     title: "Strict",
                     subtitle: "Active Blocking + Fail-Closed",
-                    description: "Maximum security. If the judge is offline, all calls are blocked.",
+                    description: "Recommended. Risky calls require approval, and GuardClaw will not silently fail open when the judge is offline.",
                     icon: "lock.shield.fill",
                     color: .red,
                     isSelected: selectedLevel == "strict"
@@ -33,7 +33,7 @@ struct ProtectionStep: View {
                     id: "balanced",
                     title: "Balanced",
                     subtitle: "Active Blocking + Fail-Open",
-                    description: "Recommended. Blocks risky calls, but allows through if judge is offline.",
+                    description: "Keeps approvals on, but if the judge is offline some risky calls may continue without review.",
                     icon: "shield.lefthalf.filled",
                     color: .blue,
                     isSelected: selectedLevel == "balanced"
