@@ -1,15 +1,17 @@
 // Central notification dispatcher for GuardClaw approvals.
-// Routes approval notifications to all configured channels (Telegram, Discord).
+// Routes approval notifications to all configured channels (Telegram, Discord, WhatsApp).
 // Generates one-click tokens for URL-based approval.
 
 import crypto from 'crypto';
 import { TelegramChannel } from './telegram.js';
 import { DiscordChannel } from './discord.js';
+import { WhatsAppChannel } from './whatsapp.js';
 
 export class ApprovalNotifier {
   constructor(config = {}) {
     this.telegram = null;
     this.discord = null;
+    this.whatsapp = null;
     // approvalId → token (for one-click URL verification)
     this.tokens = new Map();
     // Callback: (approvalId, action, alwaysApprove) => Promise<void>
@@ -34,13 +36,23 @@ export class ApprovalNotifier {
       console.log('[Notifier] Discord channel enabled');
     }
 
-    if (!this.telegram && !this.discord) {
+    // Initialize WhatsApp
+    const waToken = config.whatsappToken || process.env.WHATSAPP_TOKEN;
+    const waPhoneId = config.whatsappPhoneId || process.env.WHATSAPP_PHONE_ID;
+    const waTo = config.whatsappTo || process.env.WHATSAPP_TO;
+    if (waToken && waPhoneId && waTo) {
+      this.whatsapp = new WhatsAppChannel(waToken, waPhoneId, waTo);
+      this.whatsapp.onApprovalAction = (approvalId, action) => this._handleChannelAction(approvalId, action);
+      console.log('[Notifier] WhatsApp channel enabled');
+    }
+
+    if (!this.telegram && !this.discord && !this.whatsapp) {
       console.log('[Notifier] No notification channels configured');
     }
   }
 
   get hasChannels() {
-    return !!(this.telegram || this.discord);
+    return !!(this.telegram || this.discord || this.whatsapp);
   }
 
   generateToken(approvalId) {
@@ -64,6 +76,7 @@ export class ApprovalNotifier {
     const tasks = [];
     if (this.telegram) tasks.push(this.telegram.sendApprovalRequest(approval));
     if (this.discord) tasks.push(this.discord.sendApprovalRequest(approval, token));
+    if (this.whatsapp) tasks.push(this.whatsapp.sendApprovalRequest(approval));
     if (tasks.length > 0) {
       await Promise.allSettled(tasks);
     }
@@ -74,6 +87,7 @@ export class ApprovalNotifier {
     const tasks = [];
     if (this.telegram) tasks.push(this.telegram.updateMessageResolved(approvalId, action));
     if (this.discord) tasks.push(this.discord.updateMessageResolved(approvalId, action));
+    if (this.whatsapp) tasks.push(this.whatsapp.updateMessageResolved(approvalId, action));
     if (tasks.length > 0) {
       await Promise.allSettled(tasks);
     }
@@ -90,6 +104,7 @@ export class ApprovalNotifier {
     const results = {};
     if (this.telegram) results.telegram = await this.telegram.testConnection();
     if (this.discord) results.discord = await this.discord.testConnection();
+    if (this.whatsapp) results.whatsapp = await this.whatsapp.testConnection();
     return results;
   }
 

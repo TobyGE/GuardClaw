@@ -1572,7 +1572,28 @@ app.get('/api/channels/status', async (_req, res) => {
   res.json({
     telegram: { configured: !!approvalNotifier.telegram, ...results.telegram },
     discord: { configured: !!approvalNotifier.discord, ...results.discord },
+    whatsapp: { configured: !!approvalNotifier.whatsapp, ...results.whatsapp },
   });
+});
+
+// ─── WhatsApp webhook (receives button callbacks from Meta) ──────────────────
+// Meta sends GET for verification, POST for incoming messages/button clicks.
+app.get('/api/hooks/whatsapp-webhook', (req, res) => {
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'guardclaw';
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === verifyToken) {
+    return res.status(200).send(challenge);
+  }
+  res.sendStatus(403);
+});
+
+app.post('/api/hooks/whatsapp-webhook', (req, res) => {
+  if (approvalNotifier.whatsapp) {
+    approvalNotifier.whatsapp.handleWebhook(req.body);
+  }
+  res.sendStatus(200);
 });
 
 // Credential patterns for scanning tool output (Read + Bash)
