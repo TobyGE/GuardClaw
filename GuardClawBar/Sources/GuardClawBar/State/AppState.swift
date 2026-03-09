@@ -12,6 +12,7 @@ final class AppState {
     var ccEvents: [EventItem] = []
     var ocEvents: [EventItem] = []
     var geminiEvents: [EventItem] = []
+    var cursorEvents: [EventItem] = []
 
     // Approvals
     var pendingApprovals: [ApprovalItem] = []
@@ -39,7 +40,7 @@ final class AppState {
     var lastError: String?
 
     // Providers
-    let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider(), GeminiCLIProvider()]
+    let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider(), GeminiCLIProvider(), CursorProvider()]
 
     // Internals
     let api = GuardClawAPI()
@@ -64,6 +65,7 @@ final class AppState {
         case "claude-code": return ccEvents
         case "openclaw": return ocEvents
         case "gemini-cli": return geminiEvents
+        case "cursor": return cursorEvents
         default: return []
         }
     }
@@ -147,12 +149,15 @@ final class AppState {
             async let cc = try? api.eventHistory(limit: 999999, backend: "claude-code")
             async let oc = try? api.eventHistory(limit: 999999, backend: "openclaw")
             async let gm = try? api.eventHistory(limit: 999999, backend: "gemini-cli")
+            async let cu = try? api.eventHistory(limit: 999999, backend: "cursor")
             if let ccResult = await cc { ccEvents = ccResult.events }
             if let ocResult = await oc { ocEvents = ocResult.events }
             if let gmResult = await gm { geminiEvents = gmResult.events }
+            if let cuResult = await cu { cursorEvents = cuResult.events }
             if let ts = ccEvents.first?.timestamp { ccLastTimestamp = Int(ts) }
             if let ts = ocEvents.first?.timestamp { ocLastTimestamp = Int(ts) }
             if let ts = geminiEvents.first?.timestamp { geminiLastTimestamp = Int(ts) }
+            if let ts = cursorEvents.first?.timestamp { cursorLastTimestamp = Int(ts) }
             eventsInitialized = true
         }
 
@@ -184,6 +189,10 @@ final class AppState {
                 } else if backend == "gemini-cli" || eventData.sessionKey?.hasPrefix("gemini:") == true {
                     if !geminiEvents.contains(where: { $0.id == eventData.id }) {
                         geminiEvents.insert(eventData, at: 0)
+                    }
+                } else if backend == "cursor" || eventData.sessionKey?.hasPrefix("cursor:") == true {
+                    if !cursorEvents.contains(where: { $0.id == eventData.id }) {
+                        cursorEvents.insert(eventData, at: 0)
                     }
                 } else {
                     if !ccEvents.contains(where: { $0.id == eventData.id }) {
@@ -220,6 +229,7 @@ final class AppState {
     private var ccLastTimestamp: Int?  // milliseconds epoch for server query
     private var ocLastTimestamp: Int?
     private var geminiLastTimestamp: Int?
+    private var cursorLastTimestamp: Int?
     private var eventsInitialized = false
 
     private func poll() async {
@@ -239,6 +249,7 @@ final class AppState {
                     async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code", since: ccLastTimestamp)
                     async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw", since: ocLastTimestamp)
                     async let gmResult = api.eventHistory(limit: 999999, backend: "gemini-cli", since: geminiLastTimestamp)
+                    async let cuResult = api.eventHistory(limit: 999999, backend: "cursor", since: cursorLastTimestamp)
 
                     serverStatus = try await statusResult
                     pendingApprovals = (try await approvalsResult).pending
@@ -246,14 +257,17 @@ final class AppState {
                     let newCC = (try await ccResult).events
                     let newOC = (try await ocResult).events
                     let newGM = (try await gmResult).events
+                    let newCU = (try await cuResult).events
                     mergeNewEvents(&ccEvents, newEvents: newCC, lastTimestamp: &ccLastTimestamp)
                     mergeNewEvents(&ocEvents, newEvents: newOC, lastTimestamp: &ocLastTimestamp)
                     mergeNewEvents(&geminiEvents, newEvents: newGM, lastTimestamp: &geminiLastTimestamp)
+                    mergeNewEvents(&cursorEvents, newEvents: newCU, lastTimestamp: &cursorLastTimestamp)
                 } else {
                     // First poll: fetch all events
                     async let ccResult = api.eventHistory(limit: 999999, backend: "claude-code")
                     async let ocResult = api.eventHistory(limit: 999999, backend: "openclaw")
                     async let gmResult = api.eventHistory(limit: 999999, backend: "gemini-cli")
+                    async let cuResult = api.eventHistory(limit: 999999, backend: "cursor")
 
                     serverStatus = try await statusResult
                     pendingApprovals = (try await approvalsResult).pending
@@ -261,9 +275,11 @@ final class AppState {
                     ccEvents = (try await ccResult).events
                     ocEvents = (try await ocResult).events
                     geminiEvents = (try await gmResult).events
+                    cursorEvents = (try await cuResult).events
                     if let ts = ccEvents.first?.timestamp { ccLastTimestamp = Int(ts) }
                     if let ts = ocEvents.first?.timestamp { ocLastTimestamp = Int(ts) }
                     if let ts = geminiEvents.first?.timestamp { geminiLastTimestamp = Int(ts) }
+                    if let ts = cursorEvents.first?.timestamp { cursorLastTimestamp = Int(ts) }
                     eventsInitialized = true
                 }
             } else {

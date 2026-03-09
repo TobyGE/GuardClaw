@@ -431,8 +431,12 @@ app.get('/api/status', async (req, res) => {
   const geminiConnected = geminiLastHookTime > 0 && (Date.now() - geminiLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
   backends['gemini-cli'] = { connected: geminiConnected, label: 'Gemini', type: 'http-hook' };
 
+  // Cursor IDE uses subprocess hooks via HTTP bridge
+  const cursorConnected = cursorLastHookTime > 0 && (Date.now() - cursorLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
+  backends['cursor'] = { connected: cursorConnected, label: 'Cursor', type: 'http-hook' };
+
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || geminiConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
+  const anyConnected = ccConnected || geminiConnected || cursorConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -2616,6 +2620,326 @@ app.post('/api/setup/gemini-cli/uninstall', (req, res) => {
     if (fs.existsSync(policyPath)) fs.unlinkSync(policyPath);
 
     console.log(`[GuardClaw] Gemini CLI hooks removed from ${settingsPath}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== Cursor IDE Hooks ====================
+
+function mapCursorTool(toolName) {
+  const map = {
+    Shell: 'exec', shell: 'exec', run_terminal_command: 'exec',
+    Write: 'write', write_to_file: 'write', create_file: 'write', WriteFile: 'write',
+    Edit: 'edit', edit_file: 'edit', replace_in_file: 'edit',
+    Read: 'read', read_file: 'read', ReadFile: 'read',
+    Search: 'grep', grep_search: 'grep', codebase_search: 'grep',
+    Grep: 'grep', Glob: 'glob', list_files: 'read', list_dir: 'read',
+    web_search: 'web_search', WebSearch: 'web_search',
+    web_fetch: 'web_fetch', WebFetch: 'web_fetch',
+    Task: 'agent_spawn',
+  };
+  return map[toolName] || toolName;
+}
+
+function mapCursorParams(toolName, toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return {};
+  // Cursor tool_input is already well-structured
+  if (toolInput.command) return { command: toolInput.command };
+  if (toolInput.file_path) return toolInput;
+  if (toolInput.path) return { file_path: toolInput.path, ...toolInput };
+  return toolInput;
+}
+
+let cursorLastHookTime = 0;
+
+app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+  cursorLastHookTime = Date.now();
+  const toolName = req.body.tool_name || req.body.toolName;
+  const toolInput = req.body.tool_input || req.body.toolInput || {};
+  const sessionId = req.body.conversation_id || req.body.session_id || req.body.sessionId;
+  const command = req.body.command; // beforeShellExecution sends command directly
+  console.log(`[GuardClaw] Cursor pre-tool-use:`, JSON.stringify(req.body).slice(0, 500));
+  if (!toolName && !command) return res.json({ permission: 'allow' });
+
+  const effectiveToolName = command ? 'exec' : toolName;
+  const gcToolName = command ? 'exec' : mapCursorTool(toolName);
+  const gcParams = command ? { command } : mapCursorParams(toolName, toolInput);
+  const sessionKey = sessionId ? `cursor:${sessionId}` : 'cursor:default';
+
+  try {
+    const chainHistory = getChainHistory(sessionKey, gcToolName);
+    const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+
+    // Memory lookup
+    const mem = memoryStore.lookup(gcToolName, commandStr);
+    let memoryHint = null;
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = { pattern: mem.pattern, approveCount: mem.approveCount, denyCount: mem.denyCount, confidence: mem.confidence, suggestedAction: mem.suggestedAction };
+    }
+
+    // Auto-approve from memory
+    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+      const baseScore = 5;
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
+      const adjScore = Math.max(1, Math.min(10, baseScore + adj));
+      if (adjScore < 9) {
+        console.log(`[GuardClaw] Cursor auto-approve (memory): ${gcToolName} score=${adjScore}`);
+        return res.json({ permission: 'allow' });
+      }
+    }
+
+    // Evaluate
+    let analysis;
+    if (gcToolName === 'exec') {
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory);
+    } else {
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory);
+    }
+
+    // Memory adjustment
+    if (memoryHint) {
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, analysis.riskScore);
+      if (adj !== 0) {
+        analysis.originalRiskScore = analysis.riskScore;
+        analysis.riskScore = Math.max(1, Math.min(10, analysis.riskScore + adj));
+      }
+    }
+
+    // Store event
+    const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+    const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
+    eventStore.addEvent({
+      type: 'cursor-tool',
+      tool: gcToolName,
+      command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
+      description: displayInput.slice(0, 500),
+      sessionKey,
+      riskScore: analysis.riskScore,
+      category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
+      allowed: analysis.riskScore < 8 ? 1 : 0,
+      safeguard: {
+        riskScore: analysis.riskScore,
+        reasoning: analysis.reasoning,
+        category: analysis.category,
+        verdict,
+        allowed: analysis.riskScore < 8,
+        backend: 'cursor',
+      },
+      timestamp: Date.now(),
+    });
+
+    const CURSOR_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_CURSOR_PASS_THRESHOLD || '8', 10);
+
+    if (analysis.riskScore >= CURSOR_PASS_THRESHOLD && blockingEnabled) {
+      // High risk: create pending approval and wait
+      const approvalId = `cursor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
+      console.log(`[GuardClaw] Cursor ASK: ${gcToolName} (${approvalId}) — ${blockReason}`);
+
+      const decision = await new Promise((resolve) => {
+        pendingApprovals.set(approvalId, {
+          toolName: gcToolName,
+          originalToolName: effectiveToolName,
+          displayInput: displayInput.slice(0, 500),
+          params: gcParams,
+          riskScore: analysis.riskScore,
+          reason: blockReason,
+          createdAt: Date.now(),
+          sessionKey,
+          backend: 'cursor',
+          resolve,
+        });
+
+        eventStore.notifyListeners({
+          type: 'approval-request',
+          data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'cursor' }),
+        });
+
+        setTimeout(() => {
+          if (pendingApprovals.has(approvalId)) {
+            pendingApprovals.delete(approvalId);
+            resolve({ denied: true, reason: 'Timed out waiting for approval' });
+          }
+        }, 300_000);
+      });
+
+      if (decision.denied) {
+        console.log(`[GuardClaw] Cursor DENIED: ${gcToolName} (${approvalId})`);
+        return res.json({ permission: 'deny', user_message: `⛨ GuardClaw BLOCK: ${decision.reason || blockReason}` });
+      }
+
+      console.log(`[GuardClaw] Cursor APPROVED: ${gcToolName} (${approvalId})`);
+      return res.json({ permission: 'allow', user_message: `⛨ GuardClaw APPROVED: ${gcToolName} (score ${analysis.riskScore})` });
+    }
+
+    const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+    const userMsg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
+    console.log(`[GuardClaw] Cursor ALLOW: ${compactInput} score=${analysis.riskScore}`);
+    return res.json({ permission: 'allow', user_message: userMsg });
+
+  } catch (error) {
+    console.error('[GuardClaw] Cursor hook error:', error.message);
+    return res.json({ permission: 'allow' });
+  }
+});
+
+app.post('/api/hooks/cursor/post-tool-use', rateLimit(60_000, 120), (req, res) => {
+  cursorLastHookTime = Date.now();
+  const toolName = req.body.tool_name || req.body.toolName;
+  const toolInput = req.body.tool_input || req.body.toolInput || {};
+  const toolOutput = req.body.tool_output || req.body.output;
+  const sessionId = req.body.conversation_id || req.body.session_id;
+  if (!toolName) return res.json({ permission: 'allow' });
+
+  const gcToolName = mapCursorTool(toolName);
+  const gcParams = mapCursorParams(toolName, toolInput);
+  const sessionKey = sessionId ? `cursor:${sessionId}` : 'cursor:default';
+
+  // Chain tracking
+  addToChainHistory(sessionKey, gcToolName, gcParams, toolOutput);
+
+  // Credential scanning on output
+  if (toolOutput && typeof toolOutput === 'string') {
+    const credPatterns = [/(?:AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}/i, /ghp_[a-zA-Z0-9]{36}/, /sk-[a-zA-Z0-9]{20,}/];
+    for (const pat of credPatterns) {
+      if (pat.test(toolOutput)) {
+        eventStore.addEvent({
+          type: 'cursor-tool',
+          tool: gcToolName,
+          description: `[CREDENTIAL DETECTED in output] ${gcToolName}`,
+          sessionKey,
+          riskScore: 10,
+          category: 'high-risk',
+          allowed: 0,
+          safeguard: { riskScore: 10, reasoning: 'Credential detected in tool output', category: 'credential-leak', verdict: 'alert', backend: 'cursor' },
+          timestamp: Date.now(),
+        });
+        break;
+      }
+    }
+  }
+
+  res.json({ permission: 'allow' });
+});
+
+// Cursor setup/uninstall/status
+app.post('/api/setup/cursor', (req, res) => {
+  try {
+    const cursorDir = path.join(os.homedir(), '.cursor');
+    const hooksPath = path.join(cursorDir, 'hooks.json');
+    const port = process.env.PORT || '3002';
+
+    if (!fs.existsSync(cursorDir)) {
+      fs.mkdirSync(cursorDir, { recursive: true });
+    }
+
+    // Find hook script
+    let hookScript = null;
+    const candidates = [
+      path.join(path.dirname(process.argv[1] || ''), 'scripts', 'cursor-hook.sh'),
+      path.join(import.meta.dirname, '..', 'scripts', 'cursor-hook.sh'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { hookScript = c; break; }
+    }
+    if (!hookScript) {
+      return res.status(404).json({ error: 'Hook script not found in app bundle' });
+    }
+
+    try { fs.chmodSync(hookScript, 0o755); } catch {}
+
+    let hooksConfig = { version: 1, hooks: {} };
+    if (fs.existsSync(hooksPath)) {
+      try { hooksConfig = JSON.parse(fs.readFileSync(hooksPath, 'utf8')); } catch {}
+    }
+    if (!hooksConfig.hooks) hooksConfig.hooks = {};
+    if (!hooksConfig.version) hooksConfig.version = 1;
+
+    const isGCHook = (h) => h.command?.includes('cursor-hook.sh');
+
+    // Remove existing GuardClaw hooks
+    for (const event of ['preToolUse', 'postToolUse', 'beforeShellExecution', 'afterShellExecution', 'beforeMCPExecution', 'afterMCPExecution']) {
+      if (Array.isArray(hooksConfig.hooks[event])) {
+        hooksConfig.hooks[event] = hooksConfig.hooks[event].filter(h => !isGCHook(h));
+        if (hooksConfig.hooks[event].length === 0) delete hooksConfig.hooks[event];
+      }
+    }
+
+    const hookCmd = `GUARDCLAW_PORT=${port} ${hookScript}`;
+
+    // Add GuardClaw hooks (Cursor uses beforeShellExecution, not preToolUse)
+    hooksConfig.hooks.beforeShellExecution = hooksConfig.hooks.beforeShellExecution || [];
+    hooksConfig.hooks.beforeShellExecution.push({
+      command: hookCmd,
+      type: 'command',
+      timeout: 310,
+    });
+
+    hooksConfig.hooks.afterShellExecution = hooksConfig.hooks.afterShellExecution || [];
+    hooksConfig.hooks.afterShellExecution.push({
+      command: hookCmd,
+      type: 'command',
+      timeout: 5,
+    });
+
+    hooksConfig.hooks.beforeMCPExecution = hooksConfig.hooks.beforeMCPExecution || [];
+    hooksConfig.hooks.beforeMCPExecution.push({
+      command: hookCmd,
+      type: 'command',
+      timeout: 310,
+    });
+
+    hooksConfig.hooks.afterFileEdit = hooksConfig.hooks.afterFileEdit || [];
+    hooksConfig.hooks.afterFileEdit.push({
+      command: hookCmd,
+      type: 'command',
+      timeout: 5,
+    });
+
+    fs.writeFileSync(hooksPath, JSON.stringify(hooksConfig, null, 2) + '\n');
+    console.log(`[GuardClaw] Cursor hooks installed at ${hooksPath}`);
+    res.json({ ok: true, path: hooksPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/cursor/status', (req, res) => {
+  try {
+    const hooksPath = path.join(os.homedir(), '.cursor', 'hooks.json');
+    if (!fs.existsSync(hooksPath)) {
+      return res.json({ installed: false });
+    }
+    const hooksConfig = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    const isGCHook = (h) => h.command?.includes('cursor-hook.sh');
+    const hasHooks = hooksConfig.hooks?.beforeShellExecution?.some(isGCHook);
+    res.json({ installed: !!hasHooks, path: hooksPath });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/cursor/uninstall', (req, res) => {
+  try {
+    const hooksPath = path.join(os.homedir(), '.cursor', 'hooks.json');
+    if (!fs.existsSync(hooksPath)) {
+      return res.json({ ok: true, message: 'No hooks file found' });
+    }
+    const hooksConfig = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    const isGCHook = (h) => h.command?.includes('cursor-hook.sh');
+
+    for (const event of ['preToolUse', 'postToolUse', 'beforeShellExecution', 'afterShellExecution', 'beforeMCPExecution', 'afterMCPExecution']) {
+      if (Array.isArray(hooksConfig.hooks?.[event])) {
+        hooksConfig.hooks[event] = hooksConfig.hooks[event].filter(h => !isGCHook(h));
+        if (hooksConfig.hooks[event].length === 0) delete hooksConfig.hooks[event];
+      }
+    }
+    if (hooksConfig.hooks && Object.keys(hooksConfig.hooks).length === 0) delete hooksConfig.hooks;
+
+    fs.writeFileSync(hooksPath, JSON.stringify(hooksConfig, null, 2) + '\n');
+    console.log(`[GuardClaw] Cursor hooks removed from ${hooksPath}`);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

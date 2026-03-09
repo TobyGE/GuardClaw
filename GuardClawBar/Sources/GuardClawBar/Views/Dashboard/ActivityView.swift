@@ -9,6 +9,7 @@ struct ActivityView: View {
         ("claude-code", "Claude Code"),
         ("openclaw", "OpenClaw"),
         ("gemini-cli", "Gemini CLI"),
+        ("cursor", "Cursor"),
     ]
 
     var body: some View {

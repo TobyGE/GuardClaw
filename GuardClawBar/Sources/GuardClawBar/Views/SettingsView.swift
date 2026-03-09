@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var ocSetupMessage: String? = nil
     @State private var geminiInstalled: Bool? = nil
     @State private var geminiMessage: String? = nil
+    @State private var cursorInstalled: Bool? = nil
+    @State private var cursorMessage: String? = nil
     @State private var blockingEnabled = false
     @State private var failClosedEnabled = false
     @State private var llmBackend: String? = nil
@@ -158,6 +160,28 @@ struct SettingsView: View {
                         }
                     }
 
+                    // Cursor
+                    HStack {
+                        Circle()
+                            .fill(cursorInstalled == true ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("Cursor")
+                            .font(.caption)
+                        Spacer()
+                        if cursorInstalled == true {
+                            Text("\u{2713}")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green)
+                            Button("Uninstall") { uninstallCursor() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        } else {
+                            Button("Install") { setupCursor() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        }
+                    }
+
                     if let msg = ccSetupMessage {
                         Text(msg)
                             .font(.system(size: 9))
@@ -171,6 +195,12 @@ struct SettingsView: View {
                     }
 
                     if let msg = geminiMessage {
+                        Text(msg)
+                            .font(.system(size: 9))
+                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+                    }
+
+                    if let msg = cursorMessage {
                         Text(msg)
                             .font(.system(size: 9))
                             .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
@@ -259,6 +289,9 @@ struct SettingsView: View {
             }
             if let status = try? await api.geminiCLIStatus() {
                 await MainActor.run { geminiInstalled = status.installed }
+            }
+            if let status = try? await api.cursorStatus() {
+                await MainActor.run { cursorInstalled = status.installed }
             }
             if let serverStatus = try? await api.status() {
                 await MainActor.run {
@@ -365,6 +398,38 @@ struct SettingsView: View {
             } catch {
                 await MainActor.run {
                     geminiMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func setupCursor() {
+        Task {
+            do {
+                _ = try await api.setupCursor()
+                await MainActor.run {
+                    cursorInstalled = true
+                    cursorMessage = "\u{2713} Hooks installed — restart Cursor"
+                }
+            } catch {
+                await MainActor.run {
+                    cursorMessage = "Failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func uninstallCursor() {
+        Task {
+            do {
+                _ = try await api.uninstallCursor()
+                await MainActor.run {
+                    cursorInstalled = false
+                    cursorMessage = "Hooks removed — restart Cursor"
+                }
+            } catch {
+                await MainActor.run {
+                    cursorMessage = "Failed: \(error.localizedDescription)"
                 }
             }
         }

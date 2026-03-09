@@ -8,6 +8,8 @@ struct ConnectionsView: View {
     @State private var ocMessage: String? = nil
     @State private var geminiInstalled: Bool? = nil
     @State private var geminiMessage: String? = nil
+    @State private var cursorInstalled: Bool? = nil
+    @State private var cursorMessage: String? = nil
     @State private var gatewayToken = ""
     @State private var tokenMessage: String? = nil
     @State private var isSavingToken = false
@@ -33,6 +35,11 @@ struct ConnectionsView: View {
 
                 // Gemini CLI
                 geminiCLISection
+
+                Divider()
+
+                // Cursor
+                cursorSection
             }
             .padding(24)
         }
@@ -41,6 +48,7 @@ struct ConnectionsView: View {
             await checkCCStatus()
             await checkOCPluginStatus()
             await checkGeminiStatus()
+            await checkCursorStatus()
         }
     }
 
@@ -307,6 +315,86 @@ struct ConnectionsView: View {
             geminiMessage = "Hooks removed — restart Gemini CLI"
         } catch {
             geminiMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Cursor
+
+    private var cursorConnected: Bool {
+        appState.serverStatus?.backends?["cursor"]?.connected == true
+    }
+
+    private var cursorSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(cursorConnected ? Color.green : Color.gray)
+                    .frame(width: 10, height: 10)
+                Text("Cursor")
+                    .font(.headline)
+                Spacer()
+                Text(cursorConnected ? "Connected" : "Not connected")
+                    .font(.caption)
+                    .foregroundStyle(cursorConnected ? .green : .secondary)
+            }
+
+            Text("GuardClaw intercepts Cursor tool calls via hooks installed in ~/.cursor/hooks.json.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if cursorInstalled == true {
+                HStack {
+                    Label("Hooks are active.", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Uninstall") {
+                        Task { await uninstallCursor() }
+                    }
+                    .controlSize(.small)
+                }
+            } else {
+                Button {
+                    Task { await setupCursor() }
+                } label: {
+                    Label("Install Hooks", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let msg = cursorMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func checkCursorStatus() async {
+        if let status = try? await api.cursorStatus() {
+            cursorInstalled = status.installed
+        }
+    }
+
+    private func setupCursor() async {
+        do {
+            _ = try await api.setupCursor()
+            cursorInstalled = true
+            cursorMessage = "\u{2713} Hooks installed — restart Cursor to activate"
+        } catch {
+            cursorMessage = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func uninstallCursor() async {
+        do {
+            _ = try await api.uninstallCursor()
+            cursorInstalled = false
+            cursorMessage = "Hooks removed — restart Cursor"
+        } catch {
+            cursorMessage = "Failed: \(error.localizedDescription)"
         }
     }
 
