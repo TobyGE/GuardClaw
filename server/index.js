@@ -24,6 +24,7 @@ import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
 import { BenchmarkStore } from './benchmark-store.js';
 import { getDataDir, getGuardClawDir } from './data-dir.js';
+import { ApprovalNotifier } from './channels/notifier.js';
 
 dotenv.config();
 
@@ -110,6 +111,33 @@ const safeguardService = new SafeguardService(
 const eventStore = new EventStore();
 const memoryStore = new MemoryStore();
 const benchmarkStore = new BenchmarkStore();
+
+// Pending approvals for all backends (Claude Code, Gemini, Cursor hold HTTP connections)
+const pendingApprovals = new Map(); // id → { toolName, params, riskScore, reason, resolve, createdAt }
+
+// ─── Approval Notifier (Telegram, Discord) ──────────────────────────────────
+// Sends approval requests to configured notification channels.
+// Channels resolve approvals via callback (Telegram buttons) or one-click URLs (Discord).
+const approvalNotifier = new ApprovalNotifier({
+  onResolve: (approvalId, action, alwaysApprove) => {
+    const entry = pendingApprovals.get(approvalId);
+    if (!entry) throw new Error(`Approval ${approvalId} not found`);
+    pendingApprovals.delete(approvalId);
+    if (action === 'deny') {
+      entry.resolve({ denied: true, reason: 'Denied via notification channel' });
+    } else {
+      entry.resolve({ denied: false });
+      if (alwaysApprove) {
+        const commandStr = entry.toolName === 'exec' ? (entry.params.command || '') : JSON.stringify(entry.params);
+        const result = memoryStore.recordDecision(entry.toolName, entry.displayInput, entry.riskScore, 'approve', entry.sessionKey);
+        if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
+      }
+    }
+    eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: approvalId, decision: action }) });
+    approvalNotifier.notifyApprovalResolved(approvalId, action).catch(() => {});
+    console.log(`[Notifier] ${action}: ${entry.originalToolName || entry.toolName} (#${approvalId})`);
+  },
+});
 
 // ─── Tool History Store (for chain analysis) ─────────────────────────────────
 // Tracks recent tool calls per session including outputs, for LLM chain analysis
@@ -1062,10 +1090,6 @@ app.post('/api/evaluate', async (req, res) => {
 
 // ─── Claude Code Hook Integration ────────────────────────────────────────────
 
-// Pending approvals for Claude Code (HTTP hooks hold the connection)
-const pendingApprovals = new Map(); // id → { toolName, params, riskScore, reason, resolve, createdAt }
-let approvalIdCounter = 0;
-
 // Tool name mapping: Claude Code → GuardClaw
 function mapClaudeCodeTool(toolName) {
   const map = {
@@ -1364,14 +1388,63 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       });
     }
 
-    // High risk → block directly, GuardClaw is the permission authority
-    const blockMsg = `⛨ GuardClaw BLOCKED (score ${analysis.riskScore}): ${analysis.reasoning || analysis.category}`;
-    console.log(`[GuardClaw] 🚫 ${blockMsg}`);
+    // High risk → ask user via Dashboard (hold HTTP connection open, like Gemini)
+    const approvalId = `cc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const askReason = `⛨ GuardClaw ASK (score ${analysis.riskScore}): ${analysis.reasoning || analysis.category}`;
+    console.log(`[GuardClaw] ⏸️  ASK: ${gcToolName} (${approvalId}) — ${askReason}`);
+
+    const decision = await new Promise((resolve) => {
+      pendingApprovals.set(approvalId, {
+        toolName: gcToolName,
+        originalToolName: tool_name,
+        displayInput: (gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams)).slice(0, 500),
+        params: gcParams,
+        riskScore: analysis.riskScore,
+        reason: askReason,
+        createdAt: Date.now(),
+        sessionKey,
+        backend: 'claude-code',
+        resolve,
+      });
+
+      // Notify Dashboard + channels (Telegram, Discord)
+      eventStore.notifyListeners({
+        type: 'approval-request',
+        data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'claude-code' }),
+      });
+      const pendingEntry = pendingApprovals.get(approvalId);
+      if (pendingEntry) approvalNotifier.notifyApprovalRequest(pendingEntry).catch(() => {});
+
+      // Timeout after 5 minutes → deny (fail-closed)
+      setTimeout(() => {
+        if (pendingApprovals.has(approvalId)) {
+          pendingApprovals.delete(approvalId);
+          resolve({ denied: true, reason: 'Timed out waiting for approval (5 min)' });
+        }
+      }, 300_000);
+    });
+
+    if (decision.denied) {
+      const denyMsg = `⛨ GuardClaw BLOCKED (score ${analysis.riskScore}): ${decision.reason || analysis.reasoning || analysis.category}`;
+      console.log(`[GuardClaw] 🚫 DENIED by user: ${gcToolName} (${approvalId})`);
+      memoryStore.recordDecision(gcToolName, gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams), analysis.riskScore, 'deny', sessionKey);
+      return res.json({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'block',
+          permissionDecisionReason: denyMsg,
+        },
+      });
+    }
+
+    const approveMsg = `⛨ GuardClaw APPROVED by user (score ${analysis.riskScore}): ${gcToolName}`;
+    console.log(`[GuardClaw] ✅ APPROVED by user: ${gcToolName} (${approvalId})`);
+    memoryStore.recordDecision(gcToolName, gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams), analysis.riskScore, 'approve', sessionKey);
     return res.json({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        permissionDecision: 'block',
-        permissionDecisionReason: blockMsg,
+        permissionDecision: 'allow',
+        permissionDecisionReason: approveMsg,
       },
     });
 
@@ -1416,6 +1489,7 @@ app.post('/api/approvals/:id/approve', (req, res) => {
     if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
   }
   eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'approve' }) });
+  approvalNotifier.notifyApprovalResolved(req.params.id, 'approve').catch(() => {});
   console.log(`[GuardClaw] Approved: ${entry.originalToolName} (#${req.params.id}) [${entry.backend || 'claude-code'}]`);
   res.json({ ok: true });
 });
@@ -1426,8 +1500,79 @@ app.post('/api/approvals/:id/deny', (req, res) => {
   pendingApprovals.delete(req.params.id);
   entry.resolve({ denied: true, reason: 'Denied by user' });
   eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'deny' }) });
+  approvalNotifier.notifyApprovalResolved(req.params.id, 'deny').catch(() => {});
   console.log(`[GuardClaw] Denied: ${entry.originalToolName} (#${req.params.id}) [${entry.backend || 'claude-code'}]`);
   res.json({ ok: true });
+});
+
+// ─── One-click approval (for Discord/email links) ────────────────────────────
+app.get('/api/approvals/:id/one-click', (req, res) => {
+  const { id } = req.params;
+  const { action, token } = req.query;
+
+  if (!action || !token || !['approve', 'deny', 'always'].includes(action)) {
+    return res.status(400).send(oneClickHtml('Invalid Request', 'Missing or invalid action/token.', 'error'));
+  }
+
+  if (!approvalNotifier.validateToken(id, token)) {
+    return res.status(403).send(oneClickHtml('Link Expired', 'This approval link has already been used or has expired.', 'warning'));
+  }
+
+  const entry = pendingApprovals.get(id);
+  if (!entry) {
+    approvalNotifier.consumeToken(id);
+    return res.status(404).send(oneClickHtml('Already Resolved', 'This approval has already been resolved.', 'info'));
+  }
+
+  // Resolve
+  pendingApprovals.delete(id);
+  approvalNotifier.consumeToken(id);
+  const alwaysApprove = action === 'always';
+
+  if (action === 'deny') {
+    entry.resolve({ denied: true, reason: 'Denied via one-click link' });
+  } else {
+    entry.resolve({ denied: false });
+    if (alwaysApprove) {
+      const result = memoryStore.recordDecision(entry.toolName, entry.displayInput, entry.riskScore, 'approve', entry.sessionKey);
+      if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
+    }
+  }
+
+  eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id, decision: action }) });
+  approvalNotifier.notifyApprovalResolved(id, action).catch(() => {});
+  console.log(`[GuardClaw] One-click ${action}: ${entry.originalToolName} (#${id})`);
+
+  const label = action === 'deny' ? 'Denied' : alwaysApprove ? 'Always Approved' : 'Approved';
+  const level = action === 'deny' ? 'error' : 'success';
+  const tool = entry.originalToolName || entry.toolName;
+  const cmd = (entry.displayInput || '').slice(0, 200);
+  res.send(oneClickHtml(label, `<code>${tool}</code>: ${cmd}`, level));
+});
+
+function oneClickHtml(title, detail, level) {
+  const colors = { success: '#22c55e', error: '#ef4444', warning: '#f59e0b', info: '#6b7280' };
+  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+  const color = colors[level] || colors.info;
+  const icon = icons[level] || '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GuardClaw — ${title}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0f0f0f;color:#e5e5e5;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:#1a1a1a;border:1px solid #333;border-left:4px solid ${color};border-radius:12px;padding:32px;max-width:480px;width:90%}
+.icon{font-size:36px;margin-bottom:12px}.title{font-size:20px;font-weight:700;margin-bottom:8px;color:${color}}
+.detail{font-size:14px;color:#999;line-height:1.5}code{background:#262626;padding:2px 6px;border-radius:4px;font-size:13px}
+.footer{margin-top:20px;font-size:11px;color:#555}</style></head>
+<body><div class="card"><div class="icon">${icon}</div><div class="title">${title}</div><div class="detail">${detail}</div>
+<div class="footer">🛡️ GuardClaw · You can close this tab</div></div></body></html>`;
+}
+
+// ─── Channel notification config/test API ────────────────────────────────────
+app.get('/api/channels/status', async (_req, res) => {
+  const results = await approvalNotifier.testChannels();
+  res.json({
+    telegram: { configured: !!approvalNotifier.telegram, ...results.telegram },
+    discord: { configured: !!approvalNotifier.discord, ...results.discord },
+  });
 });
 
 // Credential patterns for scanning tool output (Read + Bash)
@@ -1648,11 +1793,13 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
           resolve,
         });
 
-        // Notify UI of new approval
+        // Notify Dashboard + channels
         eventStore.notifyListeners({
           type: 'approval-request',
           data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'gemini-cli' }),
         });
+        const geminiPending = pendingApprovals.get(approvalId);
+        if (geminiPending) approvalNotifier.notifyApprovalRequest(geminiPending).catch(() => {});
 
         // Timeout after 5 minutes → block
         setTimeout(() => {
@@ -2756,6 +2903,8 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
           type: 'approval-request',
           data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'cursor' }),
         });
+        const cursorPending = pendingApprovals.get(approvalId);
+        if (cursorPending) approvalNotifier.notifyApprovalRequest(cursorPending).catch(() => {});
 
         setTimeout(() => {
           if (pendingApprovals.has(approvalId)) {
