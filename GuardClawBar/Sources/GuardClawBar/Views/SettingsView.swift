@@ -459,9 +459,14 @@ private struct ProtectionSection: View {
                 Toggle(isOn: Binding(
                     get: { blockingEnabled },
                     set: { newVal in
+                        let previousVal = blockingEnabled
+                        blockingEnabled = newVal
                         Task {
-                            _ = try? await api.toggleBlocking(enabled: newVal)
-                            blockingEnabled = newVal
+                            do {
+                                _ = try await api.toggleBlocking(enabled: newVal)
+                            } catch {
+                                blockingEnabled = previousVal
+                            }
                         }
                     }
                 )) {

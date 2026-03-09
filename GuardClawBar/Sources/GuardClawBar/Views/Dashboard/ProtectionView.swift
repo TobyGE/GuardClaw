@@ -3,11 +3,12 @@ import SwiftUI
 struct ProtectionView: View {
     @Environment(AppState.self) var appState
     @State private var statusMessage: String? = nil
+    @State private var blockingOverride: Bool? = nil
 
     private let api = GuardClawAPI()
 
     private var blockingEnabled: Bool {
-        appState.serverStatus?.blocking?.active ?? appState.serverStatus?.blocking?.enabled ?? false
+        blockingOverride ?? appState.serverStatus?.blocking?.active ?? appState.serverStatus?.blocking?.enabled ?? false
     }
 
     private var failClosed: Bool {
@@ -95,6 +96,12 @@ struct ProtectionView: View {
             .padding(24)
         }
         .navigationTitle("Protection")
+        .onAppear {
+            blockingOverride = appState.serverStatus?.blocking?.active ?? appState.serverStatus?.blocking?.enabled
+        }
+        .onChange(of: appState.serverStatus?.blocking?.active ?? appState.serverStatus?.blocking?.enabled ?? false) { _, newVal in
+            blockingOverride = newVal
+        }
     }
 
     private func protectionCard(title: String, icon: String, description: String, color: Color, isOn: Bool, onToggle: @escaping (Bool) -> Void) -> some View {
@@ -122,11 +129,14 @@ struct ProtectionView: View {
     }
 
     private func toggleBlocking(_ newVal: Bool) {
+        let previousVal = blockingEnabled
+        blockingOverride = newVal
         Task {
             do {
                 _ = try await api.toggleBlocking(enabled: newVal)
                 statusMessage = "\u{2713} Blocking \(newVal ? "enabled" : "disabled")"
             } catch {
+                blockingOverride = previousVal
                 statusMessage = "Failed: \(error.localizedDescription)"
             }
         }

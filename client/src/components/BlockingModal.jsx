@@ -33,6 +33,8 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
 
   const toggleBlocking = async (enable) => {
     if (toggling) return;
+    const previousStatus = status;
+    setStatus(prev => prev ? { ...prev, enabled: enable, active: enable } : { enabled: enable, active: enable });
     setToggling(true);
     try {
       const res = await fetch('/api/blocking/toggle', {
@@ -51,6 +53,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
         }
       }
     } catch (e) {
+      setStatus(previousStatus);
       setMessage('Failed: ' + e.message);
     } finally { setToggling(false); }
   };
