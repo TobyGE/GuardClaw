@@ -177,6 +177,18 @@ function inferPendingDenials(sessionKey, excludeKey = null) {
       ccPendingAsks.delete(key);
       memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
       console.log(`[GuardClaw] 🧠 Memory: user DENIED blocked action → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+
+      // Clean up linked Bar pending approval (user denied in CC dialog)
+      if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
+        const entry = pendingApprovals.get(ask.approvalId);
+        entry.resolve({ denied: true, reason: 'User denied in agent dialog' });
+        pendingApprovals.delete(ask.approvalId);
+        eventStore.notifyListeners({
+          type: 'approval-resolved',
+          data: JSON.stringify({ id: ask.approvalId }),
+        });
+        console.log(`[GuardClaw] Bar approval ${ask.approvalId} auto-resolved (user denied in CC dialog)`);
+      }
     }
   }
 }
@@ -1388,63 +1400,91 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       });
     }
 
-    // High risk → ask user via Dashboard (hold HTTP connection open, like Gemini)
+    // High risk → dual-channel: CC dialog + Bar approval
+    // Return 'ask' to CC immediately so it shows its own allow/deny dialog,
+    // AND create a pending approval in Bar so user can also act from there.
     const approvalId = `cc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const askReason = `⛨ GuardClaw ASK (score ${analysis.riskScore}): ${analysis.reasoning || analysis.category}`;
     console.log(`[GuardClaw] ⏸️  ASK: ${gcToolName} (${approvalId}) — ${askReason}`);
 
-    const decision = await new Promise((resolve) => {
-      pendingApprovals.set(approvalId, {
-        toolName: gcToolName,
-        originalToolName: tool_name,
-        displayInput: (gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams)).slice(0, 500),
-        params: gcParams,
-        riskScore: analysis.riskScore,
-        reason: askReason,
-        createdAt: Date.now(),
-        sessionKey,
-        backend: 'claude-code',
-        resolve,
-      });
-
-      // Notify Dashboard + channels (Telegram, Discord)
-      eventStore.notifyListeners({
-        type: 'approval-request',
-        data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'claude-code' }),
-      });
-      const pendingEntry = pendingApprovals.get(approvalId);
-      if (pendingEntry) approvalNotifier.notifyApprovalRequest(pendingEntry).catch(() => {});
-
-      // Timeout after 5 minutes → deny (fail-closed)
-      setTimeout(() => {
-        if (pendingApprovals.has(approvalId)) {
-          pendingApprovals.delete(approvalId);
-          resolve({ denied: true, reason: 'Timed out waiting for approval (5 min)' });
-        }
-      }, 300_000);
+    // Create pending approval in Bar (auto-expires after 5 min)
+    pendingApprovals.set(approvalId, {
+      toolName: gcToolName,
+      originalToolName: tool_name,
+      displayInput: (gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams)).slice(0, 500),
+      params: gcParams,
+      riskScore: analysis.riskScore,
+      reason: askReason,
+      createdAt: Date.now(),
+      sessionKey,
+      backend: 'claude-code',
+      resolve: (decision) => {
+        // Bar resolved — record the decision
+        const action = decision.denied ? 'deny' : 'approve';
+        memoryStore.recordDecision(gcToolName, gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams), analysis.riskScore, action, sessionKey);
+        console.log(`[GuardClaw] ${decision.denied ? '🚫 DENIED' : '✅ APPROVED'} via Bar: ${gcToolName} (${approvalId})`);
+      },
     });
 
-    if (decision.denied) {
-      const denyMsg = `⛨ GuardClaw BLOCKED (score ${analysis.riskScore}): ${decision.reason || analysis.reasoning || analysis.category}`;
-      console.log(`[GuardClaw] 🚫 DENIED by user: ${gcToolName} (${approvalId})`);
-      memoryStore.recordDecision(gcToolName, gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams), analysis.riskScore, 'deny', sessionKey);
-      return res.json({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'block',
-          permissionDecisionReason: denyMsg,
-        },
-      });
-    }
+    // Notify Dashboard + channels
+    eventStore.notifyListeners({
+      type: 'approval-request',
+      data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'claude-code' }),
+    });
+    const pendingEntry = pendingApprovals.get(approvalId);
+    if (pendingEntry) approvalNotifier.notifyApprovalRequest(pendingEntry).catch(() => {});
 
-    const approveMsg = `⛨ GuardClaw APPROVED by user (score ${analysis.riskScore}): ${gcToolName}`;
-    console.log(`[GuardClaw] ✅ APPROVED by user: ${gcToolName} (${approvalId})`);
-    memoryStore.recordDecision(gcToolName, gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams), analysis.riskScore, 'approve', sessionKey);
+    // Auto-expire from Bar after 15s (dual-channel: user likely already acted in CC dialog)
+    setTimeout(() => {
+      if (pendingApprovals.has(approvalId)) {
+        pendingApprovals.delete(approvalId);
+        eventStore.notifyListeners({
+          type: 'approval-resolved',
+          data: JSON.stringify({ id: approvalId }),
+        });
+        console.log(`[GuardClaw] Bar approval ${approvalId} auto-expired (5 min safety timeout)`);
+      }
+    }, 300_000);
+
+    // Register in ccPendingAsks so PostToolUse/inferPendingDenials can track the outcome
+    const askKey = `${sessionKey}:${gcToolName}:${commandStr.slice(0, 200)}`;
+    ccPendingAsks.set(askKey, {
+      toolName: gcToolName,
+      commandStr,
+      displayInput: (gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams)).slice(0, 500),
+      riskScore: analysis.riskScore,
+      sessionKey,
+      timestamp: Date.now(),
+      approvalId, // link to Bar pending approval for cleanup
+    });
+
+    // If no PostToolUse arrives within 15s, infer user denied in CC dialog → clean up Bar pending
+    setTimeout(() => {
+      if (ccPendingAsks.has(askKey)) {
+        const ask = ccPendingAsks.get(askKey);
+        ccPendingAsks.delete(askKey);
+        memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
+        console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (15s timeout) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+        if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
+          const entry = pendingApprovals.get(ask.approvalId);
+          entry.resolve({ denied: true, reason: 'Inferred denial (no PostToolUse within 15s)' });
+          pendingApprovals.delete(ask.approvalId);
+          eventStore.notifyListeners({
+            type: 'approval-resolved',
+            data: JSON.stringify({ id: ask.approvalId }),
+          });
+          console.log(`[GuardClaw] Bar approval ${ask.approvalId} auto-resolved (inferred denial, 15s timeout)`);
+        }
+      }
+    }, PENDING_ASK_TIMEOUT_MS);
+
+    // Return 'ask' immediately so CC shows its own allow/deny dialog
     return res.json({
+      systemMessage: askReason,
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-        permissionDecisionReason: approveMsg,
+        permissionDecision: 'ask',
+        permissionDecisionReason: askReason,
       },
     });
 
@@ -1632,6 +1672,17 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
     ccPendingAsks.delete(askKey);
     memoryStore.recordDecision(pendingAsk.toolName, pendingAsk.displayInput, pendingAsk.riskScore, 'approve', sessionKey);
     console.log(`[GuardClaw] 🧠 Memory: user APPROVED blocked action → ${pendingAsk.toolName}: ${pendingAsk.commandStr.slice(0, 80)}`);
+    // Clean up linked Bar pending approval (user approved in CC dialog)
+    if (pendingAsk.approvalId && pendingApprovals.has(pendingAsk.approvalId)) {
+      const entry = pendingApprovals.get(pendingAsk.approvalId);
+      entry.resolve({ denied: false });
+      pendingApprovals.delete(pendingAsk.approvalId);
+      eventStore.notifyListeners({
+        type: 'approval-resolved',
+        data: JSON.stringify({ id: pendingAsk.approvalId }),
+      });
+      console.log(`[GuardClaw] Bar approval ${pendingAsk.approvalId} auto-resolved (user approved in CC dialog)`);
+    }
   }
   // Infer denials for any OTHER pending asks in this session (different tools that were denied)
   inferPendingDenials(sessionKey, askKey);
@@ -2095,6 +2146,10 @@ app.post('/api/hooks/subagent-stop', (req, res) => {
 
 app.post('/api/hooks/llm-input', (req, res) => {
   const { sessionKey, runId, provider, model, prompt, imagesCount, historyLength } = req.body;
+  // Skip GuardClaw's own injected messages
+  if (typeof prompt === 'string' && (prompt.includes('⛨ GuardClaw') || prompt.includes('⛨ **GuardClaw') || prompt.includes('guardclaw-retry'))) {
+    return res.json({});
+  }
   const key = sessionKey || 'agent:main:main';
   const truncated = typeof prompt === 'string' ? prompt.slice(0, 2000) : '';
   console.log(`[GuardClaw] 💬 llm-input: session=${key}, model=${model}, prompt_len=${truncated.length}, history=${historyLength}`);
@@ -2140,12 +2195,15 @@ app.post('/api/hooks/llm-output', (req, res) => {
 
 app.post('/api/hooks/message-received', (req, res) => {
   const { sessionKey, from, content, timestamp, metadata, channelId } = req.body;
+  // Skip GuardClaw's own injected messages
+  const contentStr = typeof content === 'string' ? content : JSON.stringify(content || '');
+  if (contentStr.includes('⛨ GuardClaw') || contentStr.includes('⛨ **GuardClaw') || contentStr.includes('guardclaw-retry')) {
+    return res.json({ ok: true });
+  }
   // Normalize: webchat messages belong to main agent session
   const rawKey = sessionKey || 'agent:main:main';
   const key = rawKey === 'agent:main:webchat' || rawKey.includes('webchat') ? 'agent:main:main' : rawKey;
-  const truncated = typeof content === 'string'
-    ? content.substring(0, 2000)
-    : JSON.stringify(content || '').substring(0, 2000);
+  const truncated = contentStr.substring(0, 2000);
   console.log(`[GuardClaw] 💬 message-received: from=${from}, session=${key} (raw=${rawKey}), len=${truncated.length}`);
 
   eventStore.addEvent({
@@ -4015,6 +4073,19 @@ app.delete('/api/blocking/blacklist', (req, res) => {
 async function handleAgentEvent(event) {
   const eventType = event.event || event.type;
 
+  // Skip GuardClaw's own injected chat messages (echoed back from OC via chat.send)
+  const chatContent = event.payload?.message?.content?.[0]?.text
+    || event.payload?.data?.content?.[0]?.text
+    || event.payload?.message?.text
+    || '';
+  const messageId = event.payload?.metadata?.message_id || '';
+  if (chatContent.includes('⛨ GuardClaw') || chatContent.includes('⛨ **GuardClaw')
+    || chatContent.includes('GuardClaw ALLOW') || chatContent.includes('GuardClaw blocked')
+    || chatContent.includes('GuardClaw BLOCK') || chatContent.includes('GuardClaw wants your feedback')
+    || messageId.startsWith('guardclaw-retry')) {
+    return; // Don't record our own injected messages
+  }
+
   // Handle exec approval requests (intercept before normal event processing)
   if (eventType === 'exec.approval.requested' && approvalHandler) {
     console.log('[GuardClaw] 🔔 Exec approval request received');
@@ -4726,6 +4797,16 @@ app.listen(PORT, () => {
             memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
             console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (timeout) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
             denyInferred++;
+            // Clean up linked Bar pending approval
+            if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
+              const entry = pendingApprovals.get(ask.approvalId);
+              entry.resolve({ denied: true, reason: 'Inferred denial (timeout)' });
+              pendingApprovals.delete(ask.approvalId);
+              eventStore.notifyListeners({
+                type: 'approval-resolved',
+                data: JSON.stringify({ id: ask.approvalId }),
+              });
+            }
           }
         }
 

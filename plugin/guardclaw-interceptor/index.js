@@ -205,7 +205,7 @@ export default function (api) {
           : '';
         const isFeedbackSample = result.feedbackSample;
         const userMsg = isFeedbackSample ? [
-          `🧠 **GuardClaw wants your feedback** (WARNING)`,
+          `⛨ **GuardClaw wants your feedback** (WARNING)`,
           ``,
           `**Tool:** \`${event.toolName}\``,
           `**Command:** \`${displayInput}\``,
@@ -216,10 +216,8 @@ export default function (api) {
           `/approve-always — always allow this pattern`,
           `/deny — no, this is risky`,
         ].join('\n') : [
-          `🛡️ **GuardClaw blocked a tool call**`,
+          `⛨ **GuardClaw BLOCK** \`${event.toolName}\`: \`${displayInput}\``,
           ``,
-          `**Tool:** \`${event.toolName}\``,
-          `**Command:** \`${displayInput}\``,
           `**Risk:** ${riskEmoji} **${result.risk}/10**`,
           chainLine,
           memoryLine,
@@ -252,6 +250,32 @@ export default function (api) {
 
         return { block: true, blockReason: blockMsg };
       }
+      // Allowed — inject evaluation summary to chat so user sees all scores
+      const displayInput = formatParams(event.toolName, event.params);
+      const riskScore = result.risk ?? 0;
+      const riskEmoji = riskScore <= 3 ? '🟢' : riskScore <= 6 ? '🟡' : '🟠';
+      const riskLabel = riskScore <= 3 ? 'safe' : riskScore <= 6 ? 'moderate' : 'elevated';
+      const reasonLine = result.reason ? `\n**Reasoning:** ${result.reason}` : '';
+      const chainLine = result.chainRisk ? `\n**⛓️ Chain Risk:** Dangerous sequence detected in session history` : '';
+      const memoryLine = result.memory
+        ? `\n**🧠 Memory:** ${result.memory.approveCount > 0 ? `Approved similar ${result.memory.approveCount}×` : ''}${result.memory.approveCount > 0 && result.memory.denyCount > 0 ? ', ' : ''}${result.memory.denyCount > 0 ? `Denied similar ${result.memory.denyCount}×` : ''}${result.memoryAdjustment ? ` (score ${result.originalRisk}→${result.risk})` : ''}`
+        : '';
+      const allowMsg = [
+        `⛨ **GuardClaw ALLOW** \`${event.toolName}\`: \`${displayInput}\` → ${riskEmoji} **${riskScore}/10** (${riskLabel})`,
+        reasonLine,
+        chainLine,
+        memoryLine,
+      ].filter(Boolean).join('');
+
+      fetch(`${GUARDCLAW_URL}/api/chat-inject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKey: context.sessionKey,
+          message: allowMsg,
+        }),
+        signal: AbortSignal.timeout(3000),
+      }).catch(err => api.logger.warn(`[GuardClaw] Failed to inject eval notice: ${err.message}`));
     } catch (err) {
       // Evaluate failed (timeout, network error, etc.)
       // Behaviour is controlled by failClosedEnabled:
