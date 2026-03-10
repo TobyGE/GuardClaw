@@ -182,22 +182,31 @@ final class AppState {
             // Refresh events list
             if let eventData = try? JSONDecoder().decode(EventItem.self, from: data) {
                 let backend = eventData.safeguard?.backend ?? "claude-code"
+                var isNew = false
                 if backend == "openclaw" {
                     if !ocEvents.contains(where: { $0.id == eventData.id }) {
                         ocEvents.insert(eventData, at: 0)
+                        isNew = true
                     }
                 } else if backend == "gemini-cli" || eventData.sessionKey?.hasPrefix("gemini:") == true {
                     if !geminiEvents.contains(where: { $0.id == eventData.id }) {
                         geminiEvents.insert(eventData, at: 0)
+                        isNew = true
                     }
                 } else if backend == "cursor" || eventData.sessionKey?.hasPrefix("cursor:") == true {
                     if !cursorEvents.contains(where: { $0.id == eventData.id }) {
                         cursorEvents.insert(eventData, at: 0)
+                        isNew = true
                     }
                 } else {
                     if !ccEvents.contains(where: { $0.id == eventData.id }) {
                         ccEvents.insert(eventData, at: 0)
+                        isNew = true
                     }
+                }
+                // Notify on high-risk events (score >= 8) for all backends
+                if isNew {
+                    notificationManager.notifyHighRiskEvent(eventData)
                 }
             }
         case "approval-request", "approval_request":

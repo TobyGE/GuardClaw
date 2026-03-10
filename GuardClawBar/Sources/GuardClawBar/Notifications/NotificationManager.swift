@@ -15,25 +15,72 @@ final class NotificationManager: @unchecked Sendable {
     }
 
     func notifyNewApproval(_ approval: ApprovalItem) {
-        guard let center else {
-            NSSound.beep()
-            return
-        }
-
-        let content = UNMutableNotificationContent()
-        content.title = "GuardClaw: Approval Needed"
-        content.body = "\(approval.toolName ?? "Unknown tool") — Risk: \(Int(approval.riskScore ?? 0))/10"
+        let title = "GuardClaw: Approval Needed"
+        var body = "\(approval.toolName ?? "Unknown tool") — Risk: \(Int(approval.riskScore ?? 0))/10"
         if let reason = approval.reason {
-            content.body += "\n\(reason)"
+            body += "\n\(reason)"
         }
-        content.sound = .default
 
-        let request = UNNotificationRequest(
-            identifier: "approval-\(approval.id)",
-            content: content,
-            trigger: nil
-        )
-        center.add(request)
+        if let center {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+
+            let request = UNNotificationRequest(
+                identifier: "approval-\(approval.id)",
+                content: content,
+                trigger: nil
+            )
+            center.add(request)
+        } else {
+            sendOSANotification(title: title, body: body)
+        }
+    }
+
+    func notifyHighRiskEvent(_ event: EventItem) {
+        let score = event.effectiveRiskScore
+        guard score >= 8 else { return }
+
+        let backend = event.safeguard?.backend ?? "unknown"
+        let tool = event.tool ?? event.type ?? "unknown"
+        let blocked = event.allowed == 0
+
+        let title = blocked
+            ? "GuardClaw: BLOCKED [\(backend)]"
+            : "GuardClaw: High Risk [\(backend)]"
+        var body = "\(tool): \(event.displayText)"
+        if let reasoning = event.safeguard?.reasoning {
+            body += "\n\(String(reasoning.prefix(200)))"
+        }
+
+        if let center {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = blocked ? .defaultCritical : .default
+
+            let request = UNNotificationRequest(
+                identifier: "risk-\(event.stableId)",
+                content: content,
+                trigger: nil
+            )
+            center.add(request)
+        } else {
+            // Fallback: osascript notification for debug builds without bundle ID
+            sendOSANotification(title: title, body: body)
+        }
+    }
+
+    /// Fallback notification via osascript (works without bundle ID)
+    private func sendOSANotification(title: String, body: String) {
+        let safeTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
+        let safeBody = body.prefix(200).replacingOccurrences(of: "\"", with: "\\\"")
+        let script = "display notification \"\(safeBody)\" with title \"\(safeTitle)\""
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        try? process.run()
     }
 
     func notifyScanComplete(findings: Int) {
