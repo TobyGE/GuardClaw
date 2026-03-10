@@ -89,6 +89,8 @@ struct SecurityScanSummary: Codable, Sendable {
     let skills: Int?
     let hooks: Int?
     let ocComponents: Int?
+    let geminiComponents: Int?
+    let cursorComponents: Int?
 }
 
 struct SecurityScannedItems: Codable, Sendable {
@@ -96,6 +98,8 @@ struct SecurityScannedItems: Codable, Sendable {
     let skills: Int?
     let hooks: Int?
     let ocComponents: Int?
+    let geminiComponents: Int?
+    let cursorComponents: Int?
 }
 
 struct SecurityFinding: Codable, Identifiable, Sendable {

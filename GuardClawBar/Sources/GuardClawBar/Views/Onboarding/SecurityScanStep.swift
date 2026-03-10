@@ -16,7 +16,7 @@ struct SecurityScanStep: View {
                     Text("Security Check")
                         .font(.title2)
                         .fontWeight(.bold)
-                    Text("Deep scan of Claude Code skills, MCP servers, hooks, and OpenClaw plugins.")
+                    Text("Deep scan of all agent configs: Claude Code, OpenClaw, Gemini CLI, and Cursor.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -26,10 +26,15 @@ struct SecurityScanStep: View {
                     // Summary
                     if let summary = result.summary {
                         VStack(spacing: 8) {
-                            HStack(spacing: 20) {
+                            HStack(spacing: 16) {
                                 SummaryItem(value: "\(summary.mcpServers ?? 0)", label: "MCP Servers")
                                 SummaryItem(value: "\(summary.skills ?? 0)", label: "Skills")
                                 SummaryItem(value: "\(summary.hooks ?? 0)", label: "Hooks")
+                            }
+                            HStack(spacing: 16) {
+                                SummaryItem(value: "\(summary.ocComponents ?? 0)", label: "OpenClaw")
+                                SummaryItem(value: "\(summary.geminiComponents ?? 0)", label: "Gemini CLI")
+                                SummaryItem(value: "\(summary.cursorComponents ?? 0)", label: "Cursor")
                                 SummaryItem(value: "\(summary.total ?? 0)", label: "Issues")
                             }
                         }
