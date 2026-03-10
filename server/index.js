@@ -3185,7 +3185,7 @@ function deepScanDirectory(dirPath, category, maxFiles = 50) {
 
 app.post('/api/setup/security-scan', async (_req, res) => {
   const findings = [];
-  const scannedItems = { mcpServers: 0, skills: 0, hooks: 0, ocComponents: 0 };
+  const scannedItems = { mcpServers: 0, skills: 0, hooks: 0, ocComponents: 0, geminiComponents: 0, cursorComponents: 0 };
 
   try {
     const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
@@ -3295,6 +3295,115 @@ app.post('/api/setup/security-scan', async (_req, res) => {
     }
   }
 
+  // Gemini CLI: scan settings.json hooks + extensions
+  try {
+    const geminiSettingsPath = path.join(os.homedir(), '.gemini', 'settings.json');
+    if (fs.existsSync(geminiSettingsPath)) {
+      const geminiSettings = JSON.parse(fs.readFileSync(geminiSettingsPath, 'utf8'));
+
+      // Gemini hooks (BeforeTool, AfterTool, etc.)
+      const geminiHooks = geminiSettings.hooks || {};
+      for (const [hookName, hookList] of Object.entries(geminiHooks)) {
+        for (const matcher of (Array.isArray(hookList) ? hookList : [])) {
+          for (const hook of (matcher.hooks || [])) {
+            scannedItems.geminiComponents++;
+            const cmd = hook.command || '';
+            for (const pattern of SUSPICIOUS_CODE_PATTERNS) {
+              if (pattern.re.test(cmd)) {
+                pattern.re.lastIndex = 0;
+                findings.push({
+                  id: `gemini-hook-${hookName}-${cmd.substring(0, 20)}`.replace(/\s+/g, '-'),
+                  category: 'Gemini CLI Hooks',
+                  severity: pattern.severity,
+                  title: `${pattern.reason} in Gemini hook: ${hookName}`,
+                  detail: cmd.substring(0, 300),
+                  recommendation: `Review this Gemini CLI hook. ${pattern.reason} can be used for data exfiltration.`
+                });
+              }
+              pattern.re.lastIndex = 0;
+            }
+          }
+        }
+      }
+
+      // Gemini MCP servers (if configured)
+      const geminiMcp = geminiSettings.mcpServers || {};
+      for (const [name, cfg] of Object.entries(geminiMcp)) {
+        scannedItems.geminiComponents++;
+        const cmd = cfg.command || '';
+        const args = (cfg.args || []).join(' ');
+        const allText = `${cmd} ${args}`;
+        if (/https?:\/\/|wss?:\/\//.test(allText)) {
+          findings.push({
+            id: `gemini-mcp-remote-${name}`,
+            category: 'Gemini CLI MCP',
+            severity: 'high',
+            title: `Remote MCP server in Gemini: ${name}`,
+            detail: `Command: ${cmd} ${args}`,
+            recommendation: 'Remote MCP servers can intercept and exfiltrate all tool calls. Only use trusted servers.'
+          });
+        }
+      }
+    }
+
+    // Gemini extensions/policies directories
+    const geminiDir = path.join(os.homedir(), '.gemini');
+    for (const subdir of ['policies', 'tmp']) {
+      const subdirPath = path.join(geminiDir, subdir);
+      if (fs.existsSync(subdirPath)) {
+        try {
+          scannedItems.geminiComponents += fs.readdirSync(subdirPath).length;
+        } catch {}
+        findings.push(...deepScanDirectory(subdirPath, `Gemini CLI ${subdir.charAt(0).toUpperCase() + subdir.slice(1)}`));
+      }
+    }
+  } catch (err) {
+    console.warn('[GuardClaw] Security scan: failed to read Gemini settings:', err.message);
+  }
+
+  // Cursor: scan hooks.json + extensions/plugins/skills directories
+  try {
+    const cursorHooksPath = path.join(os.homedir(), '.cursor', 'hooks.json');
+    if (fs.existsSync(cursorHooksPath)) {
+      const cursorHooks = JSON.parse(fs.readFileSync(cursorHooksPath, 'utf8'));
+      const hooks = cursorHooks.hooks || {};
+      for (const [hookName, hookList] of Object.entries(hooks)) {
+        for (const hook of (Array.isArray(hookList) ? hookList : [])) {
+          scannedItems.cursorComponents++;
+          const cmd = hook.command || '';
+          for (const pattern of SUSPICIOUS_CODE_PATTERNS) {
+            if (pattern.re.test(cmd)) {
+              pattern.re.lastIndex = 0;
+              findings.push({
+                id: `cursor-hook-${hookName}-${cmd.substring(0, 20)}`.replace(/\s+/g, '-'),
+                category: 'Cursor Hooks',
+                severity: pattern.severity,
+                title: `${pattern.reason} in Cursor hook: ${hookName}`,
+                detail: cmd.substring(0, 300),
+                recommendation: `Review this Cursor hook. ${pattern.reason} can be used for data exfiltration.`
+              });
+            }
+            pattern.re.lastIndex = 0;
+          }
+        }
+      }
+    }
+
+    // Cursor extensions, plugins, skills directories
+    const cursorDir = path.join(os.homedir(), '.cursor');
+    for (const subdir of ['extensions', 'plugins', 'skills-cursor']) {
+      const subdirPath = path.join(cursorDir, subdir);
+      if (fs.existsSync(subdirPath)) {
+        try {
+          scannedItems.cursorComponents += fs.readdirSync(subdirPath).length;
+        } catch {}
+        findings.push(...deepScanDirectory(subdirPath, `Cursor ${subdir.charAt(0).toUpperCase() + subdir.slice(1)}`));
+      }
+    }
+  } catch (err) {
+    console.warn('[GuardClaw] Security scan: failed to read Cursor settings:', err.message);
+  }
+
   // Deduplicate findings by id
   const seen = new Set();
   const deduped = findings.filter(f => {
@@ -3315,6 +3424,8 @@ app.post('/api/setup/security-scan', async (_req, res) => {
       skills: scannedItems.skills,
       hooks: scannedItems.hooks,
       ocComponents: scannedItems.ocComponents,
+      geminiComponents: scannedItems.geminiComponents,
+      cursorComponents: scannedItems.cursorComponents,
     }
   });
 });
