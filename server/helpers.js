@@ -95,6 +95,46 @@ export function parseEventDetails(event) {
 
   switch (eventType) {
     case 'agent':
+      // OpenClaw streaming format: stream='tool' with data.name and data.phase
+      if (payload.stream === 'tool' && payload.data?.name) {
+        const phase = payload.data.phase || 'update';
+        if (phase === 'result') {
+          details.type = 'tool-result'; details.tool = 'result';
+          details.subType = payload.data.toolCallId || 'unknown';
+          return details;
+        }
+        if (phase === 'update') {
+          // Intermediate delta — skip storage
+          details.type = 'tool-result'; details.subType = 'delta';
+          return details;
+        }
+        // phase === 'start' → classify as tool-call
+        details.type = 'tool-call'; details.tool = payload.data.name; details.subType = payload.data.name;
+        details.description = `${payload.data.name}`;
+        const streamInput = payload.data.args || payload.data.input || {};
+        if (payload.data.name === 'exec' && streamInput.command) {
+          details.command = streamInput.command;
+          details.description = `exec: ${streamInput.command}`;
+        } else if (payload.data.name === 'edit') {
+          const file = streamInput.file_path || streamInput.path || '';
+          const oldStr = (streamInput.old_string || streamInput.oldText || '').substring(0, 100);
+          const newStr = (streamInput.new_string || streamInput.newText || '').substring(0, 100);
+          details.command = oldStr || newStr
+            ? `edit ${file}\n--- old: ${oldStr}${oldStr.length >= 100 ? '…' : ''}\n+++ new: ${newStr}${newStr.length >= 100 ? '…' : ''}`
+            : `edit ${file}`;
+          details.description = `edit file: ${file}`;
+        } else if (payload.data.name === 'write') {
+          const file = streamInput.file_path || streamInput.path || '';
+          const content = (streamInput.content || '').substring(0, 150);
+          details.command = `write ${file}\n${content}${content.length >= 150 ? '…' : ''}`;
+          details.description = `write file: ${file}`;
+        } else if (payload.data.name === 'read') {
+          const file = streamInput.file_path || streamInput.path || '';
+          details.description = `read file: ${file}`;
+        }
+        return details;
+      }
+      // Legacy format: data.type === 'tool_use'
       if (payload.data?.type === 'tool_use') {
         details.type = 'tool-call'; details.tool = payload.data.name; details.subType = payload.data.name;
         details.description = `${payload.data.name}`;
