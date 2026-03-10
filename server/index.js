@@ -3607,6 +3607,16 @@ async function runAuditScan(scanPath, forceRescan = false) {
   if (fs.existsSync(ocPath)) {
     targets.push(ocPath);
   }
+  // Scan Gemini CLI config if available
+  const geminiPath = path.join(os.homedir(), '.gemini');
+  if (fs.existsSync(geminiPath)) {
+    targets.push(geminiPath);
+  }
+  // Scan Cursor config if available
+  const cursorPath = path.join(os.homedir(), '.cursor');
+  if (fs.existsSync(cursorPath)) {
+    targets.push(cursorPath);
+  }
   if (scanPath && fs.existsSync(scanPath)) {
     targets.push(scanPath);
   }
@@ -3704,6 +3714,14 @@ async function runAuditScan(scanPath, forceRescan = false) {
             source = 'Claude Config';
           } else if (fp.includes('openclaw/')) {
             source = 'OpenClaw';
+          } else if (fp.includes('.gemini/')) {
+            source = 'Gemini CLI';
+            const geminiMatch = fp.match(/\.gemini\/([^/]+)/);
+            if (geminiMatch) sourceName = geminiMatch[1];
+          } else if (fp.includes('.cursor/')) {
+            source = 'Cursor';
+            const cursorMatch = fp.match(/\.cursor\/([^/]+)(?:\/([^/]+))?/);
+            if (cursorMatch) sourceName = cursorMatch[2] || cursorMatch[1];
           }
 
           allFindings.push({
@@ -3757,12 +3775,23 @@ async function runAuditScan(scanPath, forceRescan = false) {
   totalTools += countDirs(path.join(ocDir, 'extensions'));
   totalSkills += countDirs(path.join(ocDir, 'skills'));
 
+  // Gemini CLI: extensions + policies
+  const geminiDir = path.join(os.homedir(), '.gemini');
+  totalTools += countDirs(path.join(geminiDir, 'policies'));
+
+  // Cursor: extensions + plugins + skills
+  const cursorDir = path.join(os.homedir(), '.cursor');
+  totalTools += countDirs(path.join(cursorDir, 'extensions'));
+  totalTools += countDirs(path.join(cursorDir, 'plugins'));
+  totalSkills += countDirs(path.join(cursorDir, 'skills-cursor'));
+
   const dangerousToolNames = new Set();
   const dangerousSkillNames = new Set();
   for (const f of allFindings) {
     if (f.severity !== 'critical') continue; // Only critical findings count as risky
     const isToolSource = f.source === 'Claude Official Plugin' || f.source === 'External Plugin (MCP)'
-      || f.source === 'OpenClaw Plugin' || f.source === 'OpenClaw Extension';
+      || f.source === 'OpenClaw Plugin' || f.source === 'OpenClaw Extension'
+      || f.source === 'Gemini CLI' || f.source === 'Cursor';
     const isSkillSource = f.source === 'OpenClaw Skill' || f.source === 'Claude Skill';
     if (f.sourceName && isToolSource) {
       dangerousToolNames.add(f.sourceName);
