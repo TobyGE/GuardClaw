@@ -181,7 +181,12 @@ final class AppState {
         case "tool-call", "tool_call", "event":
             // Refresh events list
             if let eventData = try? JSONDecoder().decode(EventItem.self, from: data) {
-                let backend = eventData.safeguard?.backend ?? "claude-code"
+                let sk = eventData.sessionKey ?? ""
+                let backend = sk.hasPrefix("agent:") ? "openclaw"
+                    : sk.hasPrefix("gemini:") ? "gemini-cli"
+                    : sk.hasPrefix("cursor:") ? "cursor"
+                    : sk.hasPrefix("claude-code:") ? "claude-code"
+                    : (eventData.safeguard?.backend ?? "claude-code")
                 var isNew = false
                 if backend == "openclaw" {
                     if !ocEvents.contains(where: { $0.id == eventData.id }) {

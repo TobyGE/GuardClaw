@@ -159,9 +159,11 @@ function App() {
         const bf = backendFilterRef.current;
         const ss = selectedSessionRef.current;
         const matchesBackend = bf === 'all'
-          || (bf === 'openclaw' && eventSessionKey2.includes('agent:'))
-          || (bf === 'nanobot' && eventSessionKey2.includes('nanobot'))
-          || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'));
+          || (bf === 'openclaw' && eventSessionKey2.startsWith('agent:'))
+          || (bf === 'nanobot' && eventSessionKey2.startsWith('nanobot'))
+          || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'))
+          || (bf === 'gemini-cli' && eventSessionKey2.startsWith('gemini:'))
+          || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'));
         // Support merged sessions: if selectedSession is a channel prefix (e.g. agent:main:cron),
         // match all sessionKeys that start with it — but exclude subagent events from non-CC parent sessions
         const matchesSession = !ss

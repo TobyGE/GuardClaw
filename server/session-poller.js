@@ -230,9 +230,9 @@ export class SessionPoller {
           };
         }
 
-        // Create event
+        // Create event — use toolCallId so INSERT OR REPLACE deduplicates with streaming events
         const event = {
-          id: `poll-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: call.id ? `oc-tc-${call.id}` : `poll-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           timestamp: call.timestamp || Date.now(),
           rawEvent: call.raw || {},
           type: 'tool-call',

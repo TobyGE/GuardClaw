@@ -1386,7 +1386,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     if (analysis.riskScore < CC_PASS_THRESHOLD) {
       const compactInput = compactToolInput(gcToolName, gcParams);
-      const reason = analysis.reasoning || analysis.category || '';
+      const reason = shorten(analysis.reasoning || analysis.category || '', 120);
       const msg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${reason}`;
       const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
       console.log(`[GuardClaw] ${msg}`);
@@ -1404,7 +1404,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     // Return 'ask' to CC immediately so it shows its own allow/deny dialog,
     // AND create a pending approval in Bar so user can also act from there.
     const approvalId = `cc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const askReason = `⛨ GuardClaw ASK (score ${analysis.riskScore}): ${analysis.reasoning || analysis.category}`;
+    const askReason = `⛨ GuardClaw ASK (score ${analysis.riskScore}): ${shorten(analysis.reasoning || analysis.category || '', 120)}`;
     console.log(`[GuardClaw] ⏸️  ASK: ${gcToolName} (${approvalId}) — ${askReason}`);
 
     // Create pending approval in Bar (auto-expires after 5 min)
@@ -2158,6 +2158,7 @@ app.post('/api/hooks/llm-input', (req, res) => {
     type: 'user-message',
     sessionKey: key,
     content: truncated,
+    description: truncated.length > 100 ? truncated.substring(0, 100) + '...' : truncated,
     from: 'user',
     model,
     provider,
@@ -2211,6 +2212,7 @@ app.post('/api/hooks/message-received', (req, res) => {
     sessionKey: key,
     from,
     content: truncated,
+    description: truncated.length > 100 ? truncated.substring(0, 100) + '...' : truncated,
     channelId,
     timestamp: timestamp ? new Date(timestamp).getTime() : Date.now(),
   });
@@ -4100,7 +4102,7 @@ async function handleAgentEvent(event) {
   const session = streamingTracker.trackEvent(event);
   
   // Debug: log session keys
-  if (eventType === 'chat' || eventType === 'agent') {
+  if (eventType === 'agent') {
     console.log(`[GuardClaw] Event type: ${eventType}, sessionKey: ${sessionKey}, session has ${session.steps.length} steps`);
   }
 
@@ -4137,8 +4139,11 @@ async function handleAgentEvent(event) {
     return; // Don't store delta events, but streaming tracker already captured them
   }
 
+  // Use toolCallId as event id for tool-call events to enable dedup with poller
+  const toolCallId = event.payload?.data?.toolCallId || event.payload?.data?.tool_call_id;
+  const eventId = (eventDetails.type === 'tool-call' && toolCallId) ? `oc-tc-${toolCallId}` : generateId('oc');
   const storedEvent = {
-    id: generateId('oc'),
+    id: eventId,
     timestamp: Date.now(),
     rawEvent: event,
     type: eventDetails.type,

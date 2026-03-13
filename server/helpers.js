@@ -6,6 +6,8 @@ export function shouldSkipEvent(eventDetails) {
   if (eventDetails.type === 'tool-result') return true;
   if (eventDetails.type === 'exec-output') return true;
   if (eventDetails.type === 'health' || eventDetails.type === 'heartbeat') return true;
+  // Skip empty chat-update events (e.g. state:"final" with no message content)
+  if (eventDetails.type === 'chat-update' && !eventDetails.description) return true;
   return false;
 }
 
@@ -131,6 +133,12 @@ export function parseEventDetails(event) {
         } else if (payload.data.name === 'read') {
           const file = streamInput.file_path || streamInput.path || '';
           details.description = `read file: ${file}`;
+        } else if (payload.data.name === 'web_fetch') {
+          const url = streamInput.url || '';
+          details.description = url ? `fetch URL: ${url}` : 'web_fetch';
+        } else if (payload.data.name === 'web_search') {
+          const query = streamInput.query || '';
+          details.description = query ? `search: ${query}` : 'web_search';
         }
         return details;
       }
@@ -155,6 +163,12 @@ export function parseEventDetails(event) {
           const content = (input.content || '').substring(0, 150);
           details.command = `write ${file}\n${content}${content.length >= 150 ? '…' : ''}`;
           details.description = `write file: ${file}`;
+        } else if (payload.data.name === 'web_fetch') {
+          const url = input.url || '';
+          details.description = url ? `fetch URL: ${url}` : 'web_fetch';
+        } else if (payload.data.name === 'web_search') {
+          const query = input.query || '';
+          details.description = query ? `search: ${query}` : 'web_search';
         }
         return details;
       }
@@ -180,7 +194,9 @@ export function parseEventDetails(event) {
         if (Array.isArray(content)) {
           for (const block of content) { if (block.type === 'text' && block.text) text += block.text; }
         } else if (typeof content === 'string') { text = content; }
-        details.description = text || JSON.stringify(content).substring(0, 100);
+        if (text) {
+          details.description = text.length > 100 ? text.substring(0, 100) + '...' : text;
+        }
       }
       break;
 

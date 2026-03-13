@@ -1347,7 +1347,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
       return this.parseAnalysisResponse(content, prompt, rawCommand);
     } catch (error) {
       console.error('[SafeguardService] Claude analysis failed:', error);
-      return this.fallbackToolAnalysis({ summary: prompt });
+      return this.fallbackToolAnalysis({ summary: rawCommand || 'unknown' });
     }
   }
 
@@ -1536,14 +1536,14 @@ Output ONLY the JSON. No other text.`;
     } catch (error) {
       console.error('[SafeguardService] LM Studio analysis failed:', error);
       console.error('[SafeguardService] Model:', modelToUse);
-      return this.fallbackToolAnalysis({ summary: prompt });
+      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
     }
   }
 
   async analyzeWithBuiltIn(prompt, action) {
     if (!llmEngine.isReady) {
       console.warn('[SafeguardService] Built-in engine not ready, using fallback');
-      return this.fallbackToolAnalysis(action || { summary: prompt });
+      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
     }
 
     try {
@@ -1565,7 +1565,7 @@ Output ONLY the JSON. No other text.`;
       return this.parseAnalysisResponse(content, prompt, action?.summary);
     } catch (error) {
       console.error('[SafeguardService] Built-in analysis failed:', error.message);
-      return this.fallbackToolAnalysis(action || { summary: prompt });
+      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
     }
   }
 
@@ -1600,7 +1600,7 @@ Output ONLY the JSON. No other text.`;
       return this.parseAnalysisResponse(content, prompt, rawCommand);
     } catch (error) {
       console.error('[SafeguardService] Ollama analysis failed:', error);
-      return this.fallbackToolAnalysis({ summary: prompt });
+      return this.fallbackToolAnalysis({ summary: rawCommand || 'unknown' });
     }
   }
 
