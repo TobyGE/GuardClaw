@@ -390,7 +390,7 @@ export class SafeguardService {
         );
         switch (this.backend) {
           case 'anthropic':
-            result = await this.analyzeWithClaudePrompt(enhancedPrompt);
+            result = await this.analyzeWithClaudePrompt(enhancedPrompt, command);
             break;
           case 'built-in':
             result = await this.analyzeWithBuiltIn(enhancedPrompt, { tool: 'exec', summary: command });
@@ -399,7 +399,7 @@ export class SafeguardService {
             result = await this.analyzeWithLMStudioPrompt(enhancedPrompt, { tool: 'exec', summary: command });
             break;
           case 'ollama':
-            result = await this.analyzeWithOllamaPrompt(enhancedPrompt);
+            result = await this.analyzeWithOllamaPrompt(enhancedPrompt, command);
             break;
           default:
             result = this.fallbackAnalysis(command);
@@ -1324,7 +1324,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
 {"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the action does, then why it is safe/warning/block"}`;
   }
 
-  async analyzeWithClaudePrompt(prompt) {
+  async analyzeWithClaudePrompt(prompt, rawCommand) {
     try {
       const response = await this.client.messages.create({
         model: 'claude-3-5-sonnet-20241022',
@@ -1336,7 +1336,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
       });
 
       const content = response.content[0].text;
-      return this.parseAnalysisResponse(content, prompt);
+      return this.parseAnalysisResponse(content, prompt, rawCommand);
     } catch (error) {
       console.error('[SafeguardService] Claude analysis failed:', error);
       return this.fallbackToolAnalysis({ summary: prompt });
@@ -1524,7 +1524,7 @@ Output ONLY the JSON. No other text.`;
         llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
       }
       const content = data.choices[0].message.content;
-      return this.parseAnalysisResponse(content, prompt);
+      return this.parseAnalysisResponse(content, prompt, action?.summary);
     } catch (error) {
       console.error('[SafeguardService] LM Studio analysis failed:', error);
       console.error('[SafeguardService] Model:', modelToUse);
@@ -1554,14 +1554,14 @@ Output ONLY the JSON. No other text.`;
       });
 
       const content = data.choices[0].message.content;
-      return this.parseAnalysisResponse(content, prompt);
+      return this.parseAnalysisResponse(content, prompt, action?.summary);
     } catch (error) {
       console.error('[SafeguardService] Built-in analysis failed:', error.message);
       return this.fallbackToolAnalysis(action || { summary: prompt });
     }
   }
 
-  async analyzeWithOllamaPrompt(prompt) {
+  async analyzeWithOllamaPrompt(prompt, rawCommand) {
     const url = `${this.config.ollamaUrl}/api/generate`;
 
     try {
@@ -1589,7 +1589,7 @@ Output ONLY the JSON. No other text.`;
         llmEngine._onTokenUsage(data.prompt_eval_count || 0, data.eval_count || 0);
       }
       const content = data.response;
-      return this.parseAnalysisResponse(content, prompt);
+      return this.parseAnalysisResponse(content, prompt, rawCommand);
     } catch (error) {
       console.error('[SafeguardService] Ollama analysis failed:', error);
       return this.fallbackToolAnalysis({ summary: prompt });
@@ -1938,7 +1938,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
 {"verdict": "SAFE|WARNING|BLOCK", "reason": "1-2 sentences: state what the action does, then why it is safe/warning/block"}`;
   }
 
-  parseAnalysisResponse(content, command) {
+  parseAnalysisResponse(content, command, rawCommand) {
     try {
       // Clean up response - remove <think> tags and other markers
       let cleanContent = content.trim();
@@ -2060,7 +2060,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
       for (const { pattern, marker } of hallucinations) {
         if (pattern.test(reasoning) && !pattern.test(commandStr)) {
           console.warn(`[SafeguardService] Hallucination detected: reasoning mentions "${marker}" but command is: ${commandStr.substring(0, 100)}`);
-          return this.fallbackAnalysis(commandStr);
+          return this.fallbackAnalysis(rawCommand || commandStr);
         }
       }
 
@@ -2078,7 +2078,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
       console.error('[SafeguardService] Failed to parse response:', error.message);
       console.error('[SafeguardService] Raw response (first 500 chars):', content.substring(0, 500));
       console.error('[SafeguardService] Falling back to pattern-based analysis');
-      return this.fallbackAnalysis(command);
+      return this.fallbackAnalysis(rawCommand || command);
     }
   }
 
@@ -2104,7 +2104,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
         return {
           riskScore: score,
           category,
-          reasoning: `Pattern-based analysis detected ${category} operation: ${warning}`,
+          reasoning: `LLM response parse failed — fallback pattern match: ${warning}`,
           allowed: score < 8,
           warnings: [warning],
           backend: 'fallback'
@@ -2116,7 +2116,7 @@ Output ONLY ONE JSON object (pick exactly one verdict):
     return {
       riskScore: 2,
       category: 'safe',
-      reasoning: 'No dangerous patterns detected (fallback analysis)',
+      reasoning: 'LLM response parse failed — no dangerous patterns detected',
       allowed: true,
       warnings: [],
       backend: 'fallback'
