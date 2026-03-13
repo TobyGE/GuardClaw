@@ -454,6 +454,9 @@ print(json.dumps({"done": True, "path": path}), flush=True)
         '-m', 'mlx_lm', 'server',
         '--model', modelPath,
         '--port', String(MLX_PORT),
+        '--decode-concurrency', '4',
+        '--prompt-concurrency', '4',
+        '--chat-template-args', '{"enable_thinking":false}',
       ], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -544,7 +547,7 @@ print(json.dumps({"done": True, "path": path}), flush=True)
   }
 
   /** Run a chat completion via mlx_lm.server OpenAI-compatible endpoint */
-  async chatCompletion({ messages, temperature = 0.3, maxTokens = 800 }) {
+  async chatCompletion({ messages, temperature = 0.3, maxTokens = 800, stop }) {
     if (!this.isReady) {
       throw new Error('No model loaded');
     }
@@ -554,12 +557,14 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       this._serverModelId = await this._getServerModelId();
     }
 
-    const body = JSON.stringify({
+    const payload = {
       model: this._serverModelId,
       messages,
       temperature,
       max_tokens: maxTokens,
-    });
+    };
+    if (stop) payload.stop = stop;
+    const body = JSON.stringify(payload);
 
     return new Promise((resolve, reject) => {
       const req = http.request(
