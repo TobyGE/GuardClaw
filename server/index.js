@@ -193,11 +193,12 @@ function inferPendingDenials(sessionKey, excludeKey = null) {
   }
 }
 
+function shorten(s, n = 100) {
+  const str = String(s || '');
+  return str.length > n ? `${str.slice(0, n)}...` : str;
+}
+
 function compactToolInput(toolName, params = {}) {
-  const shorten = (s, n = 100) => {
-    const str = String(s || '');
-    return str.length > n ? `${str.slice(0, n)}...` : str;
-  };
 
   switch (toolName) {
     case 'read':
