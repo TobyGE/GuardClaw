@@ -11,18 +11,52 @@ const rootDir = join(__dirname, '..');
 
 const command = process.argv[2];
 
+const GC_PORT = process.env.GUARDCLAW_PORT || process.env.PORT || 3002;
+const GC_BASE = `http://127.0.0.1:${GC_PORT}`;
+
+/** Fetch JSON from GuardClaw API. Returns null on connection failure. */
+async function gcApi(path, method = 'GET', body) {
+  const url = `${GC_BASE}${path}`;
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    if (err.cause?.code === 'ECONNREFUSED') {
+      console.error('❌ GuardClaw is not running (connection refused on port ' + GC_PORT + ')');
+      console.error('   Start it with: guardclaw start');
+    } else {
+      console.error(`❌ API error: ${err.message}`);
+    }
+    process.exit(1);
+  }
+}
+
 function showHelp() {
   console.log(`
 🛡️  GuardClaw - AI Agent Safety Monitor
 
 Usage:
-  guardclaw start [options]         Start the GuardClaw server
-  guardclaw stop                    Stop the GuardClaw server
-  guardclaw config <command>        Manage configuration
-  guardclaw plugin <command>        Manage the OpenClaw interceptor plugin
-  guardclaw update                  Update GuardClaw to latest version
-  guardclaw help                    Show this help message
-  guardclaw version                 Show version
+  guardclaw status                   Server status overview
+  guardclaw stats                    Evaluation statistics & token usage
+  guardclaw history [n]              Recent evaluations (default: 20)
+  guardclaw model                    Current LLM model info
+  guardclaw model load <id>          Load a built-in model
+  guardclaw model unload             Unload current model
+  guardclaw blocking [on|off]        Show or toggle blocking mode
+  guardclaw check <command>          Manually check a command's risk score
+  guardclaw approvals                Show pending approvals
+  guardclaw memory                   Show learned patterns
+
+  guardclaw start [options]          Start the GuardClaw server
+  guardclaw stop                     Stop the GuardClaw server
+  guardclaw config <command>         Manage configuration
+  guardclaw plugin <command>         Manage the OpenClaw interceptor plugin
+  guardclaw update                   Update GuardClaw to latest version
+  guardclaw help                     Show this help message
+  guardclaw version                  Show version
 
 Config Commands:
   guardclaw config set-token <token>    Set OpenClaw Gateway token
@@ -47,18 +81,14 @@ Environment variables:
   OPENCLAW_TOKEN            OpenClaw authentication token
   ANTHROPIC_API_KEY         Anthropic API key
   PORT                      Server port
+  GUARDCLAW_PORT            Port for CLI queries (default: same as PORT)
 
 Examples:
-  guardclaw start
-  guardclaw stop
-  guardclaw config detect-token
-  guardclaw config set-token abc123...
+  guardclaw status
+  guardclaw check "rm -rf /"
+  guardclaw history 10
+  guardclaw blocking on
   guardclaw start --port 3002
-  guardclaw start --openclaw-url ws://192.168.1.100:18789
-
-Configuration:
-  Create a .env file in your current directory or use environment variables.
-  See .env.example for reference.
 
 More info: https://github.com/TobyGE/GuardClaw
   `);
@@ -589,7 +619,251 @@ function startServer() {
   });
 }
 
+// ─── Query Commands (talk to running server) ──────────────────────────────────
+
+async function cmdStatus() {
+  const [health, status] = await Promise.all([
+    gcApi('/api/health'),
+    gcApi('/api/status'),
+  ]);
+
+  console.log('⛨  GuardClaw Status\n');
+  console.log(`  Running:      ${health.ok ? '✅ Yes' : '❌ No'}`);
+  console.log(`  PID:          ${health.pid}`);
+  console.log(`  Blocking:     ${health.blockingEnabled ? '🔴 ON (blocking)' : '🟢 OFF (monitoring only)'}`);
+  console.log(`  Fail-closed:  ${health.failClosed ? 'Yes' : 'No'}`);
+  console.log(`  Backend:      ${status.safeguard?.backend || 'unknown'}`);
+  console.log(`  Uptime:       ${Math.round((Date.now() - health.ts) / -1000)}s ago (health check)`);
+
+  if (status.poller) {
+    console.log(`\n  Sessions:     ${status.poller.activeSessions ?? 'N/A'}`);
+  }
+  if (status.cache) {
+    const c = status.cache;
+    console.log(`\n  Cache:        ${c.hits ?? 0} hits / ${c.misses ?? 0} misses / ${c.aiCalls ?? 0} AI calls`);
+  }
+}
+
+async function cmdStats() {
+  const [memStats, status] = await Promise.all([
+    gcApi('/api/memory/stats'),
+    gcApi('/api/status'),
+  ]);
+
+  console.log('⛨  GuardClaw Statistics\n');
+
+  if (memStats) {
+    console.log(`  Decisions recorded:  ${memStats.totalDecisions ?? 0}`);
+    console.log(`  Patterns learned:    ${memStats.totalPatterns ?? 0}`);
+    if (memStats.byDecision) {
+      const d = memStats.byDecision;
+      console.log(`  ├─ Approved:         ${d.approve ?? 0}`);
+      console.log(`  ├─ Denied:           ${d.deny ?? 0}`);
+      console.log(`  └─ Auto:             ${d.auto ?? 0}`);
+    }
+  }
+
+  if (status.cache) {
+    const c = status.cache;
+    console.log(`\n  Cache hits:          ${c.hits ?? 0}`);
+    console.log(`  Cache misses:        ${c.misses ?? 0}`);
+    console.log(`  AI calls:            ${c.aiCalls ?? 0}`);
+    console.log(`  Rule fast-path:      ${c.ruleCalls ?? 0}`);
+  }
+}
+
+async function cmdHistory() {
+  const limit = parseInt(process.argv[3]) || 20;
+  const data = await gcApi(`/api/events/history?limit=${limit}&filter=tool`);
+  const events = data.events || data || [];
+
+  console.log(`⛨  Recent Evaluations (last ${limit})\n`);
+
+  if (events.length === 0) {
+    console.log('  No evaluations recorded yet.');
+    return;
+  }
+
+  for (const ev of events) {
+    const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
+    const tool = ev.toolName || ev.tool || '?';
+    const score = ev.riskScore ?? ev.score ?? '?';
+    const verdict = ev.verdict || ev.category || '';
+    const cmd = (ev.command || ev.summary || '').substring(0, 60);
+    const icon = score <= 3 ? '🟢' : score <= 6 ? '🟡' : score <= 8 ? '🟠' : '🔴';
+
+    console.log(`  ${ts}  ${icon} ${String(score).padStart(2)}/10  ${verdict.padEnd(7)}  ${tool}: ${cmd}`);
+  }
+}
+
+async function cmdModel() {
+  const sub = process.argv[3];
+
+  if (sub === 'load') {
+    const modelId = process.argv[4];
+    if (!modelId) {
+      console.error('Usage: guardclaw model load <model-id>');
+      console.error('       guardclaw model     (to see available models)');
+      process.exit(1);
+    }
+    console.log(`Loading model ${modelId}...`);
+    const result = await gcApi(`/api/models/${modelId}/load`, 'POST');
+    console.log(`✅ ${result.status || 'done'}: ${result.modelId || modelId}`);
+    return;
+  }
+
+  if (sub === 'unload') {
+    await gcApi('/api/models/unload', 'POST');
+    console.log('✅ Model unloaded');
+    return;
+  }
+
+  const [models, engineStatus] = await Promise.all([
+    gcApi('/api/models'),
+    gcApi('/api/models/status'),
+  ]);
+
+  console.log('⛨  LLM Models\n');
+
+  if (engineStatus) {
+    console.log(`  Engine status:  ${engineStatus.status || 'unknown'}`);
+    if (engineStatus.loadedModel) {
+      console.log(`  Loaded model:   ${engineStatus.loadedModel}`);
+    }
+    console.log('');
+  }
+
+  if (models?.models) {
+    for (const m of models.models) {
+      const status = m.loaded ? '🟢 loaded' : m.downloaded ? '⚪ ready' : '⬇️  not downloaded';
+      console.log(`  ${m.id.padEnd(20)} ${status}  ${m.size || ''}`);
+      if (m.description) console.log(`    ${m.description}`);
+    }
+  }
+}
+
+async function cmdBlocking() {
+  const action = process.argv[3];
+
+  if (action === 'on' || action === 'off') {
+    const enabled = action === 'on';
+    await gcApi('/api/blocking/toggle', 'POST', { enabled });
+    console.log(`⛨  Blocking ${enabled ? '🔴 ENABLED' : '🟢 DISABLED'}`);
+    return;
+  }
+
+  const data = await gcApi('/api/blocking/status');
+  console.log('⛨  Blocking Configuration\n');
+  console.log(`  Enabled:    ${data.enabled ? '🔴 ON' : '🟢 OFF (monitoring only)'}`);
+  if (data.whitelist?.length) {
+    console.log(`  Whitelist:  ${data.whitelist.length} patterns`);
+    for (const p of data.whitelist) console.log(`    ✅ ${p}`);
+  }
+  if (data.blacklist?.length) {
+    console.log(`  Blacklist:  ${data.blacklist.length} patterns`);
+    for (const p of data.blacklist) console.log(`    🚫 ${p}`);
+  }
+}
+
+async function cmdCheck() {
+  const cmd = process.argv.slice(3).join(' ');
+  if (!cmd) {
+    console.error('Usage: guardclaw check <command>');
+    console.error('Example: guardclaw check "rm -rf /"');
+    process.exit(1);
+  }
+
+  console.log(`⛨  Analyzing: ${cmd}\n`);
+  const result = await gcApi('/api/safeguard/analyze', 'POST', { command: cmd });
+
+  const score = result.riskScore ?? '?';
+  const icon = score <= 3 ? '🟢' : score <= 6 ? '🟡' : score <= 8 ? '🟠' : '🔴';
+
+  console.log(`  Risk:     ${icon} ${score}/10`);
+  console.log(`  Verdict:  ${result.verdict || result.category || 'unknown'}`);
+  console.log(`  Allowed:  ${result.allowed ? 'Yes' : 'No'}`);
+  console.log(`  Backend:  ${result.backend || 'unknown'}`);
+  if (result.reasoning) {
+    console.log(`  Reason:   ${result.reasoning}`);
+  }
+}
+
+async function cmdApprovals() {
+  const data = await gcApi('/api/approvals/pending');
+  const pending = data.pending || data || [];
+
+  console.log('⛨  Pending Approvals\n');
+
+  if (pending.length === 0) {
+    console.log('  No pending approvals.');
+    return;
+  }
+
+  for (const a of pending) {
+    const ts = a.timestamp ? new Date(a.timestamp).toLocaleTimeString() : '';
+    console.log(`  ${ts}  [${a.id}]  ${a.toolName || a.tool}: ${(a.summary || '').substring(0, 60)}`);
+  }
+  console.log(`\n  Total: ${pending.length} pending`);
+}
+
+async function cmdMemory() {
+  const [stats, patterns] = await Promise.all([
+    gcApi('/api/memory/stats'),
+    gcApi('/api/memory/patterns?limit=20'),
+  ]);
+
+  console.log('⛨  Memory & Learned Patterns\n');
+  console.log(`  Decisions:  ${stats.totalDecisions ?? 0}`);
+  console.log(`  Patterns:   ${stats.totalPatterns ?? 0}\n`);
+
+  const list = patterns.patterns || patterns || [];
+  if (list.length === 0) {
+    console.log('  No patterns learned yet.');
+    return;
+  }
+
+  for (const p of list.slice(0, 20)) {
+    const conf = p.confidence != null ? ` (conf: ${p.confidence.toFixed(2)})` : '';
+    const icon = p.suggestedAction === 'auto-approve' ? '✅' : p.suggestedAction === 'auto-deny' ? '🚫' : '⚪';
+    const label = (p.pattern || '').substring(0, 60);
+    console.log(`  ${icon}  ${label}${conf}`);
+  }
+}
+
+// ─── Command Router ────────────────────────────────────────────────────────────
+
 switch (command) {
+  case 'status':
+    cmdStatus();
+    break;
+  case 'stats':
+    cmdStats();
+    break;
+  case 'history':
+  case 'log':
+  case 'logs':
+    cmdHistory();
+    break;
+  case 'model':
+  case 'models':
+    cmdModel();
+    break;
+  case 'blocking':
+  case 'block':
+    cmdBlocking();
+    break;
+  case 'check':
+  case 'analyze':
+    cmdCheck();
+    break;
+  case 'approvals':
+  case 'pending':
+    cmdApprovals();
+    break;
+  case 'memory':
+  case 'patterns':
+    cmdMemory();
+    break;
   case 'start':
     startServer();
     break;

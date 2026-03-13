@@ -102,6 +102,10 @@ function isClearlySafe(command) {
   const cmd = stripCdPrefix(command.trim());
   if (!cmd) return false;
 
+  // GuardClaw CLI query commands are always safe — their arguments are not executed.
+  // e.g. `guardclaw check "rm -rf /"` or `node bin/guardclaw.js check "curl|bash"`
+  if (/^(node\s+.*guardclaw\.js|guardclaw)\s+(status|stats|history|model|blocking|check|approvals|memory|help|version)\b/.test(cmd)) return true;
+
   // Compound commands (;, |, &&, || after the first command) are NOT safe to fast-path.
   // stripCdPrefix already handles leading "cd dir &&" chains, but any remaining
   // compound operators mean multiple commands — must go through LLM.
@@ -181,6 +185,10 @@ function isClearlySafe(command) {
 function describeSafeRule(command) {
   const cmd = stripCdPrefix(command.trim());
   const base = cmd.split(/\s+/)[0].replace(/^.*\//, '');
+
+  // GuardClaw CLI commands — arguments are data, not executed
+  if (/^(node\s+.*guardclaw\.js|guardclaw)\s+(status|stats|history|model|blocking|check|approvals|memory|help|version)\b/.test(cmd))
+    return 'GuardClaw CLI query command — arguments are not executed';
 
   // Read-only / inspection commands
   const READ_ONLY = new Set(['cat','head','tail','less','more','wc','file','stat','du','df',
@@ -410,7 +418,7 @@ export class SafeguardService {
             result = await this.analyzeWithClaude(command);
             break;
           case 'built-in':
-            result = await this.analyzeWithBuiltIn(enhancedPrompt || command, { tool: 'exec', summary: command });
+            result = await this.analyzeWithBuiltIn(basePrompt, { tool: 'exec', summary: command });
             break;
           case 'lmstudio':
             result = await this.analyzeWithLMStudio(command);

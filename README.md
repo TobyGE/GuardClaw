@@ -176,6 +176,15 @@ guardclaw plugin install
 guardclaw plugin uninstall
 guardclaw plugin status
 
+guardclaw status              # server & judge status
+guardclaw stats               # event counts and risk breakdown
+guardclaw history [n]         # recent events (default 10)
+guardclaw model               # active judge model info
+guardclaw blocking [on|off]   # view or toggle blocking mode
+guardclaw check <command>     # check risk score for a command
+guardclaw approvals           # pending approval requests
+guardclaw memory              # learned safe/risky patterns
+
 guardclaw help
 ```
 

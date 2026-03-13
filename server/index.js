@@ -3167,6 +3167,7 @@ app.post('/api/setup/cursor/uninstall', (req, res) => {
     if (hooksConfig.hooks && Object.keys(hooksConfig.hooks).length === 0) delete hooksConfig.hooks;
 
     fs.writeFileSync(hooksPath, JSON.stringify(hooksConfig, null, 2) + '\n');
+
     console.log(`[GuardClaw] Cursor hooks removed from ${hooksPath}`);
     res.json({ ok: true });
   } catch (err) {
