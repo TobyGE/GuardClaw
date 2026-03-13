@@ -142,7 +142,7 @@ const approvalNotifier = new ApprovalNotifier({
 // ─── Tool History Store (for chain analysis) ─────────────────────────────────
 // Tracks recent tool calls per session including outputs, for LLM chain analysis
 const toolHistoryStore = new Map(); // sessionKey → Array<ToolHistoryEntry>
-const MAX_TOOL_HISTORY = 10;
+const MAX_TOOL_HISTORY = 30;
 
 // ─── Evaluation Cache (dedup plugin vs streaming analysis) ───────────────────
 // When the plugin calls /api/evaluate, we cache the result so the streaming
@@ -325,11 +325,8 @@ function addToToolHistory(sessionKey, toolName, params, result) {
 
 function getChainHistory(sessionKey, currentTool) {
   if (!sessionKey) return null;
-  // Only trigger chain analysis for exit-type tools (data can leave the machine)
-  const EXIT_TOOLS = new Set(['message', 'sessions_send', 'sessions_spawn', 'exec']);
-  if (!EXIT_TOOLS.has(currentTool)) return null;
   const history = toolHistoryStore.get(sessionKey) || [];
-  // Always send the full trace — let the LLM judge, not keyword heuristics
+  // Always send chain history to LLM — multi-step attacks can only be caught with full context
   return history.length > 0 ? history : null;
 }
 
@@ -1387,7 +1384,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     if (analysis.riskScore < CC_PASS_THRESHOLD) {
       const compactInput = compactToolInput(gcToolName, gcParams);
-      const reason = shorten(analysis.reasoning || analysis.category || '', 120);
+      const reason = analysis.reasoning || analysis.category || '';
       const msg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${reason}`;
       const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
       console.log(`[GuardClaw] ${msg}`);
@@ -1405,7 +1402,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     // Return 'ask' to CC immediately so it shows its own allow/deny dialog,
     // AND create a pending approval in Bar so user can also act from there.
     const approvalId = `cc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const askReason = `⛨ GuardClaw ASK (score ${analysis.riskScore}): ${shorten(analysis.reasoning || analysis.category || '', 120)}`;
+    const askReason = `⛨ GuardClaw ASK (score ${analysis.riskScore}): ${analysis.reasoning || analysis.category || ''}`;
     console.log(`[GuardClaw] ⏸️  ASK: ${gcToolName} (${approvalId}) — ${askReason}`);
 
     // Create pending approval in Bar (auto-expires after 5 min)
