@@ -88,10 +88,14 @@ function groupEventsIntoTurns(events) {
       flushCC();
       turns.push({ parent: event, toolCalls: [], isUserMessage: true, id: event.id || `user-msg-${event.timestamp}` });
     } else if (type === 'agent-reply') {
-      // Agent reply → flush both pending buffers, show as standalone turn
-      flushOC();
+      // Agent reply → acts as parent for any pending OC tool calls (same as chat-update)
       flushCC();
-      turns.push({ parent: event, toolCalls: [], isAgentReply: true, id: event.id || `agent-reply-${event.timestamp}` });
+      if (pendingOCTools.length > 0) {
+        turns.push({ parent: event, toolCalls: pendingOCTools, isAgentReply: true, id: event.id || `agent-reply-${event.timestamp}` });
+        pendingOCTools = [];
+      } else {
+        turns.push({ parent: event, toolCalls: [], isAgentReply: true, id: event.id || `agent-reply-${event.timestamp}` });
+      }
     } else if (isCCTool || isCCText) {
       pendingCCTools.push(event);
     } else if (isCCReply) {

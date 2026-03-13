@@ -198,15 +198,21 @@ export class EventStore {
     }
 
     if (session) {
-      // Support merged sessions: agent:main:telegram matches agent:main:telegram:*
-      // But exclude subagent events from parent session queries
       if (session.includes(':subagent:')) {
         // Subagent tab: exact match only
         sql += ' AND sessionKey = ?';
         params.push(session);
       } else {
-        sql += ' AND (sessionKey = ? OR (sessionKey LIKE ? AND sessionKey NOT LIKE ?))';
-        params.push(session, session + ':%', '%:subagent:%');
+        // For OC channel sessions (telegram, discord, etc.), also include agent:main:main
+        // so tool calls triggered by channel messages are visible in the channel session view
+        const isOCChannel = /^agent:main:[^:]+$/.test(session) && !session.endsWith(':main');
+        if (isOCChannel) {
+          sql += ' AND (sessionKey = ? OR sessionKey = ? OR (sessionKey LIKE ? AND sessionKey NOT LIKE ?))';
+          params.push(session, 'agent:main:main', session + ':%', '%:subagent:%');
+        } else {
+          sql += ' AND (sessionKey = ? OR (sessionKey LIKE ? AND sessionKey NOT LIKE ?))';
+          params.push(session, session + ':%', '%:subagent:%');
+        }
       }
     }
 
