@@ -1,6 +1,10 @@
 import UserNotifications
 import AppKit
 
+// Notification category used for model-ready taps
+let kModelReadyNotificationCategory = "MODEL_READY"
+let kModelReadyNotificationAction = "OPEN_JUDGE"
+
 final class NotificationManager: @unchecked Sendable {
     /// Lazily initialized — UNUserNotificationCenter crashes without a proper .app bundle
     private var center: UNUserNotificationCenter? {
@@ -11,7 +15,35 @@ final class NotificationManager: @unchecked Sendable {
     private var isAvailable: Bool { center != nil }
 
     func requestPermission() {
-        center?.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        guard let center else { return }
+        let openAction = UNNotificationAction(
+            identifier: kModelReadyNotificationAction,
+            title: "Open Judge Settings",
+            options: [.foreground]
+        )
+        let category = UNNotificationCategory(
+            identifier: kModelReadyNotificationCategory,
+            actions: [openAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        center.setNotificationCategories([category])
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    func notifyModelDownloaded(modelName: String) {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Model downloaded"
+        content.body = "\(modelName) is ready to load. Tap to open Judge settings."
+        content.sound = .default
+        content.categoryIdentifier = kModelReadyNotificationCategory
+        let request = UNNotificationRequest(
+            identifier: "model-downloaded-\(modelName)",
+            content: content,
+            trigger: nil
+        )
+        center.add(request)
     }
 
     func notifyNewApproval(_ approval: ApprovalItem) {

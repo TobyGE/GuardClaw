@@ -111,6 +111,14 @@ actor GuardClawAPI {
         try await post("/api/models/\(id)/setup", body: [:] as [String: String])
     }
 
+    func downloadModel(id: String) async throws -> SetupResponse {
+        try await post("/api/models/\(id)/download", body: [:] as [String: String])
+    }
+
+    func loadModel(id: String) async throws -> SetupResponse {
+        try await post("/api/models/\(id)/load", body: [:] as [String: String])
+    }
+
     func cancelDownload(id: String) async throws -> SetupResponse {
         try await post("/api/models/\(id)/cancel", body: [:] as [String: String])
     }

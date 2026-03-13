@@ -393,9 +393,9 @@ function handlePluginCommand() {
       if (!cfg.plugins.load.paths) cfg.plugins.load.paths = [];
       if (!cfg.plugins.entries) cfg.plugins.entries = {};
 
-      // Remove any old paths pointing to a guardclaw-interceptor dir
+      // Remove any old paths pointing to a guardclaw-interceptor dir (including stale paths from old installs)
       cfg.plugins.load.paths = cfg.plugins.load.paths.filter(
-        p => !p.endsWith('guardclaw-interceptor') || p === pluginInstallDir
+        p => !p.includes('guardclaw-interceptor') || p === pluginInstallDir
       );
       if (!cfg.plugins.load.paths.includes(pluginInstallDir)) {
         cfg.plugins.load.paths.push(pluginInstallDir);
@@ -427,9 +427,9 @@ function handlePluginCommand() {
       if (cfg?.plugins?.load?.paths) {
         cfg.plugins.load.paths = cfg.plugins.load.paths.filter(p => p !== pluginInstallDir);
       }
-      // Disable in entries
-      if (cfg?.plugins?.entries?.[pluginId]) {
-        cfg.plugins.entries[pluginId].enabled = false;
+      // Fully remove entry so openclaw doesn't try to resolve a missing plugin
+      if (cfg?.plugins?.entries) {
+        delete cfg.plugins.entries[pluginId];
       }
       saveOpenClawConfig(cfg);
       console.log(`✅ Plugin removed from OpenClaw config`);

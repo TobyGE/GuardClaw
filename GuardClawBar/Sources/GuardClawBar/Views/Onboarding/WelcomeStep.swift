@@ -1,29 +1,58 @@
 import SwiftUI
 
 struct WelcomeStep: View {
+    @State private var glow = false
+
     var body: some View {
-        VStack(spacing: 24) {
-            Image(nsImage: IconRenderer.render(status: .normal, badgeCount: 0))
-                .resizable()
-                .frame(width: 72, height: 72)
+        VStack(spacing: 0) {
+            // Hero
+            ZStack {
+                LinearGradient(
+                    colors: [Color.blue.opacity(0.12), Color.purple.opacity(0.08), Color.clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
 
-            VStack(spacing: 8) {
-                Text("Welcome to GuardClaw")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                Text("AI agent safety, in real time")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
+                VStack(spacing: 20) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.blue.opacity(0.15))
+                            .frame(width: 120, height: 120)
+                            .blur(radius: 24)
+                            .scaleEffect(glow ? 1.15 : 1.0)
+                            .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: glow)
 
-            VStack(alignment: .leading, spacing: 12) {
-                FeatureRow(icon: "shield.checkered", color: .blue, text: "Risk-scores every tool call your AI agent makes")
-                FeatureRow(icon: "xmark.shield", color: .red, text: "Blocks dangerous operations automatically")
-                FeatureRow(icon: "brain", color: .purple, text: "Learns from your approve/deny decisions")
+                        Image(nsImage: IconRenderer.render(status: .normal, badgeCount: 0))
+                            .resizable()
+                            .frame(width: 84, height: 84)
+                            .scaleEffect(glow ? 1.03 : 1.0)
+                            .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: glow)
+                    }
+
+                    VStack(spacing: 6) {
+                        Text("GuardClaw")
+                            .font(.system(size: 38, weight: .bold, design: .rounded))
+                        Text("AI agent safety, in real time")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-            .padding(.horizontal, 40)
+            .frame(height: 280)
+
+            // Features
+            VStack(alignment: .leading, spacing: 11) {
+                FeatureRow(icon: "waveform.and.magnifyingglass", color: .blue,
+                           text: "Risk-scores every tool call before it runs")
+                FeatureRow(icon: "xmark.shield.fill", color: .red,
+                           text: "Automatically blocks dangerous operations")
+                FeatureRow(icon: "brain.head.profile", color: .purple,
+                           text: "Learns from your approve/deny decisions")
+            }
+            .padding(.horizontal, 64)
+            .padding(.bottom, 20)
         }
-        .padding()
+        .onAppear { glow = true }
     }
 }
 

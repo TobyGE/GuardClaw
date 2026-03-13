@@ -171,6 +171,8 @@ class LLMEngine extends EventEmitter {
     this._statusMessage = null;  // human-readable status for UI
     this._setupError = null;     // last setup/download error for UI
     this._onTokenUsage = null; // callback(promptTokens, completionTokens)
+    this._setupPromise = null;   // in-flight setupAndLoad promise (prevents concurrent loads)
+    this._setupPromiseModelId = null;
   }
 
   get modelsDir() {
@@ -351,15 +353,33 @@ print(json.dumps({"done": True, "path": path}), flush=True)
     });
   }
 
-  /** Download and load a model in one step */
+  /** Download and load a model in one step. Concurrent calls for the same model share one promise. */
   async setupAndLoad(modelId) {
+    if (this._setupPromise && this._setupPromiseModelId === modelId) {
+      return this._setupPromise;
+    }
+
     const catalog = MODEL_CATALOG.find(m => m.id === modelId);
     if (!catalog) throw new Error(`Unknown model: ${modelId}`);
 
-    if (!this._isDownloaded(catalog)) {
-      await this.downloadModel(modelId);
+    if (this._loadedModelId === modelId) {
+      return { status: 'already_loaded', modelId };
     }
-    return this.loadModel(modelId);
+
+    this._setupPromiseModelId = modelId;
+    this._setupPromise = (async () => {
+      try {
+        if (!this._isDownloaded(catalog)) {
+          await this.downloadModel(modelId);
+        }
+        return await this.loadModel(modelId);
+      } finally {
+        this._setupPromise = null;
+        this._setupPromiseModelId = null;
+      }
+    })();
+
+    return this._setupPromise;
   }
 
   /** Cancel an ongoing download */

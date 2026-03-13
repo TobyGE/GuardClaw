@@ -36,6 +36,7 @@ final class AppState {
 
     // UI state
     var selectedTab: String = "claude-code"
+    var navigateTo: SidebarItem? = nil
     var isPolling = false
     var lastError: String?
 

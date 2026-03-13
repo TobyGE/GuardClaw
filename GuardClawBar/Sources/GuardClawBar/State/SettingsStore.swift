@@ -9,6 +9,8 @@ final class SettingsStore: @unchecked Sendable {
         static let serverURL = "guardclaw.serverURL"
         static let pollInterval = "guardclaw.pollInterval"
         static let hasCompletedOnboarding = "guardclaw.hasCompletedOnboarding"
+        static let selectedBackend = "guardclaw.selectedBackend"
+        static let selectedModelId = "guardclaw.selectedModelId"
     }
 
     var serverURL: String {
@@ -27,6 +29,16 @@ final class SettingsStore: @unchecked Sendable {
     var hasCompletedOnboarding: Bool {
         get { defaults.bool(forKey: Keys.hasCompletedOnboarding) }
         set { defaults.set(newValue, forKey: Keys.hasCompletedOnboarding) }
+    }
+
+    var selectedBackend: String {
+        get { defaults.string(forKey: Keys.selectedBackend) ?? "built-in" }
+        set { defaults.set(newValue, forKey: Keys.selectedBackend) }
+    }
+
+    var selectedModelId: String? {
+        get { defaults.string(forKey: Keys.selectedModelId) }
+        set { defaults.set(newValue, forKey: Keys.selectedModelId) }
     }
 
     private init() {}

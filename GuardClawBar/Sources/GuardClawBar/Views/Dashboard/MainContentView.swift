@@ -26,6 +26,19 @@ struct MainContentView: View {
         .sheet(isPresented: $showOnboarding) {
             OnboardingView(isPresented: $showOnboarding)
         }
+        .onAppear {
+            // Handle navigation set before this view rendered
+            if let page = appState.navigateTo {
+                selectedPage = page
+                appState.navigateTo = nil
+            }
+        }
+        .onChange(of: appState.navigateTo) { _, target in
+            if let page = target {
+                selectedPage = page
+                appState.navigateTo = nil
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 EmptyView()
