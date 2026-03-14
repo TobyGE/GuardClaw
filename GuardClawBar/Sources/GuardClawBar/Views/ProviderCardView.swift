@@ -3,6 +3,7 @@ import SwiftUI
 struct ProviderCardView: View {
     @Bindable var appState: AppState
     let provider: any BackendProvider
+    private var L: Loc { Loc.shared }
 
     private var backendStatus: BackendStatus? {
         appState.backendStatus(for: provider.backendKey)
@@ -86,12 +87,12 @@ struct ProviderCardView: View {
 
     private var connectionSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionHeader("CONNECTION")
+            sectionHeader(L.t("card.connection"))
             HStack(spacing: 6) {
                 Circle()
                     .fill(backendStatus?.connected == true ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
-                Text(backendStatus?.connected == true ? "Connected" : "Disconnected")
+                Text(backendStatus?.connected == true ? L.t("common.connected") : L.t("common.disconnected"))
                     .font(.subheadline)
                 if let type = backendStatus?.type {
                     Text("(\(type))")
@@ -111,9 +112,9 @@ struct ProviderCardView: View {
                         Image(systemName: "flame")
                             .font(.system(size: 9))
                             .foregroundStyle(.orange)
-                        Text("Today: \(formatTokenCount(todayTotal)) (\(todayReqs) req)")
+                        Text(L.t("card.todayTokens", formatTokenCount(todayTotal), todayReqs))
                             .font(.caption2)
-                        Text("Total: \(formatTokenCount(cumTotal)) (\(cumReqs) req)")
+                        Text(L.t("card.totalTokens", formatTokenCount(cumTotal), cumReqs))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -126,18 +127,18 @@ struct ProviderCardView: View {
 
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("STATS")
+            sectionHeader(L.t("card.stats"))
 
-            Text("Events: \(backendEvents.count)")
+            Text(L.t("card.events", backendEvents.count))
                 .font(.subheadline)
 
             // Risk distribution bar
             riskBar
 
             HStack(spacing: 12) {
-                statLabel("Safe", count: backendSafeCount, color: .green)
-                statLabel("Warn", count: backendWarnCount, color: .orange)
-                statLabel("Block", count: backendBlockCount, color: .red)
+                statLabel(L.t("card.safe"), count: backendSafeCount, color: .green)
+                statLabel(L.t("card.warn"), count: backendWarnCount, color: .orange)
+                statLabel(L.t("card.block"), count: backendBlockCount, color: .red)
             }
             .font(.caption)
 
@@ -146,7 +147,7 @@ struct ProviderCardView: View {
                 Divider()
                 let total = usage.totalTokens ?? 0
                 let reqs = usage.requests ?? 0
-                Text("Judge: \(formatTokenCount(total)) tokens · \(reqs) calls")
+                Text(L.t("card.judgeTokens", formatTokenCount(total), reqs))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -203,7 +204,7 @@ struct ProviderCardView: View {
 
     private var approvalsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("PENDING APPROVALS (\(backendApprovals.count))")
+            sectionHeader(L.t("card.pendingApprovals", backendApprovals.count))
             ApprovalListView(
                 appState: appState,
                 approvals: backendApprovals
@@ -218,7 +219,7 @@ struct ProviderCardView: View {
         return Group {
             if !highRisk.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionHeader("RECENT FLAGGED / BLOCKED")
+                    sectionHeader(L.t("card.recentFlagged"))
                     ForEach(highRisk, id: \.stableId) { event in
                         HighRiskRowView(event: event)
                     }
@@ -232,7 +233,7 @@ struct ProviderCardView: View {
     private var securityScanSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                sectionHeader("SECURITY SCAN")
+                sectionHeader(L.t("card.securityScan"))
                 Spacer()
                 if hasAuditScanned, let s = auditSummary {
                     let risky = (s.dangerousTools ?? 0) + (s.dangerousSkills ?? 0)
@@ -241,12 +242,12 @@ struct ProviderCardView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.green)
-                            Text("Clean")
+                            Text(L.t("common.clean"))
                                 .font(.caption2)
                                 .foregroundStyle(.green)
                         }
                     } else {
-                        Text("\(risky) risky")
+                        Text(L.t("card.riskyCount", risky))
                             .font(.caption2)
                             .foregroundStyle(.orange)
                     }
@@ -268,7 +269,7 @@ struct ProviderCardView: View {
 
             if isAuditScanning {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(scanProgressMessage.isEmpty ? "Scanning..." : scanProgressMessage)
+                    Text(scanProgressMessage.isEmpty ? L.t("card.scanning") : scanProgressMessage)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -280,8 +281,8 @@ struct ProviderCardView: View {
 
             if hasAuditScanned, let s = auditSummary {
                 HStack(spacing: 10) {
-                    auditStatLabel("Tools", total: s.totalTools ?? 0, risky: s.dangerousTools ?? 0)
-                    auditStatLabel("Skills", total: s.totalSkills ?? 0, risky: s.dangerousSkills ?? 0)
+                    auditStatLabel(L.t("card.tools"), total: s.totalTools ?? 0, risky: s.dangerousTools ?? 0)
+                    auditStatLabel(L.t("card.skills"), total: s.totalSkills ?? 0, risky: s.dangerousSkills ?? 0)
                     let vulns = s.vulnerabilities ?? 0
                     HStack(spacing: 2) {
                         if vulns > 0 {
@@ -289,7 +290,7 @@ struct ProviderCardView: View {
                                 .font(.system(size: 8))
                                 .foregroundStyle(.red)
                         }
-                        Text("\(vulns) Vulns")
+                        Text(L.t("card.vulns", vulns))
                             .foregroundStyle(vulns > 0 ? .red : .green)
                     }
                 }
@@ -353,7 +354,7 @@ struct ProviderCardView: View {
             Text("\(label): \(total)")
                 .foregroundStyle(.secondary)
             if risky > 0 {
-                Text("(\(risky) risky)")
+                Text(L.t("card.riskyCount", risky))
                     .foregroundStyle(.orange)
             }
         }
@@ -372,7 +373,7 @@ struct ProviderCardView: View {
 
     private func runAuditScan() async {
         isAuditScanning = true
-        scanProgressMessage = "Starting scan..."
+        scanProgressMessage = Loc.shared.t("download.startingScan")
         defer {
             isAuditScanning = false
             scanProgressMessage = ""
@@ -430,6 +431,7 @@ struct ProviderCardView: View {
 private struct HighRiskRowView: View {
     let event: EventItem
     @State private var isExpanded = false
+    private var L: Loc { Loc.shared }
 
     private var isBlocked: Bool {
         let v = event.safeguard?.verdict?.lowercased()
@@ -464,7 +466,7 @@ private struct HighRiskRowView: View {
 
                 Spacer()
 
-                Text(isBlocked ? "BLOCKED" : "FLAGGED")
+                Text(isBlocked ? L.t("common.blocked") : L.t("common.flagged"))
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(accentColor)
 
@@ -476,13 +478,13 @@ private struct HighRiskRowView: View {
             // Expanded detail
             if isExpanded {
                 VStack(alignment: .leading, spacing: 4) {
-                    detailRow("Time", event.timeAgoText)
-                    detailRow("Score", "\(Int(event.effectiveRiskScore))/10")
+                    detailRow(L.t("detail.time"), event.timeAgoText)
+                    detailRow(L.t("detail.score"), "\(Int(event.effectiveRiskScore))/10")
                     if let cat = event.safeguard?.category ?? event.category {
-                        detailRow("Category", cat)
+                        detailRow(L.t("detail.category"), cat)
                     }
                     if let reasoning = event.safeguard?.reasoning, !reasoning.isEmpty {
-                        Text("Reason:")
+                        Text(L.t("detail.reason"))
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.secondary)
                         Text(reasoning)
@@ -491,7 +493,7 @@ private struct HighRiskRowView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let backend = event.safeguard?.backend {
-                        detailRow("Judge", backend)
+                        detailRow(L.t("detail.judgeBackend"), backend)
                     }
                 }
                 .padding(.top, 4)

@@ -1,6 +1,7 @@
 import GuardClawLogo from './GuardClawLogo';
 import { MonitorIcon } from './icons';
 import { useState, useEffect } from 'react';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 const Card = ({ children, className = '' }) => (
   <div className={`rounded-xl border border-gc-border bg-gc-bg p-5 ${className}`}>{children}</div>
@@ -14,6 +15,7 @@ const Label = ({ children, hint }) => (
 );
 
 function BlockingModal({ isOpen, onClose, currentStatus }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState(null);
   const [whitelistInput, setWhitelistInput] = useState('');
   const [blacklistInput, setBlacklistInput] = useState('');
@@ -44,11 +46,11 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
       if (res.ok) {
         const data = await res.json();
         if (data.needsGatewayRestart) {
-          setMessage('Restarting gateway… page will reload shortly.');
+          setMessage(t('blocking.restarting'));
           setTimeout(() => window.location.reload(), 2000);
         } else {
           await fetchStatus();
-          setMessage(enable ? 'Active blocking enabled' : 'Switched to monitor-only mode');
+          setMessage(enable ? t('blocking.enabled') : t('blocking.disabled'));
           setTimeout(() => setMessage(''), 3000);
         }
       }
@@ -97,9 +99,9 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
               {isActive ? <GuardClawLogo size={18} /> : <MonitorIcon size={18} />}
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gc-text">Protection Mode</h2>
+              <h2 className="text-lg font-bold text-gc-text">{t('blocking.title')}</h2>
               <p className="text-xs text-gc-text-dim">
-                {isActive ? 'Active blocking — high-risk tools require approval' : 'Monitor only — all tools run freely'}
+                {isActive ? t('blocking.activeDesc') : t('blocking.monitorDesc')}
               </p>
             </div>
           </div>
@@ -117,7 +119,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
 
           {/* Mode selector */}
           <Card>
-            <Label>Blocking Mode</Label>
+            <Label>{t('blocking.blockingMode')}</Label>
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => !isActive && toggleBlocking(true)}
@@ -130,8 +132,8 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
               >
                 <GuardClawLogo size={28} />
                 <div>
-                  <div className={`text-sm font-semibold ${isActive ? 'text-red-400' : 'text-gc-text-secondary'}`}>Active Blocking</div>
-                  <div className="text-xs text-gc-text-dim mt-0.5">Intercept & require approval</div>
+                  <div className={`text-sm font-semibold ${isActive ? 'text-red-400' : 'text-gc-text-secondary'}`}>{t('blocking.activeBlocking')}</div>
+                  <div className="text-xs text-gc-text-dim mt-0.5">{t('blocking.interceptApproval')}</div>
                 </div>
               </button>
 
@@ -146,8 +148,8 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
               >
                 <MonitorIcon size={24} />
                 <div>
-                  <div className={`text-sm font-semibold ${!isActive ? 'text-gc-primary' : 'text-gc-text-secondary'}`}>Monitor Only</div>
-                  <div className="text-xs text-gc-text-dim mt-0.5">Log & score, never block</div>
+                  <div className={`text-sm font-semibold ${!isActive ? 'text-gc-primary' : 'text-gc-text-secondary'}`}>{t('blocking.monitorOnly')}</div>
+                  <div className="text-xs text-gc-text-dim mt-0.5">{t('blocking.logScore')}</div>
                 </div>
               </button>
             </div>
@@ -156,15 +158,15 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
               <div className="mt-4 flex items-center justify-center gap-4 text-xs text-gc-text-dim">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-gc-safe"></span>
-                  Auto-allow ≤ {status.thresholds.autoAllow}
+                  {t('blocking.autoAllow', { threshold: status.thresholds.autoAllow })}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-gc-warning"></span>
-                  Review {status.thresholds.autoAllow + 1}–{status.thresholds.autoBlock - 1}
+                  {t('blocking.review', { min: status.thresholds.autoAllow + 1, max: status.thresholds.autoBlock - 1 })}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-gc-danger"></span>
-                  Auto-block ≥ {status.thresholds.autoBlock}
+                  {t('blocking.autoBlock', { threshold: status.thresholds.autoBlock })}
                 </span>
               </div>
             )}
@@ -172,13 +174,13 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
 
           {/* Override Patterns */}
           <Card>
-            <Label hint="glob patterns: * any chars, ? single char">Override Rules</Label>
+            <Label hint={t('blocking.overrideHint')}>{t('blocking.overrideRules')}</Label>
 
             {/* Whitelist */}
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-5 h-5 rounded-full bg-gc-safe/20 flex items-center justify-center text-xs text-gc-safe">✓</span>
-                <span className="text-sm font-medium text-gc-text">Always Allow</span>
+                <span className="text-sm font-medium text-gc-text">{t('blocking.alwaysAllow')}</span>
               </div>
               <div className="flex gap-2 mb-2">
                 <input
@@ -186,14 +188,14 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
                   value={whitelistInput}
                   onChange={e => setWhitelistInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && addPattern('whitelist', whitelistInput, setWhitelistInput)}
-                  placeholder="e.g. git status, ls *"
+                  placeholder={t('blocking.whitelistPlaceholder')}
                   className="flex-1 px-3.5 py-2 text-sm bg-gc-card border border-gc-border rounded-lg text-gc-text placeholder-gc-text-dim focus:outline-none focus:ring-2 focus:ring-gc-safe/40 focus:border-gc-safe transition-all"
                 />
                 <button
                   onClick={() => addPattern('whitelist', whitelistInput, setWhitelistInput)}
                   className="px-4 py-2 text-sm font-medium bg-gc-safe/10 text-gc-safe border border-gc-safe/30 rounded-lg hover:bg-gc-safe/20 transition-colors"
                 >
-                  Add
+                  {t('buttons.add')}
                 </button>
               </div>
               {status?.whitelist?.length > 0 && (
@@ -212,7 +214,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-5 h-5 rounded-full bg-gc-danger/20 flex items-center justify-center text-xs text-gc-danger">✕</span>
-                <span className="text-sm font-medium text-gc-text">Always Block</span>
+                <span className="text-sm font-medium text-gc-text">{t('blocking.alwaysBlock')}</span>
               </div>
               <div className="flex gap-2 mb-2">
                 <input
@@ -220,14 +222,14 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
                   value={blacklistInput}
                   onChange={e => setBlacklistInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && addPattern('blacklist', blacklistInput, setBlacklistInput)}
-                  placeholder="e.g. rm -rf *, sudo *"
+                  placeholder={t('blocking.blacklistPlaceholder')}
                   className="flex-1 px-3.5 py-2 text-sm bg-gc-card border border-gc-border rounded-lg text-gc-text placeholder-gc-text-dim focus:outline-none focus:ring-2 focus:ring-gc-danger/40 focus:border-gc-danger transition-all"
                 />
                 <button
                   onClick={() => addPattern('blacklist', blacklistInput, setBlacklistInput)}
                   className="px-4 py-2 text-sm font-medium bg-gc-danger/10 text-gc-danger border border-gc-danger/30 rounded-lg hover:bg-gc-danger/20 transition-colors"
                 >
-                  Add
+                  {t('buttons.add')}
                 </button>
               </div>
               {status?.blacklist?.length > 0 && (
@@ -247,7 +249,7 @@ function BlockingModal({ isOpen, onClose, currentStatus }) {
         {/* Footer */}
         <div className="flex items-center justify-end px-6 py-4 border-t border-gc-border bg-gc-card">
           <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gc-text-dim hover:text-gc-text hover:bg-gc-border transition-colors">
-            Done
+            {t('buttons.done')}
           </button>
         </div>
       </div>

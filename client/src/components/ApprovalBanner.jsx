@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import GuardClawLogo from './GuardClawLogo';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 function ApprovalItem({ item, onApprove, onDeny }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
   const score = item.riskScore || 0;
@@ -30,7 +32,7 @@ function ApprovalItem({ item, onApprove, onDeny }) {
       {/* Header */}
       <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-gc-border">
         <GuardClawLogo size={14} />
-        <span className={`text-[10px] font-bold uppercase tracking-wider ${labelColor}`}>Blocked</span>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${labelColor}`}>{t('approval.blocked')}</span>
         <span className="text-xs text-gc-text-dim font-mono">{item.originalToolName || item.toolName}</span>
         <span className="text-gc-border text-xs">·</span>
         {item.backend === 'openclaw' ? (
@@ -53,7 +55,7 @@ function ApprovalItem({ item, onApprove, onDeny }) {
       <div className="px-3.5 py-3 border-b border-gc-border space-y-2">
         {/* Label (file path for write/edit, "Command" for exec) */}
         <div className="text-[10px] font-medium text-gc-text-dim uppercase tracking-wider">
-          {tool === 'exec' ? 'Command' : tool === 'read' ? 'File' : lines[0] || 'Input'}
+          {tool === 'exec' ? t('approval.command') : tool === 'read' ? t('approval.file') : lines[0] || t('approval.input')}
         </div>
 
         {/* Content block */}
@@ -68,7 +70,7 @@ function ApprovalItem({ item, onApprove, onDeny }) {
             onClick={() => setExpanded(v => !v)}
             className="text-[10px] text-gc-text-dim hover:text-gc-text transition-colors"
           >
-            {expanded ? '▲ Collapse' : `▼ Expand all (${lines.length} lines)`}
+            {expanded ? t('approval.collapse') : t('approval.expandAll', { lines: lines.length })}
           </button>
         )}
 
@@ -84,19 +86,19 @@ function ApprovalItem({ item, onApprove, onDeny }) {
           onClick={() => onApprove(item.id)}
           className="py-2.5 text-xs font-semibold text-gc-safe hover:bg-gc-safe/5 transition-colors border-r border-gc-border"
         >
-          ✓ Approve
+          {t('approval.approve')}
         </button>
         <button
           onClick={() => onApprove(item.id, true)}
           className="py-2.5 text-[11px] font-medium text-gc-text-dim hover:bg-gc-border/30 hover:text-gc-text transition-colors border-r border-gc-border"
         >
-          Always Approve
+          {t('approval.alwaysApprove')}
         </button>
         <button
           onClick={() => onDeny(item.id)}
           className="py-2.5 text-xs font-semibold text-gc-danger hover:bg-gc-danger/5 transition-colors"
         >
-          ✕ Deny
+          {t('approval.deny')}
         </button>
       </div>
     </div>

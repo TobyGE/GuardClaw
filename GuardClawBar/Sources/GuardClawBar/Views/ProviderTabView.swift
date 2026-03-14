@@ -5,14 +5,16 @@ struct ProviderTabView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar
-            HStack(spacing: 0) {
-                ForEach(appState.providers, id: \.id) { provider in
-                    tabButton(provider: provider)
+            // Horizontally scrollable tab bar
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(appState.providers, id: \.id) { provider in
+                        tabButton(provider: provider)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
 
             Divider()
 
@@ -29,26 +31,41 @@ struct ProviderTabView: View {
     private func tabButton(provider: any BackendProvider) -> some View {
         let isSelected = appState.selectedTab == provider.id
         let pendingCount = appState.approvalsForBackend(provider.backendKey).count
+        let isConnected = appState.backendStatus(for: provider.backendKey)?.connected == true
 
         return Button(action: { appState.selectedTab = provider.id }) {
-            HStack(spacing: 4) {
-                Text(provider.displayName)
-                    .font(.subheadline)
-                    .fontWeight(isSelected ? .semibold : .regular)
+            VStack(spacing: 3) {
+                ZStack(alignment: .topTrailing) {
+                    BrandIcon(provider.id, size: 18)
+                        .opacity(isSelected ? 1 : 0.5)
 
-                if pendingCount > 0 {
-                    Text("\(pendingCount)")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.orange, in: Capsule())
+                    // Connection dot
+                    Circle()
+                        .fill(isConnected ? Color.green : Color.gray.opacity(0.4))
+                        .frame(width: 5, height: 5)
+                        .offset(x: 2, y: -2)
+
+                    // Pending badge
+                    if pendingCount > 0 {
+                        Text("\(pendingCount)")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Color.orange, in: Capsule())
+                            .offset(x: 4, y: -4)
+                    }
                 }
+
+                Text(provider.displayName)
+                    .font(.system(size: 9))
+                    .fontWeight(isSelected ? .semibold : .regular)
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }

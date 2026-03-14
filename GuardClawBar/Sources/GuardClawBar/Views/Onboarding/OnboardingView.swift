@@ -7,6 +7,7 @@ extension Notification.Name {
 struct OnboardingView: View {
     @Binding var isPresented: Bool
     @State private var currentStep = 0
+    private var L: Loc { Loc.shared }
 
     private let totalSteps = 4
 
@@ -42,13 +43,13 @@ struct OnboardingView: View {
             if currentStep < totalSteps - 1 {
                 HStack {
                     if currentStep > 0 {
-                        Button("Back") { withAnimation { currentStep -= 1 } }
+                        Button(L.t("common.back")) { withAnimation { currentStep -= 1 } }
                             .buttonStyle(.bordered)
                     }
                     Spacer()
-                    Button("Skip") { withAnimation { currentStep += 1 } }
+                    Button(L.t("common.skip")) { withAnimation { currentStep += 1 } }
                         .foregroundStyle(.secondary)
-                    Button(currentStep == 0 ? "Get Started" : "Next") {
+                    Button(currentStep == 0 ? L.t("common.getStarted") : L.t("common.next")) {
                         withAnimation { currentStep += 1 }
                     }
                     .buttonStyle(.borderedProminent)
@@ -56,7 +57,7 @@ struct OnboardingView: View {
                 .padding(20)
             } else {
                 HStack {
-                    Button("Back") { withAnimation { currentStep -= 1 } }
+                    Button(L.t("common.back")) { withAnimation { currentStep -= 1 } }
                         .buttonStyle(.bordered)
                     Spacer()
                 }

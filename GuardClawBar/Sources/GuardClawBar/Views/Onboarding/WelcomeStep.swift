@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WelcomeStep: View {
+    private var L: Loc { Loc.shared }
     @State private var glow = false
 
     var body: some View {
@@ -30,9 +31,9 @@ struct WelcomeStep: View {
                     }
 
                     VStack(spacing: 6) {
-                        Text("GuardClaw")
+                        Text(L.t("header.title"))
                             .font(.system(size: 38, weight: .bold, design: .rounded))
-                        Text("AI agent safety, in real time")
+                        Text(L.t("welcome.tagline"))
                             .font(.title3)
                             .foregroundStyle(.secondary)
                     }
@@ -43,11 +44,11 @@ struct WelcomeStep: View {
             // Features
             VStack(alignment: .leading, spacing: 11) {
                 FeatureRow(icon: "waveform.and.magnifyingglass", color: .blue,
-                           text: "Risk-scores every tool call before it runs")
+                           text: L.t("welcome.feature1"))
                 FeatureRow(icon: "xmark.shield.fill", color: .red,
-                           text: "Automatically blocks dangerous operations")
+                           text: L.t("welcome.feature2"))
                 FeatureRow(icon: "brain.head.profile", color: .purple,
-                           text: "Learns from your approve/deny decisions")
+                           text: L.t("welcome.feature3"))
             }
             .padding(.horizontal, 64)
             .padding(.bottom, 20)

@@ -10,9 +10,12 @@ struct ConnectionsView: View {
     @State private var geminiMessage: String? = nil
     @State private var cursorInstalled: Bool? = nil
     @State private var cursorMessage: String? = nil
+    @State private var opencodeInstalled: Bool? = nil
+    @State private var opencodeMessage: String? = nil
     @State private var gatewayToken = ""
     @State private var tokenMessage: String? = nil
     @State private var isSavingToken = false
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
 
@@ -40,15 +43,21 @@ struct ConnectionsView: View {
 
                 // Cursor
                 cursorSection
+
+                Divider()
+
+                // OpenCode
+                openCodeSection
             }
             .padding(24)
         }
-        .navigationTitle("Connections")
+        .navigationTitle(L.t("connections.title"))
         .task {
             await checkCCStatus()
             await checkOCPluginStatus()
             await checkGeminiStatus()
             await checkCursorStatus()
+            await checkOpenCodeStatus()
         }
     }
 
@@ -63,22 +72,22 @@ struct ConnectionsView: View {
                 Text("Claude Code")
                     .font(.headline)
                 Spacer()
-                Text(ccInstalled == true ? "Hooks installed" : "Not connected")
+                Text(ccInstalled == true ? L.t("connections.hooksInstalled") : L.t("common.notConnected"))
                     .font(.caption)
                     .foregroundStyle(ccInstalled == true ? .green : .secondary)
             }
 
-            Text("GuardClaw intercepts Claude Code tool calls via hooks installed in ~/.claude/settings.json.")
+            Text(L.t("connections.ccDesc"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if ccInstalled == true {
                 HStack {
-                    Label("Hooks are active.", systemImage: "checkmark.circle.fill")
+                    Label(L.t("connections.hooksActive"), systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
                     Spacer()
-                    Button("Uninstall") {
+                    Button(L.t("common.uninstall")) {
                         Task { await uninstallCC() }
                     }
                     .controlSize(.small)
@@ -87,7 +96,7 @@ struct ConnectionsView: View {
                 Button {
                     Task { await setupCC() }
                 } label: {
-                    Label("Install Hooks", systemImage: "plus.circle")
+                    Label(L.t("connections.installHooks"), systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -110,10 +119,10 @@ struct ConnectionsView: View {
                 Circle()
                     .fill(ocConnected ? Color.green : Color.gray)
                     .frame(width: 10, height: 10)
-                Text("OpenClaw Gateway")
+                Text(L.t("connections.ocGateway"))
                     .font(.headline)
                 Spacer()
-                Text(ocConnected ? "Connected" : "Not connected")
+                Text(ocConnected ? L.t("common.connected") : L.t("common.notConnected"))
                     .font(.caption)
                     .foregroundStyle(ocConnected ? .green : .secondary)
             }
@@ -121,24 +130,24 @@ struct ConnectionsView: View {
             // Plugin status
             if ocPluginInstalled == true {
                 HStack {
-                    Label("Interceptor plugin installed.", systemImage: "checkmark.circle.fill")
+                    Label(L.t("connections.pluginInstalled"), systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
                     Spacer()
-                    Button("Uninstall") {
+                    Button(L.t("common.uninstall")) {
                         Task { await uninstallOCPlugin() }
                     }
                     .controlSize(.small)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("The GuardClaw interceptor plugin needs to be installed in OpenClaw to enable tool call blocking.")
+                    Text(L.t("connections.ocNeedPlugin"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button {
                         Task { await setupOCPlugin() }
                     } label: {
-                        Label("Install Plugin", systemImage: "plus.circle")
+                        Label(L.t("connections.installPlugin"), systemImage: "plus.circle")
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -153,20 +162,20 @@ struct ConnectionsView: View {
             Divider()
 
             // Token section
-            Text("Gateway token for real-time event streaming.")
+            Text(L.t("connections.tokenDesc"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                SecureField("Gateway token...", text: $gatewayToken)
+                SecureField(L.t("connections.tokenPlaceholder"), text: $gatewayToken)
                     .textFieldStyle(.roundedBorder)
 
-                Button("Detect") {
+                Button(L.t("common.detect")) {
                     Task { await detectToken() }
                 }
                 .controlSize(.small)
 
-                Button("Save") {
+                Button(L.t("common.save")) {
                     Task { await saveToken() }
                 }
                 .controlSize(.small)
@@ -199,22 +208,22 @@ struct ConnectionsView: View {
                 Text("Gemini CLI")
                     .font(.headline)
                 Spacer()
-                Text(geminiConnected ? "Connected" : "Not connected")
+                Text(geminiConnected ? L.t("common.connected") : L.t("common.notConnected"))
                     .font(.caption)
                     .foregroundStyle(geminiConnected ? .green : .secondary)
             }
 
-            Text("GuardClaw intercepts Gemini CLI tool calls via hooks installed in ~/.gemini/settings.json.")
+            Text(L.t("connections.geminiDesc"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if geminiInstalled == true {
                 HStack {
-                    Label("Hooks are active.", systemImage: "checkmark.circle.fill")
+                    Label(L.t("connections.hooksActive"), systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
                     Spacer()
-                    Button("Uninstall") {
+                    Button(L.t("common.uninstall")) {
                         Task { await uninstallGemini() }
                     }
                     .controlSize(.small)
@@ -223,7 +232,7 @@ struct ConnectionsView: View {
                 Button {
                     Task { await setupGemini() }
                 } label: {
-                    Label("Install Hooks", systemImage: "plus.circle")
+                    Label(L.t("connections.installHooks"), systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -256,9 +265,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.setupClaudeCode()
             ccInstalled = true
-            ccMessage = "\u{2713} Hooks installed — restart Claude Code to activate"
+            ccMessage = "\u{2713} " + L.t("connections.hooksInstalledRestart", "Claude Code")
         } catch {
-            ccMessage = "Failed: \(error.localizedDescription)"
+            ccMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -266,9 +275,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.setupOpenClaw()
             ocPluginInstalled = true
-            ocMessage = "\u{2713} Plugin installed — restart OpenClaw to activate"
+            ocMessage = "\u{2713} " + L.t("connections.pluginInstalledRestart", "OpenClaw")
         } catch {
-            ocMessage = "Failed: \(error.localizedDescription)"
+            ocMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -276,9 +285,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.uninstallClaudeCode()
             ccInstalled = false
-            ccMessage = "Hooks removed — restart Claude Code"
+            ccMessage = L.t("connections.hooksRemovedRestart", "Claude Code")
         } catch {
-            ccMessage = "Failed: \(error.localizedDescription)"
+            ccMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -286,9 +295,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.uninstallOpenClaw()
             ocPluginInstalled = false
-            ocMessage = "Plugin removed — restart OpenClaw"
+            ocMessage = L.t("connections.pluginRemovedRestart", "OpenClaw")
         } catch {
-            ocMessage = "Failed: \(error.localizedDescription)"
+            ocMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -302,9 +311,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.setupGeminiCLI()
             geminiInstalled = true
-            geminiMessage = "\u{2713} Hooks installed — restart Gemini CLI to activate"
+            geminiMessage = "\u{2713} " + L.t("connections.hooksInstalledRestart", "Gemini CLI")
         } catch {
-            geminiMessage = "Failed: \(error.localizedDescription)"
+            geminiMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -312,9 +321,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.uninstallGeminiCLI()
             geminiInstalled = false
-            geminiMessage = "Hooks removed — restart Gemini CLI"
+            geminiMessage = L.t("connections.hooksRemovedRestart", "Gemini CLI")
         } catch {
-            geminiMessage = "Failed: \(error.localizedDescription)"
+            geminiMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -333,22 +342,22 @@ struct ConnectionsView: View {
                 Text("Cursor")
                     .font(.headline)
                 Spacer()
-                Text(cursorConnected ? "Connected" : "Not connected")
+                Text(cursorConnected ? L.t("common.connected") : L.t("common.notConnected"))
                     .font(.caption)
                     .foregroundStyle(cursorConnected ? .green : .secondary)
             }
 
-            Text("GuardClaw intercepts Cursor tool calls via hooks installed in ~/.cursor/hooks.json.")
+            Text(L.t("connections.cursorDesc"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if cursorInstalled == true {
                 HStack {
-                    Label("Hooks are active.", systemImage: "checkmark.circle.fill")
+                    Label(L.t("connections.hooksActive"), systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
                     Spacer()
-                    Button("Uninstall") {
+                    Button(L.t("common.uninstall")) {
                         Task { await uninstallCursor() }
                     }
                     .controlSize(.small)
@@ -357,7 +366,7 @@ struct ConnectionsView: View {
                 Button {
                     Task { await setupCursor() }
                 } label: {
-                    Label("Install Hooks", systemImage: "plus.circle")
+                    Label(L.t("connections.installHooks"), systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -382,9 +391,9 @@ struct ConnectionsView: View {
         do {
             _ = try await api.setupCursor()
             cursorInstalled = true
-            cursorMessage = "\u{2713} Hooks installed — restart Cursor to activate"
+            cursorMessage = "\u{2713} " + L.t("connections.hooksInstalledRestart", "Cursor")
         } catch {
-            cursorMessage = "Failed: \(error.localizedDescription)"
+            cursorMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -392,9 +401,89 @@ struct ConnectionsView: View {
         do {
             _ = try await api.uninstallCursor()
             cursorInstalled = false
-            cursorMessage = "Hooks removed — restart Cursor"
+            cursorMessage = L.t("connections.hooksRemovedRestart", "Cursor")
         } catch {
-            cursorMessage = "Failed: \(error.localizedDescription)"
+            cursorMessage = L.t("settings.failed", error.localizedDescription)
+        }
+    }
+
+    // MARK: - OpenCode
+
+    private var opencodeConnected: Bool {
+        appState.serverStatus?.backends?["opencode"]?.connected == true
+    }
+
+    private var openCodeSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(opencodeConnected ? Color.green : Color.gray)
+                    .frame(width: 10, height: 10)
+                Text("OpenCode")
+                    .font(.headline)
+                Spacer()
+                Text(opencodeConnected ? L.t("common.connected") : L.t("common.notConnected"))
+                    .font(.caption)
+                    .foregroundStyle(opencodeConnected ? .green : .secondary)
+            }
+
+            Text(L.t("connections.opencodeDesc"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if opencodeInstalled == true {
+                HStack {
+                    Label(L.t("connections.pluginActive"), systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button(L.t("common.uninstall")) {
+                        Task { await uninstallOpenCode() }
+                    }
+                    .controlSize(.small)
+                }
+            } else {
+                Button {
+                    Task { await setupOpenCode() }
+                } label: {
+                    Label(L.t("connections.installPlugin"), systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let msg = opencodeMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func checkOpenCodeStatus() async {
+        if let status = try? await api.openCodeStatus() {
+            opencodeInstalled = status.installed
+        }
+    }
+
+    private func setupOpenCode() async {
+        do {
+            _ = try await api.setupOpenCode()
+            opencodeInstalled = true
+            opencodeMessage = "\u{2713} " + L.t("connections.pluginInstalledRestart", "OpenCode")
+        } catch {
+            opencodeMessage = L.t("settings.failed", error.localizedDescription)
+        }
+    }
+
+    private func uninstallOpenCode() async {
+        do {
+            _ = try await api.uninstallOpenCode()
+            opencodeInstalled = false
+            opencodeMessage = L.t("connections.pluginRemovedRestart", "OpenCode")
+        } catch {
+            opencodeMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -403,12 +492,12 @@ struct ConnectionsView: View {
             let resp = try await api.detectToken()
             if let t = resp.token {
                 gatewayToken = t
-                tokenMessage = "\u{2713} Auto-detected from OpenClaw config"
+                tokenMessage = "\u{2713} " + L.t("connections.autoDetected")
             } else {
-                tokenMessage = "No token found"
+                tokenMessage = L.t("connections.noTokenFound")
             }
         } catch {
-            tokenMessage = "Not found"
+            tokenMessage = L.t("settings.notFound")
         }
     }
 
@@ -416,9 +505,9 @@ struct ConnectionsView: View {
         isSavingToken = true
         do {
             _ = try await api.saveToken(token: gatewayToken)
-            tokenMessage = "\u{2713} Token saved, reconnecting..."
+            tokenMessage = "\u{2713} " + L.t("connections.tokenSaved")
         } catch {
-            tokenMessage = "Failed: \(error.localizedDescription)"
+            tokenMessage = L.t("settings.failed", error.localizedDescription)
         }
         isSavingToken = false
     }

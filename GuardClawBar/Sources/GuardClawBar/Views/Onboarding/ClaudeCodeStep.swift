@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ClaudeCodeStep: View {
+    private var L: Loc { Loc.shared }
     @State private var installed: Bool? = nil
     @State private var message: String? = nil
     @State private var isInstalling = false
@@ -10,10 +11,10 @@ struct ClaudeCodeStep: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 6) {
-                Text("Connect to Claude Code")
+                Text(L.t("ccStep.title"))
                     .font(.title2)
                     .fontWeight(.bold)
-                Text("GuardClaw uses Claude Code hooks to intercept tool calls before they run.")
+                Text(L.t("ccStep.subtitle"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -25,7 +26,7 @@ struct ClaudeCodeStep: View {
                 Circle()
                     .fill(installed == true ? Color.green : Color.gray)
                     .frame(width: 14, height: 14)
-                Text(installed == true ? "Hooks are installed" : "Hooks not yet installed")
+                Text(installed == true ? L.t("ccStep.installed") : L.t("ccStep.notInstalled"))
                     .font(.body)
                     .fontWeight(.medium)
             }
@@ -40,7 +41,7 @@ struct ClaudeCodeStep: View {
                     if isInstalling {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label("Install Hooks", systemImage: "plus.circle.fill")
+                        Label(L.t("ccStep.installHooks"), systemImage: "plus.circle.fill")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -54,7 +55,7 @@ struct ClaudeCodeStep: View {
                     .multilineTextAlignment(.center)
             }
 
-            Text("After installing, restart Claude Code for the hooks to activate.")
+            Text(L.t("ccStep.afterInstall"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -76,7 +77,7 @@ struct ClaudeCodeStep: View {
         do {
             _ = try await api.setupClaudeCode()
             installed = true
-            message = "✓ Hooks installed — restart Claude Code to activate"
+            message = "✓ " + L.t("ccStep.installSuccess")
         } catch {
             message = "Failed: \(error.localizedDescription)"
         }

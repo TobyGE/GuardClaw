@@ -4,6 +4,7 @@ import SwiftUI
 struct FloatingApprovalBanner: View {
     @Environment(AppState.self) var appState
     @Binding var selectedPage: SidebarItem
+    private var L: Loc { Loc.shared }
 
     private var mostRecent: ApprovalItem? { appState.pendingApprovals.first }
 
@@ -18,7 +19,7 @@ struct FloatingApprovalBanner: View {
                         .frame(width: 8, height: 8)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(approval.toolName ?? "Unknown tool")
+                        Text(approval.toolName ?? L.t("approvals.unknownTool"))
                             .font(.caption)
                             .fontWeight(.semibold)
                         if let input = approval.displayInput {
@@ -32,12 +33,12 @@ struct FloatingApprovalBanner: View {
                     Spacer()
 
                     if appState.pendingCount > 1 {
-                        Text("+\(appState.pendingCount - 1) more")
+                        Text(L.t("banner.more", appState.pendingCount - 1))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
 
-                    Button("Review") {
+                    Button(L.t("common.review")) {
                         selectedPage = .approvals
                     }
                     .buttonStyle(.borderedProminent)

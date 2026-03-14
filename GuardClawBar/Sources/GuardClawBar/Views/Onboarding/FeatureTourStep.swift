@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct FeatureTourStep: View {
+    private var L: Loc { Loc.shared }
+
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 6) {
-                Text("See GuardClaw in Action")
+                Text(L.t("tour.title"))
                     .font(.title2).fontWeight(.bold)
-                Text("Every tool call your AI agent makes — analyzed, scored, and protected.")
+                Text(L.t("tour.subtitle"))
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -14,18 +16,18 @@ struct FeatureTourStep: View {
 
             HStack(alignment: .top, spacing: 14) {
                 FeatureCard(color: .blue, icon: "waveform.and.magnifyingglass",
-                            title: "Real-time Analysis",
-                            description: "Every tool call gets a risk score 1–10 before it executes") {
+                            title: L.t("tour.realtimeTitle"),
+                            description: L.t("tour.realtimeDesc")) {
                     RiskScoringIllustration()
                 }
                 FeatureCard(color: .red, icon: "xmark.shield.fill",
-                            title: "Auto-blocking",
-                            description: "Dangerous commands are intercepted before they can cause harm") {
+                            title: L.t("tour.blockingTitle"),
+                            description: L.t("tour.blockingDesc")) {
                     BlockingIllustration()
                 }
                 FeatureCard(color: .purple, icon: "brain.head.profile",
-                            title: "Learns From You",
-                            description: "Approve once, and GuardClaw remembers — auto-approving next time") {
+                            title: L.t("tour.learningTitle"),
+                            description: L.t("tour.learningDesc")) {
                     LearningIllustration()
                 }
             }
@@ -163,13 +165,15 @@ struct BlockingIllustration: View {
 }
 
 struct LearningIllustration: View {
+    private var L: Loc { Loc.shared }
+
     var body: some View {
         VStack(spacing: 0) {
-            LearningRow(icon: "hand.thumbsup.fill", color: .blue, text: "You approved: git push")
+            LearningRow(icon: "hand.thumbsup.fill", color: .blue, text: L.t("tour.youApproved"))
             LearningConnector()
-            LearningRow(icon: "brain.fill", color: .purple, text: "Pattern saved")
+            LearningRow(icon: "brain.fill", color: .purple, text: L.t("tour.patternSaved"))
             LearningConnector()
-            LearningRow(icon: "bolt.fill", color: .green, text: "Auto-approved next time")
+            LearningRow(icon: "bolt.fill", color: .green, text: L.t("tour.autoApproved"))
         }
     }
 }

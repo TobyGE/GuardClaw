@@ -4,18 +4,20 @@ struct ActivityView: View {
     @Environment(AppState.self) var appState
     @State private var selectedBackend: String = "claude-code"
     @State private var displayLimit: Int = 200
+    private var L: Loc { Loc.shared }
 
     private let backends = [
         ("claude-code", "Claude Code"),
         ("openclaw", "OpenClaw"),
         ("gemini-cli", "Gemini CLI"),
         ("cursor", "Cursor"),
+        ("opencode", "OpenCode"),
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             // Backend picker
-            Picker("Backend", selection: $selectedBackend) {
+            Picker(L.t("activity.backend"), selection: $selectedBackend) {
                 ForEach(backends, id: \.0) { key, label in
                     Text(label).tag(key)
                 }
@@ -30,9 +32,9 @@ struct ActivityView: View {
                 .sorted(by: { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) })
             if allEvents.isEmpty {
                 ContentUnavailableView(
-                    "No Activity Yet",
+                    L.t("activity.noActivity"),
                     systemImage: "list.bullet.rectangle",
-                    description: Text("Events will appear here as tool calls are intercepted")
+                    description: Text(L.t("activity.noActivityDesc"))
                 )
             } else {
                 let visibleEvents = Array(allEvents.prefix(displayLimit))
@@ -53,7 +55,7 @@ struct ActivityView: View {
                 }
             }
         }
-        .navigationTitle("Activity")
+        .navigationTitle(L.t("activity.title"))
         .onChange(of: selectedBackend) { _, _ in displayLimit = 200 }
     }
 
@@ -63,6 +65,7 @@ struct ToolCallRow: View {
     let event: EventItem
     @State private var expanded = false
     @State private var markState: MarkState = .none
+    private var L: Loc { Loc.shared }
 
     enum MarkState { case none, allow, deny }
 
@@ -100,7 +103,7 @@ struct ToolCallRow: View {
 
                 // Allowed/denied badge
                 if event.allowed == 0 {
-                    Text("BLOCKED")
+                    Text(L.t("common.blocked"))
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
@@ -121,7 +124,7 @@ struct ToolCallRow: View {
                                 markState = newState
                             }
                         } label: {
-                            Text("Mark Allow")
+                            Text(L.t("activity.markAllow"))
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(markState == .allow ? .white : .green)
                                 .padding(.horizontal, 6)
@@ -143,7 +146,7 @@ struct ToolCallRow: View {
                                 markState = newState
                             }
                         } label: {
-                            Text("Mark Deny")
+                            Text(L.t("activity.markDeny"))
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(markState == .deny ? .white : .red)
                                 .padding(.horizontal, 6)

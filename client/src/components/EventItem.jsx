@@ -1,19 +1,21 @@
 import GuardClawLogo from './GuardClawLogo';
 import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, MessageIcon, WrenchIcon, GitBranchIcon } from './icons';
 import { useState } from 'react';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 function EventItem({ event }) {
+  const { t, language } = useI18n();
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [showFullContent, setShowFullContent] = useState(false);
   const CONTENT_PREVIEW_LINES = 2;
 
   const getRiskLevel = (score, pending, verdict) => {
-    if (pending) return { label: 'ANALYZING', color: 'text-blue-400 bg-blue-400/20 animate-pulse' };
-    if (score < 6) return { label: 'SAFE', color: 'text-gc-safe bg-gc-safe/20' };
-    if (score < 9) return { label: 'WARNING', color: 'text-gc-warning bg-gc-warning/20' };
-    if (verdict === 'pass-through') return { label: 'FLAGGED', color: 'text-gc-danger bg-gc-danger/20' };
-    return { label: 'BLOCKED', color: 'text-gc-danger bg-gc-danger/20' };
+    if (pending) return { label: t('analysis.analyzing'), color: 'text-blue-400 bg-blue-400/20 animate-pulse' };
+    if (score < 6) return { label: t('analysis.safe'), color: 'text-gc-safe bg-gc-safe/20' };
+    if (score < 9) return { label: t('analysis.warning'), color: 'text-gc-warning bg-gc-warning/20' };
+    if (verdict === 'pass-through') return { label: t('analysis.flagged'), color: 'text-gc-danger bg-gc-danger/20' };
+    return { label: t('analysis.blockedLabel'), color: 'text-gc-danger bg-gc-danger/20' };
   };
 
   const formatTime = (timestamp) => {
@@ -119,7 +121,7 @@ function EventItem({ event }) {
             )}
             {status === 'aborted' && (
               <span className="text-xs px-2 py-1 rounded bg-gc-text-dim/20 text-gc-text-dim">
-                (aborted)
+                {t('eventItem.aborted')}
               </span>
             )}
             {riskLevel && (
@@ -144,7 +146,7 @@ function EventItem({ event }) {
                     onClick={() => setShowFullContent(v => !v)}
                     className="text-xs text-blue-400 hover:text-blue-300 mt-1 transition-colors"
                   >
-                    {showFullContent ? '▲ Collapse' : `▼ Expand all (${lines.length} lines)`}
+                    {showFullContent ? t('eventItem.collapse') : t('eventItem.expandAll', { lines: lines.length })}
                   </button>
                 )}
               </div>
@@ -160,7 +162,7 @@ function EventItem({ event }) {
                 className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors flex items-center space-x-1"
               >
                 <span>{showSteps ? '▼' : '▶'}</span>
-                <span>📋 Details ({event.streamingSteps.length} step{event.streamingSteps.length > 1 ? 's' : ''})</span>
+                <span>📋 {t('eventItem.details', { count: event.streamingSteps.length, plural: language === 'en' && event.streamingSteps.length > 1 ? 's' : '' })}</span>
               </button>
             )}
 
@@ -171,7 +173,7 @@ function EventItem({ event }) {
                 className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
               >
                 <span>{showAnalysis ? '▼' : '▶'}</span>
-                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard.category || 'general'})</span>
+                <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> {t('analysis.securityAnalysis')} ({event.safeguard.category || 'general'})</span>
               </button>
             )}
           </div>
@@ -181,7 +183,7 @@ function EventItem({ event }) {
             <div className="mt-3 ml-6 space-y-3 text-sm bg-blue-50 dark:bg-blue-900/20 p-3 rounded border border-blue-200 dark:border-blue-800">
               <div className="flex items-center space-x-2 mb-2">
                 <span className="text-lg">📋</span>
-                <span className="text-blue-700 dark:text-blue-300 font-semibold">Event Details</span>
+                <span className="text-blue-700 dark:text-blue-300 font-semibold">{t('eventItem.eventDetails')}</span>
               </div>
               <div className="space-y-2">
                 {event.streamingSteps.map((step, idx) => {
@@ -215,7 +217,7 @@ function EventItem({ event }) {
                       {/* Tool Input Parameters */}
                       {step.type === 'tool_use' && step.metadata && step.metadata.input && (
                         <div className="mb-2">
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Input:</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">{t('eventItem.input')}</span>
                           <code className="block mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
                             {JSON.stringify(step.metadata.input, null, 2)}
                           </code>
@@ -225,7 +227,7 @@ function EventItem({ event }) {
                       {/* Tool Result */}
                       {step.type === 'tool_use' && step.metadata && step.metadata.result && (
                         <div className="mb-2">
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Result:</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">{t('eventItem.result')}</span>
                           <code className="block mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
                             {typeof step.metadata.result === 'string' 
                               ? step.metadata.result 
@@ -237,7 +239,7 @@ function EventItem({ event }) {
                       {/* Exec command (legacy) */}
                       {step.command && (
                         <div className="mb-2">
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Command:</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">{t('eventItem.command')}</span>
                           <code className="block mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
                             {step.command}
                           </code>
@@ -247,10 +249,10 @@ function EventItem({ event }) {
                       {/* Text content for thinking/text steps */}
                       {step.content && step.type !== 'tool_use' && (
                         <div className="mb-2">
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Content:</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">{t('eventItem.content')}</span>
                           <div className="mt-1 text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
                             {step.content}
-                            {step.content.length >= 200 && '... (truncated)'}
+                            {step.content.length >= 200 && t('eventItem.truncated')}
                           </div>
                         </div>
                       )}
@@ -258,7 +260,7 @@ function EventItem({ event }) {
                       {/* Phase progression indicator */}
                       {step.metadata && step.metadata.phases && step.metadata.phases.length > 1 && (
                         <div className="mb-2">
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Phases:</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">{t('eventItem.phases')}</span>
                           <div className="mt-1 flex space-x-1">
                             {step.metadata.phases.map((phase, pIdx) => (
                               <span key={pIdx} className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
@@ -271,7 +273,7 @@ function EventItem({ event }) {
                       
                       {step.safeguard && step.safeguard.reasoning && (
                         <div>
-                          <span className="text-xs text-gray-600 dark:text-gray-400">Analysis:</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400">{t('eventItem.analysis')}</span>
                           <p className="mt-1 text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 p-2 rounded">
                             {step.safeguard.reasoning}
                           </p>
@@ -280,7 +282,7 @@ function EventItem({ event }) {
                       
                       {step.safeguard && step.safeguard.warnings && step.safeguard.warnings.length > 0 && (
                         <div className="mt-2">
-                          <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">⚠️ Warnings:</span>
+                          <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">⚠️ {t('eventItem.warnings')}</span>
                           <ul className="mt-1 list-disc list-inside text-xs text-gray-700 dark:text-gray-300">
                             {step.safeguard.warnings.map((warning, wIdx) => (
                               <li key={wIdx}>{warning}</li>
@@ -300,33 +302,33 @@ function EventItem({ event }) {
             <div className="mt-3 ml-6 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2 mb-2">
                 <GuardClawLogo size={20} />
-                <span className="text-gc-primary font-semibold">Security Analysis</span>
+                <span className="text-gc-primary font-semibold">{t('analysis.securityAnalysis')}</span>
               </div>
               <div>
-                <span className="text-gc-text-dim">Risk Score:</span>
-                <span className="ml-2 text-gc-text font-medium">{event.safeguard.riskScore <= 3 ? "SAFE" : event.safeguard.riskScore <= 7 ? "WARNING" : event.safeguard.verdict === 'pass-through' ? "FLAGGED" : "BLOCKED"}</span>
+                <span className="text-gc-text-dim">{t('analysis.riskScore')}</span>
+                <span className="ml-2 text-gc-text font-medium">{event.safeguard.riskScore <= 3 ? t('analysis.safe') : event.safeguard.riskScore <= 7 ? t('analysis.warning') : event.safeguard.verdict === 'pass-through' ? t('analysis.flagged') : t('analysis.blockedLabel')}</span>
               </div>
               {event.safeguard.category && (
                 <div>
-                  <span className="text-gc-text-dim">Category:</span>
+                  <span className="text-gc-text-dim">{t('analysis.category')}</span>
                   <span className="ml-2 text-gc-text">{event.safeguard.category}</span>
                 </div>
               )}
               {event.safeguard.backend && (
                 <div>
-                  <span className="text-gc-text-dim">Backend:</span>
+                  <span className="text-gc-text-dim">{t('analysis.backend')}</span>
                   <span className="ml-2 text-gc-text">{event.safeguard.backend}</span>
                 </div>
               )}
               {event.safeguard.reasoning && (
                 <div>
-                  <span className="text-gc-text-dim">Reasoning:</span>
+                  <span className="text-gc-text-dim">{t('analysis.reasoning')}</span>
                   <p className="mt-1 text-gc-text bg-gc-bg/50 p-2 rounded">{event.safeguard.reasoning}</p>
                 </div>
               )}
               {event.safeguard.concerns && event.safeguard.concerns.length > 0 && (
                 <div>
-                  <span className="text-gc-text-dim">Concerns:</span>
+                  <span className="text-gc-text-dim">{t('analysis.concerns')}</span>
                   <ul className="mt-1 list-disc list-inside text-gc-text">
                     {event.safeguard.concerns.map((concern, idx) => (
                       <li key={idx}>{concern}</li>
@@ -336,9 +338,9 @@ function EventItem({ event }) {
               )}
               {event.safeguard.allowed !== undefined && (
                 <div>
-                  <span className="text-gc-text-dim">Action:</span>
+                  <span className="text-gc-text-dim">{t('analysis.action')}</span>
                   <span className={`ml-2 font-medium ${event.safeguard.allowed ? 'text-gc-safe' : 'text-gc-danger'}`}>
-                    {event.safeguard.allowed ? '✓ Allowed' : '✗ Blocked'}
+                    {event.safeguard.allowed ? t('analysis.allowed') : t('analysis.blockedAction')}
                   </span>
                 </div>
               )}

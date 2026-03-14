@@ -1,5 +1,6 @@
 import { BenchmarkIcon, CpuIcon, LlamaIcon, CheckIcon, XIcon } from "./icons";
 import React, { useState, useEffect, useRef } from 'react';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 const VERDICT_STYLE = {
   SAFE: 'text-gc-safe bg-gc-safe/20',
@@ -41,28 +42,29 @@ function binaryVerdict(v) {
 const accColor = (acc) => acc >= 0.95 ? 'text-gc-safe' : acc >= 0.80 ? 'text-yellow-500' : 'text-gc-danger';
 
 function SummaryCards({ summary }) {
+  const { t } = useI18n();
   return (
     <>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
           <div className={`text-3xl font-bold ${accColor(summary.accuracy)}`}>{(summary.accuracy * 100).toFixed(1)}%</div>
-          <div className="text-xs text-gray-400 mt-1">Accuracy</div>
+          <div className="text-xs text-gray-400 mt-1">{t('benchmark.accuracy')}</div>
         </div>
         <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
           <div className="text-3xl font-bold text-gc-text">{summary.correct}/{summary.total}</div>
-          <div className="text-xs text-gray-400 mt-1">Correct</div>
+          <div className="text-xs text-gray-400 mt-1">{t('benchmark.correct')}</div>
         </div>
         <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
           <div className="text-3xl font-bold text-blue-500">{summary.avgLatencyMs}ms</div>
-          <div className="text-xs text-gray-400 mt-1">Avg Latency</div>
+          <div className="text-xs text-gray-400 mt-1">{t('benchmark.avgLatency')}</div>
         </div>
         <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
           <div className={`text-3xl font-bold ${summary.falsePositives === 0 ? 'text-gc-safe' : 'text-yellow-500'}`}>{summary.falsePositives}</div>
-          <div className="text-xs text-gray-400 mt-1">False Positives</div>
+          <div className="text-xs text-gray-400 mt-1">{t('benchmark.falsePositives')}</div>
         </div>
         <div className="rounded-xl border border-gc-border bg-gc-bg p-4 text-center">
           <div className={`text-3xl font-bold ${summary.falseNegatives === 0 ? 'text-gc-safe' : 'text-gc-danger'}`}>{summary.falseNegatives}</div>
-          <div className="text-xs text-gray-400 mt-1">False Negatives</div>
+          <div className="text-xs text-gray-400 mt-1">{t('benchmark.falseNegatives')}</div>
         </div>
       </div>
 
@@ -87,6 +89,7 @@ function SummaryCards({ summary }) {
 }
 
 function ResultsTable({ results }) {
+  const { t } = useI18n();
   const [expandedRow, setExpandedRow] = useState(null);
 
   return (
@@ -95,10 +98,10 @@ function ResultsTable({ results }) {
         <thead>
           <tr className="bg-gc-bg text-left text-xs text-gc-text-dim uppercase tracking-wider">
             <th className="px-4 py-2.5 w-8"></th>
-            <th className="px-4 py-2.5">Trace</th>
-            <th className="px-4 py-2.5 w-24">Expected</th>
-            <th className="px-4 py-2.5 w-24">Actual</th>
-            <th className="px-4 py-2.5 w-16 text-right">Score</th>
+            <th className="px-4 py-2.5">{t('benchmark.trace')}</th>
+            <th className="px-4 py-2.5 w-24">{t('benchmark.expected')}</th>
+            <th className="px-4 py-2.5 w-24">{t('benchmark.actual')}</th>
+            <th className="px-4 py-2.5 w-16 text-right">{t('benchmark.score')}</th>
             <th className="px-4 py-2.5 w-16 text-right">ms</th>
           </tr>
         </thead>
@@ -138,12 +141,12 @@ function ResultsTable({ results }) {
                       <div className="space-y-2 text-xs">
                         {r.taskContext?.userPrompt && (
                           <div>
-                            <span className="text-gc-text-dim font-semibold">User Prompt:</span>
+                            <span className="text-gc-text-dim font-semibold">{t('benchmark.userPrompt')}</span>
                             <code className="ml-2 text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">{r.taskContext.userPrompt}</code>
                           </div>
                         )}
                         <div>
-                          <span className="text-gc-text-dim font-semibold">Trace:</span>
+                          <span className="text-gc-text-dim font-semibold">{t('benchmark.traceLabel')}</span>
                           <div className="mt-1 space-y-1">
                             {(r.traceDetails || []).map((step, i) => (
                               <div key={i} className="flex items-start gap-2">
@@ -155,11 +158,11 @@ function ResultsTable({ results }) {
                           </div>
                         </div>
                         <div>
-                          <span className="text-gc-text-dim font-semibold">Reasoning:</span>
+                          <span className="text-gc-text-dim font-semibold">{t('benchmark.reasoning')}</span>
                           <p className="mt-1 text-gc-text bg-gc-bg px-2 py-1.5 rounded whitespace-pre-wrap">{r.reasoning || '(none)'}</p>
                         </div>
                         <div className="flex gap-4 text-gc-text-dim">
-                          <span>Backend: <span className="text-gc-text font-mono">{r.backend}</span></span>
+                          <span>{t('benchmark.backendLabel')} <span className="text-gc-text font-mono">{r.backend}</span></span>
                         </div>
                       </div>
                     </td>
@@ -175,6 +178,7 @@ function ResultsTable({ results }) {
 }
 
 export default function BenchmarkModal({ isOpen, onClose }) {
+  const { t } = useI18n();
   const [running, setRunning] = useState(false);
   const [liveResults, setLiveResults] = useState([]);
   const [liveSummary, setLiveSummary] = useState(null);
@@ -290,7 +294,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           setRunning(false);
           es.close();
         } else if (data.type === 'aborted') {
-          setError('Benchmark aborted');
+          setError(t('benchmark.aborted'));
           setRunning(false);
           es.close();
         } else if (data.type === 'error') {
@@ -302,7 +306,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     };
 
     es.onerror = () => {
-      setError('Connection lost');
+      setError(t('benchmark.connectionLost'));
       setRunning(false);
       es.close();
     };
@@ -314,7 +318,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
     } catch {}
     if (esRef.current) esRef.current.close();
     setRunning(false);
-    setError('Benchmark aborted');
+    setError(t('benchmark.aborted'));
   };
 
   // Build unique model list: merge loaded models with saved-only models
@@ -336,8 +340,8 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-600 flex items-center justify-center text-white"><BenchmarkIcon size={18} /></div>
             <div>
-              <h2 className="text-lg font-bold text-gc-text">Model Benchmark</h2>
-              <p className="text-xs text-gray-400">BLOCK vs ALLOW · tool-trace + intent alignment scenarios</p>
+              <h2 className="text-lg font-bold text-gc-text">{t('benchmark.title')}</h2>
+              <p className="text-xs text-gray-400">{t('benchmark.subtitle')}</p>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gc-text hover:bg-gc-border transition-colors">✕</button>
@@ -346,7 +350,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
         {/* Model Tabs */}
         <div className="px-6 pt-4 pb-0">
           {loadingModels ? (
-            <span className="text-xs text-gray-400 animate-pulse">loading models...</span>
+            <span className="text-xs text-gray-400 animate-pulse">{t('benchmark.loadingModels')}</span>
           ) : modelTabs.length > 0 ? (
             <div className="flex gap-1 overflow-x-auto pb-0 -mb-px">
               {modelTabs.map(m => {
@@ -400,7 +404,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           {running && progress && (
             <div>
               <div className="flex items-center justify-between text-sm text-gc-text-dim mb-2">
-                <span>Trace {progress.current}/{progress.total}</span>
+                <span>{t('benchmark.trace')} {progress.current}/{progress.total}</span>
                 <span className={accColor(progress.accuracy)}>{(progress.accuracy * 100).toFixed(0)}%</span>
               </div>
               <div className="w-full h-2 bg-gc-border rounded-full overflow-hidden">
@@ -425,20 +429,19 @@ export default function BenchmarkModal({ isOpen, onClose }) {
               <div className="mb-3"><BenchmarkIcon size={40} /></div>
               {selectedModel ? (
                 <>
-                  <h3 className="text-lg font-semibold text-gc-text mb-2">No results yet</h3>
+                  <h3 className="text-lg font-semibold text-gc-text mb-2">{t('benchmark.noResultsYet')}</h3>
                   <p className="text-sm text-gray-400 max-w-md mx-auto">
-                    Run a benchmark for <span className="font-mono text-gc-text">{selectedModel.split('/').pop()}</span> to see accuracy and latency metrics.
+                    {t('benchmark.noResultsDesc', { model: selectedModel.split('/').pop() })}
                   </p>
                 </>
               ) : (
                 <>
-                  <h3 className="text-lg font-semibold text-gc-text mb-2">Security Benchmark</h3>
+                  <h3 className="text-lg font-semibold text-gc-text mb-2">{t('benchmark.securityBenchmark')}</h3>
                   <p className="text-sm text-gray-400 max-w-md mx-auto mb-1">
-                    tool-trace + intent alignment scenarios testing BLOCK detection accuracy.
+                    {t('benchmark.benchmarkDesc')}
                   </p>
                   <p className="text-xs text-gray-400 max-w-md mx-auto">
-                    Each trace simulates a real agent workflow (read → edit → exec) and tests whether
-                    the judge correctly blocks dangerous tool chains while allowing safe ones.
+                    {t('benchmark.benchmarkDetailDesc')}
                   </p>
                 </>
               )}
@@ -448,21 +451,21 @@ export default function BenchmarkModal({ isOpen, onClose }) {
           {/* Saved result timestamp */}
           {currentSaved && !showLive && !running && (
             <div className="text-center text-xs text-gray-400">
-              Last run: {new Date(currentSaved.timestamp).toLocaleString()}
+              {t('benchmark.lastRun', { time: new Date(currentSaved.timestamp).toLocaleString() })}
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
-          <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">Close</button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">{t('buttons.close')}</button>
           <div className="flex items-center gap-2">
             {running && (
               <button
                 onClick={handleAbort}
                 className="px-4 py-2.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white shadow-sm transition-colors"
               >
-                Stop
+                {t('buttons.stop')}
               </button>
             )}
             <button
@@ -470,7 +473,7 @@ export default function BenchmarkModal({ isOpen, onClose }) {
               disabled={running || !selectedModel}
               className="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {running ? `Running (${progress?.current || 0}/${progress?.total || '?'})...` : currentSaved || showLive ? '↻ Run Again' : '▶ Run Benchmark'}
+              {running ? t('benchmark.running', { current: progress?.current || 0, total: progress?.total || '?' }) : currentSaved || showLive ? t('benchmark.runAgain') : t('benchmark.runBenchmark')}
             </button>
           </div>
         </div>

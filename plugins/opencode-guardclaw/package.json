@@ -1,0 +1,13 @@
+{
+  "name": "opencode-guardclaw",
+  "version": "1.0.0",
+  "description": "GuardClaw safety plugin for OpenCode — real-time AI agent tool-call risk scoring",
+  "main": "index.ts",
+  "types": "index.ts",
+  "keywords": ["opencode", "guardclaw", "safety", "ai-agent", "plugin"],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "opencode": ">=0.1.0"
+  }
+}

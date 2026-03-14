@@ -10,6 +10,7 @@ struct RulesView: View {
     @State private var isLoading = true
     @State private var isGeneratingAI = false
     @AppStorage("guardclaw.dismissedSuggestions") private var dismissedJSON: String = "[]"
+    private var L: Loc { Loc.shared }
 
     private var dismissedIds: Set<String> {
         Set((try? JSONDecoder().decode([String].self, from: Data(dismissedJSON.utf8))) ?? [])
@@ -29,16 +30,18 @@ struct RulesView: View {
     private let api = GuardClawAPI()
 
     // Preset rule templates
-    private let presets: [(String, String, String)] = [
-        // (label, pattern, list type)
-        ("Allow all file reads", "Read", "whitelist"),
-        ("Allow Grep/Glob searches", "Grep,Glob", "whitelist"),
-        ("Allow git status/log/diff", "Bash:git status,Bash:git log,Bash:git diff", "whitelist"),
-        ("Block rm -rf", "Bash:rm -rf", "blacklist"),
-        ("Block curl/wget uploads", "Bash:curl -X POST,Bash:wget --post", "blacklist"),
-        ("Block SSH key access", "Read:~/.ssh", "blacklist"),
-        ("Block .env file reads", "Read:.env", "blacklist"),
-    ]
+    private var presets: [(String, String, String)] {
+        [
+            // (label, pattern, list type)
+            (L.t("rules.allowFileReads"), "Read", "whitelist"),
+            (L.t("rules.allowSearches"), "Grep,Glob", "whitelist"),
+            (L.t("rules.allowGit"), "Bash:git status,Bash:git log,Bash:git diff", "whitelist"),
+            (L.t("rules.blockRmRf"), "Bash:rm -rf", "blacklist"),
+            (L.t("rules.blockCurlWget"), "Bash:curl -X POST,Bash:wget --post", "blacklist"),
+            (L.t("rules.blockSSH"), "Read:~/.ssh", "blacklist"),
+            (L.t("rules.blockEnv"), "Read:.env", "blacklist"),
+        ]
+    }
 
     var body: some View {
         ScrollView {
@@ -53,8 +56,8 @@ struct RulesView: View {
 
                 // Whitelist
                 patternSection(
-                    title: "Whitelist",
-                    subtitle: "Always auto-allowed without scoring",
+                    title: L.t("rules.whitelist"),
+                    subtitle: L.t("rules.whitelistDesc"),
                     icon: "checkmark.circle",
                     color: .green,
                     patterns: whitelist,
@@ -65,8 +68,8 @@ struct RulesView: View {
 
                 // Blacklist
                 patternSection(
-                    title: "Blacklist",
-                    subtitle: "Always auto-blocked",
+                    title: L.t("rules.blacklist"),
+                    subtitle: L.t("rules.blacklistDesc"),
                     icon: "xmark.circle",
                     color: .red,
                     patterns: blacklist,
@@ -78,21 +81,21 @@ struct RulesView: View {
                 if let msg = statusMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(msg.contains("✓") ? .green : .red)
+                        .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
                 }
 
                 // Help text
                 GroupBox {
-                    Text("Patterns match tool names (e.g. \"Bash\") or tool:command pairs (e.g. \"Bash:git status\"). Whitelist overrides all scoring; blacklist blocks immediately.")
+                    Text(L.t("rules.patternsHelp"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } label: {
-                    Label("How Patterns Work", systemImage: "info.circle").font(.caption)
+                    Label(L.t("rules.howPatternsWork"), systemImage: "info.circle").font(.caption)
                 }
             }
             .padding(24)
         }
-        .navigationTitle("Rules")
+        .navigationTitle(L.t("rules.title"))
         .onAppear { refresh() }
     }
 
@@ -100,12 +103,12 @@ struct RulesView: View {
 
     private var suggestionsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Suggested Rules", systemImage: "lightbulb")
+            Label(L.t("rules.suggestedRules"), systemImage: "lightbulb")
                 .font(.headline)
                 .foregroundStyle(.orange)
 
             HStack {
-                Text("Based on your approve/deny history")
+                Text(L.t("rules.basedOnHistory"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -118,7 +121,7 @@ struct RulesView: View {
                         } else {
                             Image(systemName: "sparkles")
                         }
-                        Text("AI Suggest")
+                        Text(L.t("rules.aiSuggest"))
                     }
                     .font(.caption)
                 }
@@ -156,7 +159,7 @@ struct RulesView: View {
 
                     Spacer()
 
-                    Button(s.type == "whitelist" ? "Allow" : "Block") {
+                    Button(s.type == "whitelist" ? L.t("rules.allow") : L.t("rules.block")) {
                         Task { await applySuggestion(s) }
                     }
                     .controlSize(.small)
@@ -186,7 +189,7 @@ struct RulesView: View {
 
     private var presetsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Quick Presets", systemImage: "sparkles")
+            Label(L.t("rules.quickPresets"), systemImage: "sparkles")
                 .font(.headline)
                 .foregroundStyle(.blue)
 
@@ -241,11 +244,11 @@ struct RulesView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                TextField("Tool name or pattern...", text: newPattern)
+                TextField(L.t("rules.patternPlaceholder"), text: newPattern)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { Task { await onAdd() } }
 
-                Button("Add") { Task { await onAdd() } }
+                Button(L.t("common.add")) { Task { await onAdd() } }
                     .disabled(newPattern.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
                     .buttonStyle(.borderedProminent)
                     .tint(color)
@@ -253,7 +256,7 @@ struct RulesView: View {
             }
 
             if patterns.isEmpty {
-                Text("No patterns yet")
+                Text(L.t("rules.noPatterns"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.vertical, 4)
@@ -309,12 +312,12 @@ struct RulesView: View {
             let existingIds = Set(suggestions.map(\.id))
             let newOnes = resp.suggestions.filter { !existingIds.contains($0.id) && $0.isAI }
             if newOnes.isEmpty {
-                statusMessage = "No AI suggestions — make sure a judge model is loaded"
+                statusMessage = L.t("rules.noAISuggestions")
             } else {
                 suggestions.append(contentsOf: newOnes)
             }
         } catch {
-            statusMessage = "AI suggestion failed: \(error.localizedDescription)"
+            statusMessage = L.t("rules.aiSuggestionFailed", error.localizedDescription)
         }
     }
 
@@ -330,9 +333,9 @@ struct RulesView: View {
                 blacklist = resp.blacklist ?? blacklist
             }
             dismissSuggestion(s.id)
-            statusMessage = "✓ Added \(pattern) to \(s.type)"
+            statusMessage = "\u{2713} " + L.t("rules.addedTo", pattern, s.type)
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -348,11 +351,11 @@ struct RulesView: View {
                     blacklist = resp.blacklist ?? blacklist
                 }
             } catch {
-                statusMessage = "Failed: \(error.localizedDescription)"
+                statusMessage = L.t("settings.failed", error.localizedDescription)
                 return
             }
         }
-        statusMessage = "✓ Preset applied"
+        statusMessage = "\u{2713} " + L.t("rules.presetApplied")
     }
 
     private func addToWhitelist() async {
@@ -362,9 +365,9 @@ struct RulesView: View {
             let resp = try await api.addToWhitelist(pattern: pattern)
             whitelist = resp.whitelist ?? whitelist
             newWhitelistPattern = ""
-            statusMessage = "✓ Added to whitelist"
+            statusMessage = "\u{2713} " + L.t("rules.addedWhitelist")
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -373,7 +376,7 @@ struct RulesView: View {
             let resp = try await api.removeFromWhitelist(pattern: pattern)
             whitelist = resp.whitelist ?? whitelist.filter { $0 != pattern }
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -384,9 +387,9 @@ struct RulesView: View {
             let resp = try await api.addToBlacklist(pattern: pattern)
             blacklist = resp.blacklist ?? blacklist
             newBlacklistPattern = ""
-            statusMessage = "✓ Added to blacklist"
+            statusMessage = "\u{2713} " + L.t("rules.addedBlacklist")
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -395,7 +398,7 @@ struct RulesView: View {
             let resp = try await api.removeFromBlacklist(pattern: pattern)
             blacklist = resp.blacklist ?? blacklist.filter { $0 != pattern }
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 }

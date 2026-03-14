@@ -12,6 +12,7 @@ struct JudgeSettingsView: View {
     @State private var externalModels: [String] = []
     @State private var selectedExternalModel: String = ""
     @State private var isLoadingExternalModels = false
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
 
@@ -25,20 +26,20 @@ struct JudgeSettingsView: View {
 
                 // Backend picker
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Switch Backend")
+                    Text(L.t("judge.switchBackend"))
                         .font(.headline)
 
-                    Picker("Backend", selection: Binding(
+                    Picker(L.t("judge.backend"), selection: Binding(
                         get: { pendingBackend ?? llmBackend },
                         set: { newVal in
                             pendingBackend = newVal
                             switchBackend(to: newVal)
                         }
                     )) {
-                        Text("Built-in (MLX)").tag("built-in")
+                        Text(L.t("judge.builtInMLX")).tag("built-in")
                         Text("LM Studio").tag("lmstudio")
                         Text("Ollama").tag("ollama")
-                        Text("Anthropic Claude").tag("anthropic")
+                        Text(L.t("judge.anthropicClaude")).tag("anthropic")
                     }
                     .pickerStyle(.segmented)
                     .disabled(pendingBackend != nil)
@@ -55,12 +56,12 @@ struct JudgeSettingsView: View {
                 if let msg = statusMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(msg.contains("✓") ? .green : .orange)
+                        .foregroundStyle(msg.contains("\u{2713}") ? .green : .orange)
                 }
             }
             .padding(24)
         }
-        .navigationTitle("Judge")
+        .navigationTitle(L.t("judge.title"))
         .task {
             loadStatus()
             if llmBackend == "lmstudio" || llmBackend == "ollama" {
@@ -80,7 +81,7 @@ struct JudgeSettingsView: View {
                 Circle()
                     .fill(llmConnected == true ? Color.green : Color.orange)
                     .frame(width: 10, height: 10)
-                Text(llmConnected == true ? "Judge Online" : "Judge Offline")
+                Text(llmConnected == true ? L.t("judge.online") : L.t("judge.offline"))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 Spacer()
@@ -88,7 +89,7 @@ struct JudgeSettingsView: View {
 
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Backend")
+                    Text(L.t("judge.backend"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     Text(backendDisplayName(llmBackend))
@@ -96,10 +97,10 @@ struct JudgeSettingsView: View {
                         .fontWeight(.medium)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Model")
+                    Text(L.t("judge.model"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                    Text(activeModel ?? "None")
+                    Text(activeModel ?? L.t("judge.none"))
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundStyle(activeModel != nil ? .primary : .secondary)
@@ -116,10 +117,10 @@ struct JudgeSettingsView: View {
 
     private func backendDisplayName(_ backend: String) -> String {
         switch backend {
-        case "built-in": return "Built-in (MLX)"
+        case "built-in": return L.t("judge.builtInMLX")
         case "lmstudio": return "LM Studio"
         case "ollama": return "Ollama"
-        case "anthropic": return "Anthropic Claude"
+        case "anthropic": return L.t("judge.anthropicClaude")
         default: return backend
         }
     }
@@ -128,12 +129,12 @@ struct JudgeSettingsView: View {
 
     private var builtInSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Built-in Models")
+            Text(L.t("judge.builtInModels"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             if isLoadingModels {
-                HStack { ProgressView().controlSize(.small); Text("Loading...").font(.caption) }
+                HStack { ProgressView().controlSize(.small); Text(L.t("common.loading")).font(.caption) }
             }
 
             ForEach(models) { model in
@@ -141,7 +142,7 @@ struct JudgeSettingsView: View {
             }
 
             if !isLoadingModels && models.isEmpty {
-                Text("No built-in models available")
+                Text(L.t("judge.noModels"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -153,9 +154,9 @@ struct JudgeSettingsView: View {
     private var externalBackendLabel: String {
         let displayBackend = pendingBackend ?? llmBackend
         switch displayBackend {
-        case "lmstudio": return "LM Studio at http://localhost:1234"
-        case "ollama": return "Ollama at http://localhost:11434"
-        case "anthropic": return "Uses ANTHROPIC_API_KEY from environment"
+        case "lmstudio": return L.t("judge.lmStudioAt")
+        case "ollama": return L.t("judge.ollamaAt")
+        case "anthropic": return L.t("judge.anthropicKey")
         default: return ""
         }
     }
@@ -167,21 +168,21 @@ struct JudgeSettingsView: View {
                 .foregroundStyle(.secondary)
 
             if isLoadingExternalModels {
-                HStack { ProgressView().controlSize(.small); Text("Fetching models...").font(.caption) }
+                HStack { ProgressView().controlSize(.small); Text(L.t("judge.fetchingModels")).font(.caption) }
             } else if !externalModels.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Available Models")
+                    Text(L.t("judge.availableModels"))
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    Picker("Model", selection: $selectedExternalModel) {
-                        Text("Auto").tag("")
+                    Picker(L.t("judge.model"), selection: $selectedExternalModel) {
+                        Text(L.t("benchmark.auto")).tag("")
                         ForEach(externalModels, id: \.self) { model in
                             Text(model).tag(model)
                         }
                     }
                     .labelsHidden()
 
-                    Button("Apply") {
+                    Button(L.t("common.apply")) {
                         Task { await applyExternalModel() }
                     }
                     .buttonStyle(.borderedProminent)
@@ -190,15 +191,15 @@ struct JudgeSettingsView: View {
                 }
             } else {
                 HStack(spacing: 8) {
-                    Button("Fetch Models") {
+                    Button(L.t("judge.fetchModels")) {
                         Task { await fetchExternalModels() }
                     }
                     .controlSize(.small)
 
-                    Button("Test Connection") {
+                    Button(L.t("judge.testConnection")) {
                         Task {
                             let result = try? await api.switchLLMBackend(backend: pendingBackend ?? llmBackend)
-                            statusMessage = result?.success == true ? "✓ Connected" : "Connection failed"
+                            statusMessage = result?.success == true ? "\u{2713} " + L.t("judge.testConnected") : L.t("judge.testFailed")
                         }
                     }
                     .controlSize(.small)
@@ -269,7 +270,7 @@ struct JudgeSettingsView: View {
                 statusMessage = resp.error ?? "No models found — is \(backend) running?"
             }
         } catch {
-            statusMessage = "Failed to fetch models: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 
@@ -282,11 +283,11 @@ struct JudgeSettingsView: View {
             } else {
                 resp = try await api.configLLM(backend: backend, ollamaModel: selectedExternalModel)
             }
-            statusMessage = resp.success == true ? "✓ Model set to \(selectedExternalModel)" : (resp.message ?? "Failed")
+            statusMessage = resp.success == true ? "\u{2713} Model set to \(selectedExternalModel)" : (resp.message ?? "Failed")
             activeModel = selectedExternalModel
             loadStatus()
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 }
@@ -297,6 +298,7 @@ private struct ModelRowView: View {
     let model: BuiltinModel
     let api: GuardClawAPI
     let onRefresh: () -> Void
+    private var L: Loc { Loc.shared }
 
     private var isBusy: Bool { model.downloading || model.loading }
 
@@ -310,7 +312,7 @@ private struct ModelRowView: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(model.loaded ? .green : .primary)
                         if model.recommended == true {
-                            Text("RECOMMENDED")
+                            Text(L.t("judge.recommended"))
                                 .font(.system(size: 8, weight: .bold))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
@@ -330,7 +332,7 @@ private struct ModelRowView: View {
             if isBusy {
                 ProgressView(value: model.downloading ? max(Double(model.progress), 2) / 100.0 : 1.0)
                     .tint(.blue)
-                Text(model.statusMessage ?? (model.downloading ? "Downloading... \(model.progress)%" : "Loading..."))
+                Text(model.statusMessage ?? (model.downloading ? L.t("settings.downloading", model.progress) : L.t("settings.loadingModel")))
                     .font(.caption2)
                     .foregroundStyle(.blue)
             }
@@ -354,23 +356,23 @@ private struct ModelRowView: View {
         if model.loaded {
             HStack(spacing: 6) {
                 Circle().fill(.green).frame(width: 6, height: 6)
-                Text("Active").font(.caption2).foregroundStyle(.green)
-                Button("Stop") {
+                Text(L.t("common.active")).font(.caption2).foregroundStyle(.green)
+                Button(L.t("common.stop")) {
                     Task { _ = try? await api.unloadModel(); onRefresh() }
                 }.controlSize(.small)
             }
         } else if isBusy {
             if model.downloading {
-                Button("Cancel") {
+                Button(L.t("common.cancel")) {
                     Task { _ = try? await api.cancelDownload(id: model.id); onRefresh() }
                 }.controlSize(.small)
             }
         } else if model.downloaded {
-            Button("Run") {
+            Button(L.t("common.run")) {
                 Task { _ = try? await api.setupModel(id: model.id); onRefresh() }
             }.controlSize(.small)
         } else {
-            Button("Setup & Run") {
+            Button(L.t("settings.setupRun")) {
                 Task { _ = try? await api.setupModel(id: model.id); onRefresh() }
             }.controlSize(.small)
         }

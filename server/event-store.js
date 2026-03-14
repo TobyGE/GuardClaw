@@ -195,6 +195,8 @@ export class EventStore {
       sql += " AND sessionKey LIKE 'cursor:%'";
     } else if (backend === 'nanobot') {
       sql += " AND sessionKey LIKE 'nanobot%'";
+    } else if (backend === 'opencode') {
+      sql += " AND sessionKey LIKE 'opencode:%'";
     }
 
     if (session) {

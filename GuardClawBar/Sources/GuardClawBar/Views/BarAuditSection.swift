@@ -4,6 +4,7 @@ struct BarAuditSection: View {
     @State private var findings: [AuditFinding] = []
     @State private var isScanning = false
     @State private var hasScanned = false
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
 
@@ -13,7 +14,7 @@ struct BarAuditSection: View {
                 Image(systemName: "magnifyingglass.circle")
                     .font(.caption)
                     .foregroundStyle(.purple)
-                Text("Security Audit")
+                Text(L.t("barAudit.securityAudit"))
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
@@ -29,14 +30,14 @@ struct BarAuditSection: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.green)
-                            Text("Clean")
+                            Text(L.t("common.clean"))
                                 .font(.caption2)
                                 .foregroundStyle(.green)
                         }
                     } else {
                         HStack(spacing: 4) {
                             if critical > 0 {
-                                Text("\(critical) CRIT")
+                                Text(L.t("barAudit.crit", critical))
                                     .font(.system(size: 8, weight: .bold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 4)
@@ -44,7 +45,7 @@ struct BarAuditSection: View {
                                     .background(.red, in: Capsule())
                             }
                             if high > 0 {
-                                Text("\(high) HIGH")
+                                Text(L.t("barAudit.high", high))
                                     .font(.system(size: 8, weight: .bold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 4)
@@ -105,7 +106,7 @@ struct BarAuditSection: View {
                 }
 
                 if findings.count > 3 {
-                    Button("View all \(findings.count) in Dashboard") {
+                    Button(L.t("barAudit.viewAll", findings.count)) {
                         AppDelegate.shared?.openDashboard()
                     }
                     .font(.caption2)

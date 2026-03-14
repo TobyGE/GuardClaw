@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ModelSelectionStep: View {
+    private var L: Loc { Loc.shared }
     let onFinish: (String, String?) -> Void
 
     @State private var selectedBackend = "built-in"
@@ -15,9 +16,9 @@ struct ModelSelectionStep: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(spacing: 6) {
-                    Text("Choose Your Safety Judge")
+                    Text(L.t("modelStep.title"))
                         .font(.title2).fontWeight(.bold)
-                    Text("The judge analyzes every tool call and assigns a risk score.\nYou can change this anytime in settings.")
+                    Text(L.t("modelStep.subtitle"))
                         .font(.subheadline).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -26,22 +27,22 @@ struct ModelSelectionStep: View {
                 // Backend cards
                 HStack(spacing: 12) {
                     BackendCard(
-                        id: "built-in", title: "Built-in",
-                        subtitle: "Runs locally on Apple Silicon via MLX",
+                        id: "built-in", title: L.t("modelStep.builtIn"),
+                        subtitle: L.t("modelStep.builtInDesc"),
                         icon: "cpu.fill", recommended: true,
                         isSelected: selectedBackend == "built-in"
                     ) { selectedBackend = "built-in" }
 
                     BackendCard(
                         id: "lmstudio", title: "LM Studio",
-                        subtitle: "Requires LM Studio running on port 1234",
+                        subtitle: L.t("modelStep.lmStudioDesc"),
                         icon: "desktopcomputer", recommended: false,
                         isSelected: selectedBackend == "lmstudio"
                     ) { selectedBackend = "lmstudio" }
 
                     BackendCard(
                         id: "ollama", title: "Ollama",
-                        subtitle: "Requires Ollama running on port 11434",
+                        subtitle: L.t("modelStep.ollamaDesc"),
                         icon: "server.rack", recommended: false,
                         isSelected: selectedBackend == "ollama"
                     ) { selectedBackend = "ollama" }
@@ -53,7 +54,7 @@ struct ModelSelectionStep: View {
                         if isLoadingModels {
                             HStack {
                                 ProgressView().controlSize(.small)
-                                Text("Loading models...").font(.caption).foregroundStyle(.secondary)
+                                Text(L.t("modelStep.loadingModels")).font(.caption).foregroundStyle(.secondary)
                             }
                         }
 
@@ -73,7 +74,7 @@ struct ModelSelectionStep: View {
                                     Spacer()
 
                                     if model.downloaded {
-                                        Label("Already downloaded", systemImage: "checkmark.circle")
+                                        Label(L.t("modelStep.alreadyDownloaded"), systemImage: "checkmark.circle")
                                             .font(.caption2).foregroundStyle(.green)
                                     }
                                 }
@@ -99,7 +100,7 @@ struct ModelSelectionStep: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "arrow.down.circle")
                                     .font(.caption2).foregroundStyle(.secondary)
-                                Text("Download starts in the background once you enter the app. A progress panel will appear.")
+                                Text(L.t("modelStep.downloadNote"))
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             .padding(.top, 2)
@@ -114,8 +115,8 @@ struct ModelSelectionStep: View {
                             .foregroundStyle(.secondary).font(.caption)
                             .padding(.top, 1)
                         Text(selectedBackend == "lmstudio"
-                             ? "Make sure LM Studio is running at http://localhost:1234 with a model loaded."
-                             : "Make sure Ollama is running at http://localhost:11434 with a model loaded.")
+                             ? L.t("modelStep.lmStudioInfo")
+                             : L.t("modelStep.ollamaInfo"))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(10)
@@ -131,7 +132,7 @@ struct ModelSelectionStep: View {
                         if isFinishing {
                             ProgressView().controlSize(.small)
                         } else {
-                            Text("Start GuardClaw")
+                            Text(L.t("modelStep.startGuardClaw"))
                                 .frame(maxWidth: .infinity)
                         }
                     }

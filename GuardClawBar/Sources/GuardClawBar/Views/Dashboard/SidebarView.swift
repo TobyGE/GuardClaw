@@ -36,18 +36,36 @@ enum SidebarItem: String, CaseIterable, Hashable {
         case .judge, .connections, .protection: return "SETTINGS"
         }
     }
+
+    var localizedName: String {
+        switch self {
+        case .dashboard: return Loc.shared.t("sidebar.dashboard")
+        case .activity: return Loc.shared.t("sidebar.activity")
+        case .approvals: return Loc.shared.t("sidebar.approvals")
+        case .rules: return Loc.shared.t("sidebar.rules")
+        case .memory: return Loc.shared.t("sidebar.memory")
+        case .audit: return Loc.shared.t("sidebar.securityScan")
+        case .benchmark: return Loc.shared.t("sidebar.benchmark")
+        case .judge: return Loc.shared.t("sidebar.judge")
+        case .connections: return Loc.shared.t("sidebar.connections")
+        case .protection: return Loc.shared.t("sidebar.protection")
+        }
+    }
 }
 
 struct SidebarView: View {
     @Binding var selection: SidebarItem
     @Environment(AppState.self) var appState
+    private var L: Loc { Loc.shared }
 
-    private let sections: [(String, [SidebarItem])] = [
-        ("MONITOR", [.dashboard, .activity]),
-        ("SECURITY", [.approvals, .rules, .memory]),
-        ("TOOLS", [.audit, .benchmark]),
-        ("SETTINGS", [.judge, .connections, .protection]),
-    ]
+    private var sections: [(String, [SidebarItem])] {
+        [
+            (L.t("sidebar.monitor"), [.dashboard, .activity]),
+            (L.t("sidebar.security"), [.approvals, .rules, .memory]),
+            (L.t("sidebar.tools"), [.audit, .benchmark]),
+            (L.t("sidebar.settings"), [.judge, .connections, .protection]),
+        ]
+    }
 
     var body: some View {
         List(selection: $selection) {
@@ -59,7 +77,7 @@ struct SidebarView: View {
                     return img
                 }())
                 .renderingMode(.original)
-                Text("GuardClaw")
+                Text(L.t("header.title"))
                     .font(.headline)
                     .fontWeight(.bold)
             }
@@ -71,7 +89,7 @@ struct SidebarView: View {
                     ForEach(items, id: \.self) { item in
                         Label {
                             HStack {
-                                Text(item.rawValue)
+                                Text(item.localizedName)
                                 if item == .approvals, appState.pendingCount > 0 {
                                     Spacer()
                                     Text("\(appState.pendingCount)")
@@ -90,6 +108,20 @@ struct SidebarView: View {
                     }
                 }
             }
+
+            Divider()
+                .listRowSeparator(.hidden)
+            Button { Loc.shared.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .font(.caption)
+                    Text(Loc.shared.lang == "en" ? "中文" : "English")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .listRowSeparator(.hidden)
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180, idealWidth: 200, maxWidth: 220)

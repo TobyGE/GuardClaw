@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct JudgeSetupStep: View {
+    private var L: Loc { Loc.shared }
     @State private var selectedBackend = "built-in"
     @State private var models: [BuiltinModel] = []
     @State private var isLoadingModels = false
@@ -12,10 +13,10 @@ struct JudgeSetupStep: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(spacing: 6) {
-                    Text("Choose Your Safety Judge")
+                    Text(L.t("judgeStep.title"))
                         .font(.title2)
                         .fontWeight(.bold)
-                    Text("The judge analyzes tool calls and assigns risk scores 1–10.")
+                    Text(L.t("judgeStep.subtitle"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -26,8 +27,8 @@ struct JudgeSetupStep: View {
                 HStack(spacing: 12) {
                     BackendCard(
                         id: "built-in",
-                        title: "Built-in",
-                        subtitle: "Runs locally on Apple Silicon via MLX",
+                        title: L.t("modelStep.builtIn"),
+                        subtitle: L.t("modelStep.builtInDesc"),
                         icon: "cpu.fill",
                         recommended: true,
                         isSelected: selectedBackend == "built-in"
@@ -36,7 +37,7 @@ struct JudgeSetupStep: View {
                     BackendCard(
                         id: "lmstudio",
                         title: "LM Studio",
-                        subtitle: "Requires LM Studio running on port 1234",
+                        subtitle: L.t("modelStep.lmStudioDesc"),
                         icon: "desktopcomputer",
                         recommended: false,
                         isSelected: selectedBackend == "lmstudio"
@@ -45,7 +46,7 @@ struct JudgeSetupStep: View {
                     BackendCard(
                         id: "ollama",
                         title: "Ollama",
-                        subtitle: "Requires Ollama running on port 11434",
+                        subtitle: L.t("modelStep.ollamaDesc"),
                         icon: "server.rack",
                         recommended: false,
                         isSelected: selectedBackend == "ollama"
@@ -56,7 +57,7 @@ struct JudgeSetupStep: View {
                 if selectedBackend == "built-in" {
                     VStack(alignment: .leading, spacing: 8) {
                         if isLoadingModels {
-                            HStack { ProgressView().controlSize(.small); Text("Loading models...").font(.caption) }
+                            HStack { ProgressView().controlSize(.small); Text(L.t("modelStep.loadingModels")).font(.caption) }
                         }
                         ForEach(models) { model in
                             HStack {
@@ -66,11 +67,11 @@ struct JudgeSetupStep: View {
                                 }
                                 Spacer()
                                 if model.loaded {
-                                    Label("Active", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                                    Label(L.t("common.active"), systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
                                 } else if model.downloading {
                                     ProgressView().controlSize(.small)
                                 } else {
-                                    Button("Setup & Run") {
+                                    Button(L.t("settings.setupRun")) {
                                         Task { _ = try? await api.setupModel(id: model.id); loadModels() }
                                     }.controlSize(.small)
                                 }
@@ -102,6 +103,7 @@ struct JudgeSetupStep: View {
 }
 
 struct BackendCard: View {
+    private var L: Loc { Loc.shared }
     let id: String
     let title: String
     let subtitle: String
@@ -121,7 +123,7 @@ struct BackendCard: View {
                 Text(subtitle).font(.system(size: 9)).foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
                     .multilineTextAlignment(.center)
                 if recommended {
-                    Text("RECOMMENDED").font(.system(size: 8, weight: .bold))
+                    Text(L.t("judge.recommended")).font(.system(size: 8, weight: .bold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(.orange.opacity(isSelected ? 0.4 : 0.2))
                         .foregroundStyle(isSelected ? .white : .orange)

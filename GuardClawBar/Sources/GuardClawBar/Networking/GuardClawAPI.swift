@@ -101,6 +101,19 @@ actor GuardClawAPI {
         try await get("/api/setup/openclaw/status")
     }
 
+    // OpenCode
+    func setupOpenCode() async throws -> SetupResponse {
+        try await post("/api/setup/opencode", body: [:] as [String: String])
+    }
+
+    func openCodeStatus() async throws -> CCSetupStatus {
+        try await get("/api/setup/opencode/status")
+    }
+
+    func uninstallOpenCode() async throws -> SetupResponse {
+        try await post("/api/setup/opencode/uninstall", body: [:] as [String: String])
+    }
+
     // MARK: - Models
 
     func listModels() async throws -> ModelsResponse {

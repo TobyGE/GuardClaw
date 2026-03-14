@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 function ConnectionModal({ isOpen, onClose, title, details, modelList }) {
+  const { t } = useI18n();
   const [modelsExpanded, setModelsExpanded] = useState(false);
 
   if (!isOpen) return null;
@@ -73,7 +75,7 @@ function ConnectionModal({ isOpen, onClose, title, details, modelList }) {
           onClick={onClose}
           className="mt-6 w-full px-4 py-2 bg-gc-primary/10 hover:bg-gc-primary/20 text-gc-primary rounded-lg transition-colors"
         >
-          Close
+          {t('connection.close')}
         </button>
       </div>
     </div>

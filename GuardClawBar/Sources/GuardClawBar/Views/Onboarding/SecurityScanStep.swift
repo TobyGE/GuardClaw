@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SecurityScanStep: View {
+    private var L: Loc { Loc.shared }
     @Environment(AppState.self) var appState
     @State private var scanResult: SecurityScanResponse? = nil
     @State private var isScanning = false
@@ -13,10 +14,10 @@ struct SecurityScanStep: View {
         ScrollView {
             VStack(spacing: 20) {
                 VStack(spacing: 6) {
-                    Text("Security Check")
+                    Text(L.t("scanStep.title"))
                         .font(.title2)
                         .fontWeight(.bold)
-                    Text("Deep scan of all agent configs: Claude Code, OpenClaw, Gemini CLI, and Cursor.")
+                    Text(L.t("scanStep.subtitle"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -27,15 +28,15 @@ struct SecurityScanStep: View {
                     if let summary = result.summary {
                         VStack(spacing: 8) {
                             HStack(spacing: 16) {
-                                SummaryItem(value: "\(summary.mcpServers ?? 0)", label: "MCP Servers")
-                                SummaryItem(value: "\(summary.skills ?? 0)", label: "Skills")
-                                SummaryItem(value: "\(summary.hooks ?? 0)", label: "Hooks")
+                                SummaryItem(value: "\(summary.mcpServers ?? 0)", label: L.t("scanStep.mcpServers"))
+                                SummaryItem(value: "\(summary.skills ?? 0)", label: L.t("scanStep.skills"))
+                                SummaryItem(value: "\(summary.hooks ?? 0)", label: L.t("scanStep.hooks"))
                             }
                             HStack(spacing: 16) {
                                 SummaryItem(value: "\(summary.ocComponents ?? 0)", label: "OpenClaw")
                                 SummaryItem(value: "\(summary.geminiComponents ?? 0)", label: "Gemini CLI")
                                 SummaryItem(value: "\(summary.cursorComponents ?? 0)", label: "Cursor")
-                                SummaryItem(value: "\(summary.total ?? 0)", label: "Issues")
+                                SummaryItem(value: "\(summary.total ?? 0)", label: L.t("scanStep.issues"))
                             }
                         }
                         .padding(12)
@@ -56,14 +57,14 @@ struct SecurityScanStep: View {
                             }
                         }
                     } else {
-                        Label("No security concerns found", systemImage: "checkmark.shield.fill")
+                        Label(L.t("scanStep.noIssues"), systemImage: "checkmark.shield.fill")
                             .foregroundStyle(.green)
                             .font(.subheadline)
                     }
                 } else if isScanning || appState.isSecurityScanning {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Scanning skills, hooks, MCP servers, and plugin code...")
+                        Text(L.t("scanStep.scanningDesc"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -72,7 +73,7 @@ struct SecurityScanStep: View {
                     Button {
                         Task { await runScan() }
                     } label: {
-                        Label("Run Security Scan", systemImage: "magnifyingglass.circle.fill")
+                        Label(L.t("scanStep.runScan"), systemImage: "magnifyingglass.circle.fill")
                     }
                     .buttonStyle(.borderedProminent)
 

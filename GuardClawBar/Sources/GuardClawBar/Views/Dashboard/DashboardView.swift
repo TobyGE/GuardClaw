@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(AppState.self) var appState
+    private var L: Loc { Loc.shared }
 
     var body: some View {
         ScrollView {
@@ -30,19 +31,19 @@ struct DashboardView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Dashboard")
+        .navigationTitle(L.t("dashboard.title"))
     }
 
     // MARK: - Stats Grid
 
     private var statsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-            StatCard(title: "Days Protected", value: "\(appState.daysProtected)", icon: "calendar.badge.checkmark", color: .blue)
-            StatCard(title: "Total Events", value: "\(appState.totalEventCount)", icon: "bolt", color: .purple)
-            StatCard(title: "Pending", value: "\(appState.pendingCount)", icon: "bell.badge", color: appState.pendingCount > 0 ? .red : .green)
-            StatCard(title: "Safe Events", value: "\(safeCount)", icon: "checkmark.shield", color: .green)
-            StatCard(title: "Warnings", value: "\(warningCount)", icon: "exclamationmark.triangle", color: .orange)
-            StatCard(title: "Blocked", value: "\(blockedCount)", icon: "xmark.shield", color: .red)
+            StatCard(title: L.t("dashboard.daysProtected"), value: "\(appState.daysProtected)", icon: "calendar.badge.checkmark", color: .blue)
+            StatCard(title: L.t("dashboard.totalEvents"), value: "\(appState.totalEventCount)", icon: "bolt", color: .purple)
+            StatCard(title: L.t("dashboard.pending"), value: "\(appState.pendingCount)", icon: "bell.badge", color: appState.pendingCount > 0 ? .red : .green)
+            StatCard(title: L.t("dashboard.safeEvents"), value: "\(safeCount)", icon: "checkmark.shield", color: .green)
+            StatCard(title: L.t("dashboard.warnings"), value: "\(warningCount)", icon: "exclamationmark.triangle", color: .orange)
+            StatCard(title: L.t("dashboard.blocked"), value: "\(blockedCount)", icon: "xmark.shield", color: .red)
         }
     }
 
@@ -54,19 +55,19 @@ struct DashboardView: View {
             let totalRisky = (s.dangerousTools ?? 0) + (s.dangerousSkills ?? 0)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Security Scan")
+                    Text(L.t("dashboard.securityScan"))
                         .font(.headline)
                     Spacer()
                     if totalRisky == 0 {
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.shield.fill")
                                 .foregroundStyle(.green)
-                            Text("Clean")
+                            Text(L.t("common.clean"))
                                 .font(.caption)
                                 .foregroundStyle(.green)
                         }
                     } else {
-                        Text("\(totalRisky) risky")
+                        Text(L.t("dashboard.risky", totalRisky))
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundStyle(.red)
@@ -75,11 +76,11 @@ struct DashboardView: View {
 
                 let vulns = s.vulnerabilities ?? 0
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
-                    ScanStatCell(label: "Tools", value: "\(s.totalTools ?? 0)", color: .blue)
-                    ScanStatCell(label: "Skills", value: "\(s.totalSkills ?? 0)", color: .blue)
-                    ScanStatCell(label: "Risky Tools", value: "\(s.dangerousTools ?? 0)", color: (s.dangerousTools ?? 0) > 0 ? .red : .green)
-                    ScanStatCell(label: "Risky Skills", value: "\(s.dangerousSkills ?? 0)", color: (s.dangerousSkills ?? 0) > 0 ? .red : .green)
-                    ScanStatCell(label: "Vulnerabilities", value: "\(vulns)", color: vulns > 0 ? .red : .green)
+                    ScanStatCell(label: L.t("audit.tools"), value: "\(s.totalTools ?? 0)", color: .blue)
+                    ScanStatCell(label: L.t("audit.skills"), value: "\(s.totalSkills ?? 0)", color: .blue)
+                    ScanStatCell(label: L.t("audit.riskyTools"), value: "\(s.dangerousTools ?? 0)", color: (s.dangerousTools ?? 0) > 0 ? .red : .green)
+                    ScanStatCell(label: L.t("audit.riskySkills"), value: "\(s.dangerousSkills ?? 0)", color: (s.dangerousSkills ?? 0) > 0 ? .red : .green)
+                    ScanStatCell(label: L.t("audit.vulnerabilities"), value: "\(vulns)", color: vulns > 0 ? .red : .green)
                 }
 
                 // Show risky tool/skill names
@@ -105,7 +106,7 @@ struct DashboardView: View {
 
     private func backendStatusCard(backends: [String: BackendStatus]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Connections")
+            Text(L.t("dashboard.connections"))
                 .font(.headline)
 
             ForEach(Array(backends.keys.sorted()), id: \.self) { key in
@@ -117,7 +118,7 @@ struct DashboardView: View {
                         Text(b.label ?? key)
                             .font(.subheadline)
                         Spacer()
-                        Text(b.connected == true ? "Connected" : "Disconnected")
+                        Text(b.connected == true ? L.t("common.connected") : L.t("common.disconnected"))
                             .font(.caption)
                             .foregroundStyle(b.connected == true ? .green : .secondary)
                     }
@@ -130,10 +131,10 @@ struct DashboardView: View {
                     Circle()
                         .fill(llm.connected == true ? Color.green : Color.orange)
                         .frame(width: 8, height: 8)
-                    Text("Judge (\(llm.backend ?? "unknown"))")
+                    Text(L.t("dashboard.judgeLabel", llm.backend ?? "unknown"))
                         .font(.subheadline)
                     Spacer()
-                    Text(llm.connected == true ? "Ready" : "Not connected")
+                    Text(llm.connected == true ? L.t("dashboard.ready") : L.t("common.notConnected"))
                         .font(.caption)
                         .foregroundStyle(llm.connected == true ? .green : .orange)
                 }
@@ -147,7 +148,7 @@ struct DashboardView: View {
 
     private func highRiskCard(events: [EventItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Recent High-Risk Events")
+            Text(L.t("dashboard.recentHighRisk"))
                 .font(.headline)
 
             ForEach(events.prefix(5), id: \.stableId) { event in
@@ -180,7 +181,7 @@ struct DashboardView: View {
 
     private func tokenUsageCard(tokens: AgentTokensMap) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Token Usage")
+            Text(L.t("dashboard.tokenUsage"))
                 .font(.headline)
 
             let pairs: [(String, AgentTokenPair?)] = [
@@ -196,8 +197,8 @@ struct DashboardView: View {
                             .fontWeight(.medium)
 
                         HStack(spacing: 20) {
-                            tokenColumn("Today", record: pair.today)
-                            tokenColumn("Cumulative", record: pair.cumulative)
+                            tokenColumn(L.t("dashboard.today"), record: pair.today)
+                            tokenColumn(L.t("dashboard.cumulative"), record: pair.cumulative)
                         }
                     }
                 }
@@ -205,7 +206,7 @@ struct DashboardView: View {
 
             if (tokens.openclaw?.cumulative?.totalTokens ?? 0) == 0 &&
                (tokens.claudeCode?.cumulative?.totalTokens ?? 0) == 0 {
-                Text("No token data yet")
+                Text(L.t("dashboard.noTokenData"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -223,21 +224,21 @@ struct DashboardView: View {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("\(formatTokenCount(input + output)) tokens")
+            Text(L.t("dashboard.tokens", formatTokenCount(input + output)))
                 .font(.caption)
                 .fontWeight(.medium)
             HStack(spacing: 8) {
-                Text("In: \(formatTokenCount(input))")
-                Text("Out: \(formatTokenCount(output))")
+                Text(L.t("dashboard.inTokens", formatTokenCount(input)))
+                Text(L.t("dashboard.outTokens", formatTokenCount(output)))
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
             if cache > 0 {
-                Text("Cache: \(formatTokenCount(cache))")
+                Text(L.t("dashboard.cacheTokens", formatTokenCount(cache)))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Text("\(reqs) requests")
+            Text(L.t("dashboard.requests", reqs))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }

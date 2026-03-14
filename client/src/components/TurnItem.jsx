@@ -1,8 +1,10 @@
 import GuardClawLogo from './GuardClawLogo';
 import { TerminalIcon, FileTextIcon, PencilIcon, GlobeIcon, SearchIcon, MessageIcon, BrainIcon, ImageIcon, ServerIcon, BotIcon, GitBranchIcon, ChartIcon, WrenchIcon, HourglassIcon, LinkIcon, MonitorIcon } from './icons';
 import { useState } from 'react';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 function MemoryHint({ memory, adjustment, originalScore, currentScore }) {
+  const { t } = useI18n();
   if (!memory) return null;
   const { approveCount, denyCount, pattern } = memory;
   const total = approveCount + denyCount;
@@ -11,24 +13,24 @@ function MemoryHint({ memory, adjustment, originalScore, currentScore }) {
   return (
     <div className="mt-2 p-2.5 rounded-lg bg-gc-primary/5 border border-gc-primary/10 text-xs">
       <div className="flex items-center gap-1.5 font-medium text-gc-primary mb-1">
-        <BrainIcon size={12} /> Memory
+        <BrainIcon size={12} /> {t('memory.title')}
       </div>
       <div className="text-gc-text-dim space-y-0.5">
         {approveCount > 0 && (
-          <div>Approved similar commands <span className="font-medium text-gc-safe">{approveCount}×</span></div>
+          <div>{t('memory.approvedSimilar')} <span className="font-medium text-gc-safe">{approveCount}×</span></div>
         )}
         {denyCount > 0 && (
-          <div>Denied similar commands <span className="font-medium text-gc-danger">{denyCount}×</span></div>
+          <div>{t('memory.deniedSimilar')} <span className="font-medium text-gc-danger">{denyCount}×</span></div>
         )}
         {adjustment != null && adjustment !== 0 && (
           <div className="font-medium">
-            Score adjusted: <span className="text-gc-text">{originalScore}</span>
+            {t('memory.scoreAdjusted')} <span className="text-gc-text">{originalScore}</span>
             <span className="mx-1">→</span>
             <span className={adjustment < 0 ? 'text-gc-safe' : 'text-gc-danger'}>{currentScore}</span>
             <span className="opacity-60 ml-1">({adjustment > 0 ? '+' : ''}{adjustment})</span>
           </div>
         )}
-        <div className="opacity-60 font-mono text-[10px] truncate" title={pattern}>Pattern: {pattern}</div>
+        <div className="opacity-60 font-mono text-[10px] truncate" title={pattern}>{t('memory.patternLabel')} {pattern}</div>
       </div>
     </div>
   );
@@ -57,7 +59,7 @@ const TOOL_ICON_MAP = {
 };
 
 // Generate a human-readable summary from a list of tool-call events
-function summarizeToolCalls(toolCalls) {
+function summarizeToolCalls(toolCalls, t) {
   if (!toolCalls.length) return '';
 
   // Count by tool name
@@ -68,18 +70,18 @@ function summarizeToolCalls(toolCalls) {
   }
 
   const labels = {
-    exec: (n) => `running ${n} command${n > 1 ? 's' : ''}`,
-    read: (n) => `reading ${n} file${n > 1 ? 's' : ''}`,
-    write: (n) => `writing ${n} file${n > 1 ? 's' : ''}`,
-    edit: (n) => `editing ${n} file${n > 1 ? 's' : ''}`,
-    web_fetch: (n) => `fetching ${n} URL${n > 1 ? 's' : ''}`,
-    web_search: (n) => `searching the web`,
-    browser: (n) => `browsing`,
-    message: (n) => `sending ${n} message${n > 1 ? 's' : ''}`,
-    memory_search: (n) => `searching memory`,
-    memory_get: (n) => `reading memory`,
-    image: (n) => `analyzing image${n > 1 ? 's' : ''}`,
-    tts: (n) => `generating speech`,
+    exec: (n) => t('toolSummary.running', { n, plural: n > 1 ? 's' : '' }),
+    read: (n) => t('toolSummary.reading', { n, plural: n > 1 ? 's' : '' }),
+    write: (n) => t('toolSummary.writing', { n, plural: n > 1 ? 's' : '' }),
+    edit: (n) => t('toolSummary.editing', { n, plural: n > 1 ? 's' : '' }),
+    web_fetch: (n) => t('toolSummary.fetching', { n, plural: n > 1 ? 's' : '' }),
+    web_search: () => t('toolSummary.searching'),
+    browser: () => t('toolSummary.browsing'),
+    message: (n) => t('toolSummary.sending', { n, plural: n > 1 ? 's' : '' }),
+    memory_search: () => t('toolSummary.searchingMemory'),
+    memory_get: () => t('toolSummary.readingMemory'),
+    image: (n) => t('toolSummary.analyzingImage', { plural: n > 1 ? 's' : '' }),
+    tts: () => t('toolSummary.generatingSpeech'),
   };
 
   const parts = Object.entries(counts).map(([name, n]) =>
@@ -117,7 +119,7 @@ function formatTime(timestamp) {
 
 /* ---------- ToolOutput: collapsible tool result display ---------- */
 const OUTPUT_PREVIEW = 300;
-function ToolOutput({ result, label = 'Output' }) {
+function ToolOutput({ result, label }) {
   const [expanded, setExpanded] = useState(false);
   if (!result) return null;
   const hasMore = result.length > OUTPUT_PREVIEW;
@@ -139,6 +141,7 @@ function ToolOutput({ result, label = 'Output' }) {
 
 /* ---------- Memory Feedback Buttons ---------- */
 function MemoryFeedback({ event }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState(null); // null | 'approve' | 'deny'
   const [loading, setLoading] = useState(false);
 
@@ -183,8 +186,8 @@ function MemoryFeedback({ event }) {
             ? 'bg-green-600 border-green-600 text-white font-medium'
             : 'border-green-700/50 text-green-400 hover:bg-green-900/30'
         }`}
-        title="Train memory: similar commands are safe"
-      >✓ Safe</button>
+        title={t('turnItem.safeTitle')}
+      >{t('turnItem.safeTrain')}</button>
       <button
         onClick={(e) => { e.stopPropagation(); record('deny'); }}
         disabled={loading}
@@ -193,14 +196,15 @@ function MemoryFeedback({ event }) {
             ? 'bg-red-600 border-red-600 text-white font-medium'
             : 'border-red-700/50 text-red-400 hover:bg-red-900/30'
         }`}
-        title="Train memory: similar commands are risky"
-      >✕ Risk</button>
+        title={t('turnItem.riskTitle')}
+      >{t('turnItem.riskTrain')}</button>
     </span>
   );
 }
 
 /* ---------- ToolCallRow: one collapsed/expanded tool call ---------- */
 function ToolCallRow({ event }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending, event.safeguard?.verdict);
   const name = event.tool || event.subType || 'tool';
@@ -265,7 +269,7 @@ function ToolCallRow({ event }) {
           )}
           {event.safeguard?.chainRisk && (
             <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-purple-900/40 text-purple-300 border border-purple-700/50">
-              <><LinkIcon size={12} className="inline" /> chain</>
+              <><LinkIcon size={12} className="inline" /> {t('turnItem.chain')}</>
             </span>
           )}
           {desc && (
@@ -282,18 +286,18 @@ function ToolCallRow({ event }) {
         <div className="border-t border-gc-border px-3 py-3 space-y-2">
           {/* Full description / command */}
           {(fullDesc || desc) && (
-            <ToolOutput result={fullDesc || desc} label="Input" />
+            <ToolOutput result={fullDesc || desc} label={t('eventItem.input').replace(':', '') || 'Input'} />
           )}
 
           {/* Tool output (from after_tool_call hook) */}
           {event.toolResult && (
-            <ToolOutput result={event.toolResult} />
+            <ToolOutput result={event.toolResult} label={t('turnItem.output')} />
           )}
 
           {/* streamingSteps for this specific tool-call (if any) */}
           {event.streamingSteps?.length > 0 && (
             <div>
-              <span className="text-xs text-gc-text-dim">Streaming steps:</span>
+              <span className="text-xs text-gc-text-dim">{t('turnItem.streamingSteps')}</span>
               <div className="mt-1 space-y-1">
                 {event.streamingSteps.map((step, i) => (
                   <div key={step.id || i} className="text-xs bg-gc-bg p-2 rounded border border-gc-border/50">
@@ -308,8 +312,8 @@ function ToolCallRow({ event }) {
           {/* Security Analysis */}
           {event.safeguard && (
             <div className="text-xs bg-gc-primary/5 border border-gc-primary/20 rounded p-2 space-y-1">
-              <span className="font-medium text-gc-primary inline-flex items-center gap-1"><GuardClawLogo size={16} /> Security Analysis</span>
-              {event.safeguard.category && <div><span className="text-gc-text-dim">Category: </span>{event.safeguard.category}</div>}
+              <span className="font-medium text-gc-primary inline-flex items-center gap-1"><GuardClawLogo size={16} /> {t('analysis.securityAnalysis')}</span>
+              {event.safeguard.category && <div><span className="text-gc-text-dim">{t('analysis.category')} </span>{event.safeguard.category}</div>}
               {event.safeguard.reasoning && <div className="text-gc-text-dim italic">{event.safeguard.reasoning}</div>}
               {event.safeguard.concerns?.length > 0 && (
                 <ul className="list-disc list-inside text-gc-warning">
@@ -328,7 +332,7 @@ function ToolCallRow({ event }) {
 }
 
 /* ---------- ReplyText: 2-line preview with expand ---------- */
-function ReplyText({ text, expanded, onToggle }) {
+function ReplyText({ text, expanded, onToggle, t }) {
   if (!text) return null;
   // Collapse if >2 non-empty lines OR >100 chars (catches long single-line text on narrow screens)
   const hasMore = text.includes('\n') ? text.split('\n').filter(l => l.trim()).length > 2 : text.length > 100;
@@ -350,6 +354,7 @@ function ReplyText({ text, expanded, onToggle }) {
 
 /* ---------- IntermediateText: assistant text shown inline in tool call list ---------- */
 function IntermediateText({ text }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   if (!text) return null;
   const lines = text.split('\n');
@@ -361,7 +366,7 @@ function IntermediateText({ text }) {
       className={`text-xs text-gc-text bg-purple-500/10 border border-purple-400/20 rounded-lg px-3 py-2 ${hasMore ? 'cursor-pointer' : ''}`}
       onClick={() => hasMore && setExpanded(v => !v)}
     >
-      <span className="text-purple-400 text-[10px] font-semibold mr-1.5">ASSISTANT</span>
+      <span className="text-purple-400 text-[10px] font-semibold mr-1.5">{t('turnItem.assistant')}</span>
       <span className="whitespace-pre-wrap break-words">
         {expanded ? text : preview}{!expanded && hasMore ? '...' : ''}
       </span>
@@ -388,6 +393,7 @@ function IntermediateText({ text }) {
  * Source is determined by turn.isCCTurn.
  */
 function AgentTurnItem({ turn }) {
+  const { t, language } = useI18n();
   const isCCTurn = !!turn.isCCTurn;
   const toolCalls = turn.toolCalls || [];
 
@@ -455,7 +461,7 @@ function AgentTurnItem({ turn }) {
           {toolCalls.length > 0 && (() => {
             const tools = toolCalls.filter(tc => tc.type !== 'claude-code-text');
             const texts = toolCalls.length - tools.length;
-            const parts = [summarizeToolCalls(tools), texts > 0 ? `${texts} message${texts !== 1 ? 's' : ''}` : ''].filter(Boolean);
+            const parts = [summarizeToolCalls(tools, t), texts > 0 ? t('turnItem.messages', { count: texts, plural: texts !== 1 ? 's' : '' }) : ''].filter(Boolean);
             return parts.length > 0 ? (
               <span className="text-xs text-gc-text-dim bg-gc-border/40 px-2 py-0.5 rounded">
                 {parts.join(', ')}
@@ -468,7 +474,7 @@ function AgentTurnItem({ turn }) {
             </span>
           )}
           {isInProgress && (
-            <span className="text-xs text-gc-warning">working…</span>
+            <span className="text-xs text-gc-warning">{t('turnItem.working')}</span>
           )}
         </div>
         {ts && <span className="text-xs text-gc-text-dim whitespace-nowrap">{formatTime(ts)}</span>}
@@ -499,8 +505,8 @@ function AgentTurnItem({ turn }) {
         const actualTools = toolCalls.filter(tc => tc.type !== 'claude-code-text');
         const textCount = toolCalls.length - actualTools.length;
         const label = [
-          actualTools.length > 0 ? `${actualTools.length} tool call${actualTools.length !== 1 ? 's' : ''}` : '',
-          textCount > 0 ? `${textCount} message${textCount !== 1 ? 's' : ''}` : '',
+          actualTools.length > 0 ? t('turnItem.toolCalls', { count: actualTools.length, plural: language === 'en' && actualTools.length !== 1 ? 's' : '' }) : '',
+          textCount > 0 ? t('turnItem.messages', { count: textCount, plural: language === 'en' && textCount !== 1 ? 's' : '' }) : '',
         ].filter(Boolean).join(', ');
         return (
         <div className="mb-3">
@@ -529,7 +535,7 @@ function AgentTurnItem({ turn }) {
         <div key={reply.id || i} className={`border-l-2 ${replyBorder} pl-3 mb-2`}>
           {agentReplies.length > 1 && (
             <span className={`text-[10px] font-mono mb-1 block ${replyLabelColor}`}>
-              {reply.isFinal ? '◉ final' : '◎ intermediate'}
+              {reply.isFinal ? t('turnItem.final') : t('turnItem.intermediate')}
             </span>
           )}
           <ReplyText
@@ -549,7 +555,7 @@ function AgentTurnItem({ turn }) {
           >
             <span>{showAnalysis ? '▼' : '▶'}</span>
             <span className="inline-flex items-center gap-1">
-              <GuardClawLogo size={14} /> Security Analysis ({parentSafeguard?.category || 'general'})
+              <GuardClawLogo size={14} /> {t('analysis.securityAnalysis')} ({parentSafeguard?.category || 'general'})
             </span>
           </button>
 
@@ -557,28 +563,28 @@ function AgentTurnItem({ turn }) {
             <div className="mt-2 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2">
                 <GuardClawLogo size={16} />
-                <span className="text-gc-primary font-semibold">Security Analysis</span>
+                <span className="text-gc-primary font-semibold">{t('analysis.securityAnalysis')}</span>
               </div>
               <div>
-                <span className="text-gc-text-dim">Verdict: </span>
+                <span className="text-gc-text-dim">{t('analysis.verdict')} </span>
                 <span className="font-medium">
-                  {parentSafeguard.riskScore <= 3 ? 'SAFE'
-                    : parentSafeguard.riskScore <= 7 ? 'WARNING'
-                    : parentSafeguard.verdict === 'pass-through' ? 'FLAGGED' : 'BLOCKED'}
+                  {parentSafeguard.riskScore <= 3 ? t('analysis.safe')
+                    : parentSafeguard.riskScore <= 7 ? t('analysis.warning')
+                    : parentSafeguard.verdict === 'pass-through' ? t('analysis.flagged') : t('analysis.blockedLabel')}
                 </span>
               </div>
               {parentSafeguard.category && (
-                <div><span className="text-gc-text-dim">Category: </span>{parentSafeguard.category}</div>
+                <div><span className="text-gc-text-dim">{t('analysis.category')} </span>{parentSafeguard.category}</div>
               )}
               {parentSafeguard.reasoning && (
                 <div>
-                  <span className="text-gc-text-dim">Reasoning:</span>
+                  <span className="text-gc-text-dim">{t('analysis.reasoning')}</span>
                   <p className="mt-1 bg-gc-bg/50 p-2 rounded text-sm">{parentSafeguard.reasoning}</p>
                 </div>
               )}
               {parentSafeguard.concerns?.length > 0 && (
                 <div>
-                  <span className="text-gc-text-dim">Concerns:</span>
+                  <span className="text-gc-text-dim">{t('analysis.concerns')}</span>
                   <ul className="mt-1 list-disc list-inside">
                     {parentSafeguard.concerns.map((c, i) => <li key={i}>{c}</li>)}
                   </ul>
@@ -586,9 +592,9 @@ function AgentTurnItem({ turn }) {
               )}
               {parentSafeguard.allowed !== undefined && (
                 <div>
-                  <span className="text-gc-text-dim">Action: </span>
+                  <span className="text-gc-text-dim">{t('analysis.action')} </span>
                   <span className={`font-medium ${parentSafeguard.allowed ? 'text-gc-safe' : 'text-gc-danger'}`}>
-                    {parentSafeguard.allowed ? '✓ Allowed' : '✗ Blocked'}
+                    {parentSafeguard.allowed ? t('analysis.allowed') : t('analysis.blockedAction')}
                   </span>
                 </div>
               )}
@@ -610,6 +616,7 @@ function AgentTurnItem({ turn }) {
 
 /* ---------- UserMessageBubble: incoming user message in the timeline ---------- */
 function UserMessageBubble({ event }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const content = event.content || '';
   const from = event.from || event.channelId || 'user';
@@ -623,7 +630,7 @@ function UserMessageBubble({ event }) {
         <div className="flex-1">
           <div className="flex items-center space-x-2 mb-1.5">
             <span className="text-lg leading-none">💬</span>
-            <span className="text-xs font-semibold text-blue-400">User Message</span>
+            <span className="text-xs font-semibold text-blue-400">{t('turnItem.userMessage')}</span>
             {from && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono">
                 {from}
@@ -655,6 +662,7 @@ function UserMessageBubble({ event }) {
 
 /* ---------- AgentReplyBubble: outgoing agent reply in the timeline ---------- */
 function AgentReplyBubble({ event }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const content = event.content || '';
   const to = event.to || '';
@@ -668,7 +676,7 @@ function AgentReplyBubble({ event }) {
         <div className="flex-1">
           <div className="flex items-center space-x-2 mb-1.5">
             <span className="text-lg leading-none">🤖</span>
-            <span className="text-xs font-semibold text-green-400">Agent Reply</span>
+            <span className="text-xs font-semibold text-green-400">{t('turnItem.agentReply')}</span>
             {to && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 font-mono">
                 → {to}
@@ -727,6 +735,7 @@ function TurnItem({ turn }) {
 
 /* ---------- ChatContextBubble: conversation message shown as context, not a security event ---------- */
 function ChatContextBubble({ event }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const content = event.summary || event.description || '';
   const isFinal = event.subType === 'final' || event.type === 'chat-message';
@@ -738,10 +747,10 @@ function ChatContextBubble({ event }) {
         <div className="flex-1">
           <div className="flex items-center space-x-2 mb-1">
             <span className="text-xs font-medium text-blue-500 dark:text-blue-400">
-              {isFinal ? <><BotIcon size={12} className="inline mr-1" /> Agent</> : <><MessageIcon size={12} className="inline mr-1" /> Chat</>}
+              {isFinal ? <><BotIcon size={12} className="inline mr-1" /> {t('turnItem.agent')}</> : <><MessageIcon size={12} className="inline mr-1" /> {t('turnItem.chat')}</>}
             </span>
             <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
-              context
+              {t('turnItem.context')}
             </span>
           </div>
           {content && (
@@ -769,6 +778,7 @@ function ChatContextBubble({ event }) {
 
 /* ---------- StandaloneEvent: a non-tool-call event with no tool children ---------- */
 function StandaloneEvent({ event }) {
+  const { t } = useI18n();
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [expandedContent, setExpandedContent] = useState(false);
   const riskLevel = getRiskLevel(event.safeguard?.riskScore, event.safeguard?.pending, event.safeguard?.verdict);
@@ -793,7 +803,7 @@ function StandaloneEvent({ event }) {
               <><ToolIcon name={tool || type} size={13} className="inline mr-1" /> {displayName}</>
             </span>
             {event.status === 'aborted' && (
-              <span className="text-xs px-2 py-1 rounded bg-gc-text-dim/20 text-gc-text-dim">(aborted)</span>
+              <span className="text-xs px-2 py-1 rounded bg-gc-text-dim/20 text-gc-text-dim">{t('eventItem.aborted')}</span>
             )}
             {riskLevel && (
               <span className={`text-xs px-2 py-1 rounded font-medium ${riskLevel.color}`}>
@@ -825,7 +835,7 @@ function StandaloneEvent({ event }) {
               className="text-xs text-gc-primary hover:text-gc-primary/80 transition-colors flex items-center space-x-1"
             >
               <span>{showAnalysis ? '▼' : '▶'}</span>
-              <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> Security Analysis ({event.safeguard?.category || 'general'})</span>
+              <span className='inline-flex items-center gap-1'><GuardClawLogo size={14} /> {t('analysis.securityAnalysis')} ({event.safeguard?.category || 'general'})</span>
             </button>
           )}
 
@@ -833,9 +843,9 @@ function StandaloneEvent({ event }) {
             <div className="mt-3 ml-4 space-y-2 text-sm bg-gc-primary/5 p-3 rounded border border-gc-primary/20">
               <div className="flex items-center space-x-2">
                 <GuardClawLogo size={16} />
-                <span className="text-gc-primary font-semibold">Security Analysis</span>
+                <span className="text-gc-primary font-semibold">{t('analysis.securityAnalysis')}</span>
               </div>
-              <div><span className="text-gc-text-dim">Verdict:</span><span className="ml-2 font-medium">{event.safeguard.riskScore <= 3 ? 'SAFE' : event.safeguard.riskScore <= 7 ? 'WARNING' : event.safeguard.verdict === 'pass-through' ? 'FLAGGED' : 'BLOCKED'}</span></div>
+              <div><span className="text-gc-text-dim">{t('analysis.verdict')}</span><span className="ml-2 font-medium">{event.safeguard.riskScore <= 3 ? t('analysis.safe') : event.safeguard.riskScore <= 7 ? t('analysis.warning') : event.safeguard.verdict === 'pass-through' ? t('analysis.flagged') : t('analysis.blockedLabel')}</span></div>
               {event.safeguard.reasoning && <p className="bg-gc-bg/50 p-2 rounded text-sm">{event.safeguard.reasoning}</p>}
             </div>
           )}

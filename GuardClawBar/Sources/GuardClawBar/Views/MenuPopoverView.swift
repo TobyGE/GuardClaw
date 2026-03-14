@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuPopoverView: View {
     @Bindable var appState: AppState
+    private var L: Loc { Loc.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,12 +33,12 @@ struct MenuPopoverView: View {
                 .resizable()
                 .frame(width: 20, height: 20)
 
-            Text("GuardClaw")
+            Text(L.t("header.title"))
                 .font(.headline)
                 .fontWeight(.bold)
 
             if appState.daysProtected > 0 {
-                Text("\(appState.daysProtected)d")
+                Text("\(appState.daysProtected)\(L.t("header.daysSuffix"))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
@@ -47,7 +48,7 @@ struct MenuPopoverView: View {
             }
 
             if let cost = haikuCostString {
-                Text("≈ \(cost) saved")
+                Text("≈ \(cost) \(L.t("header.saved"))")
                     .font(.caption2)
                     .foregroundStyle(.green)
                     .padding(.horizontal, 6)

@@ -11,6 +11,7 @@ final class SettingsStore: @unchecked Sendable {
         static let hasCompletedOnboarding = "guardclaw.hasCompletedOnboarding"
         static let selectedBackend = "guardclaw.selectedBackend"
         static let selectedModelId = "guardclaw.selectedModelId"
+        static let language = "guardclaw.language"
     }
 
     var serverURL: String {
@@ -39,6 +40,11 @@ final class SettingsStore: @unchecked Sendable {
     var selectedModelId: String? {
         get { defaults.string(forKey: Keys.selectedModelId) }
         set { defaults.set(newValue, forKey: Keys.selectedModelId) }
+    }
+
+    var language: String {
+        get { defaults.string(forKey: Keys.language) ?? "en" }
+        set { defaults.set(newValue, forKey: Keys.language) }
     }
 
     private init() {}

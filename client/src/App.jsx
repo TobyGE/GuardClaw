@@ -9,8 +9,10 @@ import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
 import ApprovalBanner from './components/ApprovalBanner';
 import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon } from './components/icons';
+import { useI18n } from './i18n/I18nContext.jsx';
 
 function App() {
+  const { t, language, setLanguage } = useI18n();
   const [connected, setConnected] = useState(false);
   const [connectionStats, setConnectionStats] = useState(null);
   const [backends, setBackends] = useState(null);
@@ -163,7 +165,8 @@ function App() {
           || (bf === 'nanobot' && eventSessionKey2.startsWith('nanobot'))
           || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'))
           || (bf === 'gemini-cli' && eventSessionKey2.startsWith('gemini:'))
-          || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'));
+          || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'))
+          || (bf === 'opencode' && eventSessionKey2.startsWith('opencode:'));
         // Support merged sessions: if selectedSession is a channel prefix (e.g. agent:main:cron),
         // match all sessionKeys that start with it — but exclude subagent events from non-CC parent sessions
         const matchesSession = !ss
@@ -274,11 +277,11 @@ function App() {
   const getGatewayDetails = () => {
     if (!connectionStats) return [];
     return [
-      { label: 'Status', value: connected ? 'Connected' : 'Disconnected' },
+      { label: language === 'zh' ? '状态' : 'Status', value: connected ? (language === 'zh' ? '已连接' : 'Connected') : (language === 'zh' ? '已断开' : 'Disconnected') },
       { label: 'URL', value: connectionStats.url || 'ws://127.0.0.1:18789' },
-      { label: 'Connected Since', value: connectionStats.connectedAt ? new Date(connectionStats.connectedAt).toLocaleString() : 'N/A' },
-      { label: 'Reconnect Attempts', value: connectionStats.reconnectAttempts || 0 },
-      { label: 'Total Reconnects', value: connectionStats.totalReconnects || 0 },
+      { label: language === 'zh' ? '连接时间' : 'Connected Since', value: connectionStats.connectedAt ? new Date(connectionStats.connectedAt).toLocaleString() : 'N/A' },
+      { label: language === 'zh' ? '重连尝试' : 'Reconnect Attempts', value: connectionStats.reconnectAttempts || 0 },
+      { label: language === 'zh' ? '总重连数' : 'Total Reconnects', value: connectionStats.totalReconnects || 0 },
     ];
   };
 
@@ -320,7 +323,7 @@ function App() {
       <ConnectionModal
         isOpen={showGatewayModal}
         onClose={() => setShowGatewayModal(false)}
-        title="Gateway Connection"
+        title={t('connection.close') === 'Close' ? 'Gateway Connection' : '网关连接'}
         details={getGatewayDetails()}
       />
       <SettingsModal
@@ -364,8 +367,8 @@ function App() {
                   {failClosed ? <LockIcon size={20} /> : <UnlockIcon size={20} />}
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gc-text">Offline Protection</h2>
-                  <p className="text-xs text-gc-text-dim">What happens when GuardClaw goes offline?</p>
+                  <h2 className="text-lg font-bold text-gc-text">{t('failClosed.title')}</h2>
+                  <p className="text-xs text-gc-text-dim">{t('failClosed.subtitle')}</p>
                 </div>
               </div>
               <button onClick={() => setShowFailClosedModal(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gc-text-dim hover:text-gc-text hover:bg-gc-border transition-colors">✕</button>
@@ -374,7 +377,7 @@ function App() {
             {/* Content */}
             <div className="px-6 py-5 space-y-4">
               <div className="rounded-xl border border-gc-border bg-gc-bg p-5">
-                <span className="text-sm font-semibold text-gc-text mb-3 block">Offline Behavior</span>
+                <span className="text-sm font-semibold text-gc-text mb-3 block">{t('failClosed.offlineBehavior')}</span>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => applyFailClosed(true)}
@@ -386,8 +389,8 @@ function App() {
                   >
                     <LockIcon size={24} />
                     <div>
-                      <div className={`text-sm font-semibold ${failClosed ? 'text-orange-400' : 'text-gc-text-secondary'}`}>Fail-Closed</div>
-                      <div className="text-xs text-gc-text-dim mt-0.5">Block risky tools offline</div>
+                      <div className={`text-sm font-semibold ${failClosed ? 'text-orange-400' : 'text-gc-text-secondary'}`}>{t('failClosed.failClosed')}</div>
+                      <div className="text-xs text-gc-text-dim mt-0.5">{t('failClosed.failClosedDesc')}</div>
                     </div>
                   </button>
 
@@ -401,8 +404,8 @@ function App() {
                   >
                     <UnlockIcon size={24} />
                     <div>
-                      <div className={`text-sm font-semibold ${!failClosed ? 'text-gc-primary' : 'text-gc-text-secondary'}`}>Fail-Open</div>
-                      <div className="text-xs text-gc-text-dim mt-0.5">Allow all tools offline</div>
+                      <div className={`text-sm font-semibold ${!failClosed ? 'text-gc-primary' : 'text-gc-text-secondary'}`}>{t('failClosed.failOpen')}</div>
+                      <div className="text-xs text-gc-text-dim mt-0.5">{t('failClosed.failOpenDesc')}</div>
                     </div>
                   </button>
                 </div>
@@ -413,8 +416,8 @@ function App() {
                     : 'bg-gc-primary/5 border border-gc-primary/15 text-gc-text-dim'
                 }`}>
                   {failClosed
-                    ? '⚠️ When GuardClaw is unreachable, high-risk tools (exec, write, browser, etc.) are blocked. Only read-only operations (read, web_search, session_status) are allowed.'
-                    : 'When GuardClaw is unreachable, all tools run without restriction. Agent workflow is uninterrupted but unmonitored.'
+                    ? t('failClosed.failClosedWarning')
+                    : t('failClosed.failOpenWarning')
                   }
                 </div>
               </div>
@@ -422,8 +425,8 @@ function App() {
 
             {/* Footer */}
             <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
-              <span className="text-xs text-gc-text-dim">Changes take effect immediately</span>
-              <button onClick={() => setShowFailClosedModal(false)} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gc-text-dim hover:text-gc-text hover:bg-gc-border transition-colors">Done</button>
+              <span className="text-xs text-gc-text-dim">{t('failClosed.changesImmediate')}</span>
+              <button onClick={() => setShowFailClosedModal(false)} className="px-4 py-2.5 rounded-lg text-sm font-medium text-gc-text-dim hover:text-gc-text hover:bg-gc-border transition-colors">{t('failClosed.done')}</button>
             </div>
           </div>
         </div>
@@ -446,7 +449,7 @@ function App() {
                     : 'text-gc-text-secondary hover:text-gc-text hover:bg-gc-border/50'
                 }`}
               >
-                Events
+                {t('header.events')}
               </button>
               <button
                 onClick={() => setActivePage('memory')}
@@ -456,7 +459,7 @@ function App() {
                     : 'text-gc-text-secondary hover:text-gc-text hover:bg-gc-border/50'
                 }`}
               >
-                Memory
+                {t('header.memory')}
               </button>
             </nav>
           </div>
@@ -469,7 +472,7 @@ function App() {
                   ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'
                   : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500/30'
               }`}
-              title={failClosed ? 'Fail-Closed: On' : 'Fail-Closed: Off'}
+              title={failClosed ? t('failClosed.titleOn') : t('failClosed.titleOff')}
             >
               {failClosed ? <LockIcon size={20} /> : <UnlockIcon size={20} />}
             </button>
@@ -493,23 +496,31 @@ function App() {
             <button
               onClick={() => setShowBenchmarkModal(true)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
-              title="Model Benchmark"
+              title={t('buttons.benchmark')}
             >
               <BenchmarkIcon size={20} />
             </button>
             <button
               onClick={() => setShowSettingsModal(true)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
-              title="Settings"
+              title={t('buttons.settings')}
             >
               <SettingsIcon size={20} />
             </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
               className="inline-flex items-center px-3 py-2 rounded-lg text-xl transition-opacity hover:opacity-80 bg-gc-border"
-              title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              title={darkMode ? t('buttons.lightMode') : t('buttons.darkMode')}
             >
               {darkMode ? <SunIcon size={20} /> : <MoonIcon size={20} />}
+            </button>
+            {/* Language Toggle */}
+            <button
+              onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
+              className="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80 bg-gc-border"
+              title={language === 'en' ? 'Switch to Chinese' : '切换到英文'}
+            >
+              {language === 'en' ? '中' : 'EN'}
             </button>
             {/* Removed status indicators - now shown in backend selector below */}
           </div>
@@ -545,33 +556,33 @@ function App() {
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
               <StatCard
-                title="DAYS PROTECTED"
+                title={t('stats.daysProtected')}
                 value={daysSinceInstall}
                 color="text-blue-400"
               />
               <StatCard
-                title={backendFilter !== 'all' ? `EVENTS (${backendFilter === 'claude-code' ? 'CC' : backendFilter === 'openclaw' ? 'OC' : backendFilter.toUpperCase()})` : 'TOTAL EVENTS'}
+                title={backendFilter !== 'all' ? t('stats.eventsBackend', { backend: backendFilter === 'claude-code' ? 'CC' : backendFilter === 'openclaw' ? 'OC' : backendFilter.toUpperCase() }) : t('stats.totalEvents')}
                 value={stats.totalEvents}
                 color="text-gc-text"
                 onClick={() => setEventFilter(null)}
                 active={eventFilter === null}
               />
               <StatCard
-                title="SAFE COMMANDS"
+                title={t('stats.safeCommands')}
                 value={stats.safeCommands}
                 color="text-gc-safe"
                 onClick={() => setEventFilter(eventFilter === 'safe' ? null : 'safe')}
                 active={eventFilter === 'safe'}
               />
               <StatCard
-                title="WARNINGS"
+                title={t('stats.warnings')}
                 value={stats.warnings}
                 color="text-gc-warning"
                 onClick={() => setEventFilter(eventFilter === 'warning' ? null : 'warning')}
                 active={eventFilter === 'warning'}
               />
               <StatCard
-                title={blockingStatus?.active ? "BLOCKED" : "FLAGGED"}
+                title={blockingStatus?.active ? t('stats.blocked') : t('stats.flagged')}
                 value={stats.blocked}
                 color="text-gc-danger"
                 onClick={() => setEventFilter(eventFilter === 'blocked' ? null : 'blocked')}
@@ -582,12 +593,13 @@ function App() {
             {/* Backend Selector */}
             <div className="mb-6 bg-gc-card rounded-lg border border-gc-border p-4">
               <div className="flex items-center space-x-3">
-                <span className="text-sm font-medium text-gc-text">Backend:</span>
+                <span className="text-sm font-medium text-gc-text">{t('backend.label')}</span>
                 <div className="flex items-center space-x-2">
                   {backends && [
                     { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('openclaw'); } },
                     { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
+                    { key: 'opencode', label: 'OpenCode', activeColor: 'bg-teal-600', onClick: () => { setSelectedSession(null); setBackendFilter('opencode'); } },
                   ]
                     .filter(b => backends[b.key])
                     .sort((a, b) => (backends[b.key]?.connected ? 1 : 0) - (backends[a.key]?.connected ? 1 : 0))
@@ -605,7 +617,7 @@ function App() {
                 </div>
                 <div className="flex-1"></div>
                 <span className="text-xs text-gc-text-dim">
-                  Showing {events.length} event{events.length !== 1 ? 's' : ''}
+                  {t('backend.showingEvents', { count: events.length, plural: language === 'en' && events.length !== 1 ? 's' : '' })}
                 </span>
               </div>
             </div>
@@ -615,26 +627,26 @@ function App() {
               <div className="px-6 py-4 border-b border-gc-border flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-semibold">
-                    Real-time Events
+                    {t('events.realtime')}
                     {backendFilter !== 'all' && (
                       <span className="ml-2 text-sm text-gc-text-dim">
-                        ({backendFilter === 'openclaw' ? 'OpenClaw' : backendFilter === 'nanobot' ? 'Nanobot' : 'Claude Code'})
+                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'nanobot' ? t('backend.nanobot') : backendFilter === 'opencode' ? t('backend.opencode') : t('backend.claudeCode')})
                       </span>
                     )}
                     {backendFilter === 'all' && (
-                      <span className="ml-2 text-sm text-gc-text-dim">(all backends)</span>
+                      <span className="ml-2 text-sm text-gc-text-dim">({t('events.allBackends')})</span>
                     )}
                   </h2>
                   {eventFilter && (
                     <div className="flex items-center space-x-2">
                       <span className="text-sm text-gc-text-dim">
-                        Filtered: <span className="font-semibold capitalize">{eventFilter}</span>
+                        {t('events.filtered')} <span className="font-semibold capitalize">{eventFilter}</span>
                       </span>
                       <button
                         onClick={() => setEventFilter(null)}
                         className="text-xs px-2 py-1 rounded bg-gc-border hover:bg-gc-primary/20 transition-colors"
                       >
-                        Clear Filter
+                        {t('events.clearFilter')}
                       </button>
                     </div>
                   )}
@@ -671,7 +683,7 @@ function App() {
                       }`}
                     >
                       <BotIcon size={14} />
-                      {isCC ? 'Main' : isOC ? 'Main Agent' : 'All Sessions'}
+                      {isCC ? t('events.main') : isOC ? t('events.mainAgent') : t('events.allSessions')}
                     </button>
                     {visibleSessions.map((s) => {
                       const backend = backendFilter === 'all' ? getSessionBackend(s.key) : null;

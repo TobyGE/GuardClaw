@@ -7,11 +7,20 @@ struct MemoryView: View {
     @State private var showResetConfirm = false
     @State private var statusMessage: String? = nil
     @State private var sortOrder = SortOrder.confidence
+    private var L: Loc { Loc.shared }
 
     enum SortOrder: String, CaseIterable {
-        case confidence = "Confidence"
-        case total = "Total Decisions"
-        case tool = "Tool Name"
+        case confidence = "confidence"
+        case total = "total"
+        case tool = "tool"
+
+        func localizedName() -> String {
+            switch self {
+            case .confidence: return Loc.shared.t("memory.confidence")
+            case .total: return Loc.shared.t("memory.totalDecisions")
+            case .tool: return Loc.shared.t("memory.toolName")
+            }
+        }
     }
 
     private let api = GuardClawAPI()
@@ -27,12 +36,12 @@ struct MemoryView: View {
                 // Patterns table
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Learned Patterns")
+                        Text(L.t("memory.learnedPatterns"))
                             .font(.headline)
                         Spacer()
-                        Picker("Sort", selection: $sortOrder) {
+                        Picker(L.t("memory.sort"), selection: $sortOrder) {
                             ForEach(SortOrder.allCases, id: \.self) { order in
-                                Text(order.rawValue).tag(order)
+                                Text(order.localizedName()).tag(order)
                             }
                         }
                         .pickerStyle(.menu)
@@ -40,12 +49,12 @@ struct MemoryView: View {
                     }
 
                     if isLoading {
-                        HStack { ProgressView().controlSize(.small); Text("Loading...").font(.caption) }
+                        HStack { ProgressView().controlSize(.small); Text(L.t("common.loading")).font(.caption) }
                     } else if sortedPatterns.isEmpty {
                         ContentUnavailableView(
-                            "No Patterns Yet",
+                            L.t("memory.noPatterns"),
                             systemImage: "brain",
-                            description: Text("GuardClaw learns from your approve/deny decisions")
+                            description: Text(L.t("memory.noPatternsDesc"))
                         )
                         .frame(height: 160)
                     } else {
@@ -60,7 +69,7 @@ struct MemoryView: View {
                 if let msg = statusMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(msg.contains("✓") ? .green : .red)
+                        .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
                 }
 
                 // Reset button
@@ -69,7 +78,7 @@ struct MemoryView: View {
                     Button(role: .destructive) {
                         showResetConfirm = true
                     } label: {
-                        Label("Reset All Memory", systemImage: "trash")
+                        Label(L.t("memory.resetAll"), systemImage: "trash")
                     }
                     .buttonStyle(.bordered)
                     .tint(.red)
@@ -77,21 +86,21 @@ struct MemoryView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Memory")
-        .confirmationDialog("Reset all learned patterns?", isPresented: $showResetConfirm, titleVisibility: .visible) {
-            Button("Reset Memory", role: .destructive) { Task { await resetMemory() } }
-            Button("Cancel", role: .cancel) {}
+        .navigationTitle(L.t("memory.title"))
+        .confirmationDialog(L.t("memory.resetConfirm"), isPresented: $showResetConfirm, titleVisibility: .visible) {
+            Button(L.t("memory.resetButton"), role: .destructive) { Task { await resetMemory() } }
+            Button(L.t("common.cancel"), role: .cancel) {}
         } message: {
-            Text("This cannot be undone. All approve/deny patterns will be cleared.")
+            Text(L.t("memory.resetWarning"))
         }
         .onAppear { refresh() }
     }
 
     private func statsRow(_ s: MemoryStatsResponse) -> some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            StatCard(title: "Total Decisions", value: "\(s.totalDecisions ?? 0)", icon: "brain", color: .blue)
-            StatCard(title: "Learned Patterns", value: "\(s.totalPatterns ?? 0)", icon: "list.bullet", color: .purple)
-            StatCard(title: "Auto-Approve", value: "\(s.autoApproveCount ?? 0)", icon: "bolt.circle", color: .green)
+            StatCard(title: L.t("memory.totalDecisions"), value: "\(s.totalDecisions ?? 0)", icon: "brain", color: .blue)
+            StatCard(title: L.t("memory.learnedPatterns"), value: "\(s.totalPatterns ?? 0)", icon: "list.bullet", color: .purple)
+            StatCard(title: L.t("memory.autoApprove"), value: "\(s.autoApproveCount ?? 0)", icon: "bolt.circle", color: .green)
         }
     }
 
@@ -121,16 +130,17 @@ struct MemoryView: View {
             _ = try await api.memoryReset()
             patterns = []
             stats = nil
-            statusMessage = "✓ Memory cleared"
+            statusMessage = "\u{2713} " + L.t("memory.cleared")
             refresh()
         } catch {
-            statusMessage = "Failed: \(error.localizedDescription)"
+            statusMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 }
 
 struct PatternRow: View {
     let pattern: MemoryPattern
+    private var L: Loc { Loc.shared }
 
     private var approveColor: Color {
         pattern.approveRate > 0.7 ? .green : pattern.approveRate > 0.3 ? .orange : .red
@@ -163,14 +173,14 @@ struct PatternRow: View {
             // Stats
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text("\(pattern.approveCount ?? 0)✓")
+                    Text("\(pattern.approveCount ?? 0)\u{2713}")
                         .font(.caption2)
                         .foregroundStyle(.green)
-                    Text("\(pattern.denyCount ?? 0)✗")
+                    Text("\(pattern.denyCount ?? 0)\u{2717}")
                         .font(.caption2)
                         .foregroundStyle(.red)
                 }
-                Text("\(Int((pattern.confidence ?? 0) * 100))% confidence")
+                Text(L.t("memory.confidencePercent", Int((pattern.confidence ?? 0) * 100)))
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             }

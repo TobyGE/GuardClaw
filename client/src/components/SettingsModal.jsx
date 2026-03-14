@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrainIcon, LinkIcon, CpuIcon, LlamaIcon, SearchIcon } from './icons';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 // Reusable styled components
 const Card = ({ children, className = '' }) => (
@@ -53,32 +54,36 @@ const Toast = ({ message }) => {
 };
 
 // Model card for the model picker
-const ModelCard = ({ model, selected, onSelect, recommended }) => (
-  <button
-    onClick={() => onSelect(model)}
-    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
-      selected
-        ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-sm shadow-blue-500/10'
-        : 'border-gc-border hover:border-gc-text-dim bg-gc-card'
-    }`}
-  >
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2.5">
-        <div className={`w-2 h-2 rounded-full ${selected ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-        <span className={`text-sm font-medium ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-gc-text-secondary'}`}>
-          {model}
-        </span>
+const ModelCard = ({ model, selected, onSelect, recommended }) => {
+  const { t } = useI18n();
+  return (
+    <button
+      onClick={() => onSelect(model)}
+      className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all duration-150 ${
+        selected
+          ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-sm shadow-blue-500/10'
+          : 'border-gc-border hover:border-gc-text-dim bg-gc-card'
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className={`w-2 h-2 rounded-full ${selected ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+          <span className={`text-sm font-medium ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-gc-text-secondary'}`}>
+            {model}
+          </span>
+        </div>
+        {recommended && (
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+            {t('settings.recommended')}
+          </span>
+        )}
       </div>
-      {recommended && (
-        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-          recommended
-        </span>
-      )}
-    </div>
-  </button>
-);
+    </button>
+  );
+};
 
 export default function SettingsModal({ isOpen, onClose, currentToken, currentLlmConfig, onSave, defaultTab }) {
+  const { t, language } = useI18n();
   const [activeTab, setActiveTab] = useState(defaultTab || 'llm');
   useEffect(() => { if (defaultTab) setActiveTab(defaultTab); }, [defaultTab]);
   const [token, setToken] = useState(currentToken || '');
@@ -177,10 +182,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
       });
       const data = await response.json();
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Token saved! Reconnecting...' });
+        setMessage({ type: 'success', text: t('settings.tokenSaved') });
         setTimeout(() => { onSave({ token }); onClose(); }, 1500);
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to save token' });
+        setMessage({ type: 'error', text: data.error || t('settings.tokenFailed') });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
@@ -199,10 +204,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
       });
       const data = await response.json();
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Config saved — safeguard restarting with new model' });
+        setMessage({ type: 'success', text: t('settings.configSaved') });
         setTimeout(() => { onSave({ llm: { backend: llmBackend } }); onClose(); }, 1500);
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to save LLM config' });
+        setMessage({ type: 'error', text: data.error || t('settings.configFailed') });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
@@ -221,9 +226,9 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
       });
       const data = await response.json();
       if (response.ok && data.connected) {
-        setMessage({ type: 'success', text: `Connected to ${data.backend}${data.models ? ` — ${data.models} models loaded` : ''}` });
+        setMessage({ type: 'success', text: `${t('settings.testSuccess', { backend: data.backend })}${data.models ? ` — ${t('settings.testModels', { count: data.models })}` : ''}` });
       } else {
-        setMessage({ type: 'error', text: data.message || data.error || 'Connection failed' });
+        setMessage({ type: 'error', text: data.message || data.error || t('settings.testFailed') });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
@@ -237,9 +242,9 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
       const data = await response.json();
       if (response.ok && data.token) {
         setToken(data.token);
-        setMessage({ type: 'success', text: 'Token auto-detected from OpenClaw config' });
+        setMessage({ type: 'success', text: t('settings.tokenAutoDetected') });
       } else {
-        setMessage({ type: 'error', text: 'Could not find OpenClaw token' });
+        setMessage({ type: 'error', text: t('settings.tokenNotFound') });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
@@ -247,8 +252,8 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   };
 
   const tabs = [
-    { id: 'llm', icon: <BrainIcon size={18} />, label: 'LLM Judge' },
-    { id: 'gateway', icon: <LinkIcon size={18} />, label: 'Gateway' },
+    { id: 'llm', icon: <BrainIcon size={18} />, label: t('settings.llmJudge') },
+    { id: 'gateway', icon: <LinkIcon size={18} />, label: t('settings.gateway') },
   ];
 
   return (
@@ -261,7 +266,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
         <div className="flex items-center justify-between px-6 py-4 border-b border-gc-border">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm">⚙</div>
-            <h2 className="text-lg font-bold text-gc-text">Settings</h2>
+            <h2 className="text-lg font-bold text-gc-text">{t('settings.title')}</h2>
           </div>
           <button
             onClick={onClose}
@@ -296,12 +301,12 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
             <>
               {/* Backend Picker */}
               <Card>
-                <Label>Backend</Label>
+                <Label>{t('settings.backend')}</Label>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { value: 'built-in', icon: <BrainIcon size={18} />, label: 'Built-in', desc: 'Runs on your Mac' },
-                    { value: 'lmstudio', icon: <CpuIcon size={18} />, label: 'LM Studio', desc: 'External server' },
-                    { value: 'ollama', icon: <LlamaIcon size={18} />, label: 'Ollama', desc: 'External server' },
+                    { value: 'built-in', icon: <BrainIcon size={18} />, label: t('settings.builtIn'), desc: t('settings.builtInDesc') },
+                    { value: 'lmstudio', icon: <CpuIcon size={18} />, label: t('settings.lmStudio'), desc: t('settings.lmStudioDesc') },
+                    { value: 'ollama', icon: <LlamaIcon size={18} />, label: t('settings.ollama'), desc: t('settings.ollamaDesc') },
                   ].map(opt => (
                     <button
                       key={opt.value}
@@ -336,7 +341,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               {/* Built-in Model Manager */}
               {llmBackend === 'built-in' && (
                 <Card>
-                  <Label hint="Runs directly on your Mac via Apple Silicon — no external software needed">Judge Model</Label>
+                  <Label hint={t('settings.judgeModelHint')}>{t('settings.judgeModel')}</Label>
                   <div className="space-y-3">
                     {builtinModels.map(m => {
                       const isBusy = m.downloading || m.loading;
@@ -361,7 +366,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                                   <span className={`text-sm font-semibold ${m.loaded ? 'text-green-400' : 'text-gc-text'}`}>{m.name}</span>
                                   {m.recommended && (
                                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                                      recommended
+                                      {t('settings.recommended')}
                                     </span>
                                   )}
                                 </div>
@@ -373,7 +378,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                                 {/* State: Not downloaded, not busy → "Setup & Run" */}
                                 {!m.downloaded && !isBusy && (
                                   <Btn variant="primary" onClick={() => handleSetupModel(m.id)} className="!text-xs !px-4 !py-2">
-                                    Setup &amp; Run
+                                    {t('settings.setupRun')}
                                   </Btn>
                                 )}
 
@@ -381,10 +386,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                                 {m.downloaded && !m.loaded && !isBusy && (
                                   <>
                                     <Btn variant="success" onClick={() => handleSetupModel(m.id)} className="!text-xs !px-4 !py-2">
-                                      Run
+                                      {t('buttons.run')}
                                     </Btn>
                                     <Btn variant="ghost" onClick={() => handleDeleteModel(m.id)} className="!text-xs !px-2 !py-2 !text-red-400 hover:!text-red-300">
-                                      Delete
+                                      {t('buttons.delete')}
                                     </Btn>
                                   </>
                                 )}
@@ -397,10 +402,10 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                                         <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                                       </span>
-                                      Active
+                                      {t('settings.active')}
                                     </span>
                                     <Btn variant="ghost" onClick={handleUnloadModel} className="!text-xs !px-2 !py-2 !text-gc-text-dim">
-                                      Stop
+                                      {t('buttons.stop')}
                                     </Btn>
                                   </>
                                 )}
@@ -412,7 +417,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                               <div className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
                                 <span className="text-red-500 flex-shrink-0 mt-0.5">✕</span>
                                 <div className="min-w-0">
-                                  <div className="text-xs font-medium text-red-700 dark:text-red-300">Setup failed</div>
+                                  <div className="text-xs font-medium text-red-700 dark:text-red-300">{t('settings.setupFailed')}</div>
                                   <div className="text-[11px] text-red-600 dark:text-red-400 mt-0.5 break-words">{m.setupError}</div>
                                 </div>
                               </div>
@@ -447,14 +452,14 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                                     </svg>
-                                    {m.statusMessage || (m.downloading ? `Downloading... ${m.progress}%` : 'Loading model...')}
+                                    {m.statusMessage || (m.downloading ? t('settings.downloading', { progress: m.progress }) : t('settings.loadingModel'))}
                                   </span>
                                   {m.downloading && (
                                     <button
                                       onClick={() => handleCancelDownload(m.id)}
                                       className="text-[11px] text-gc-text-dim hover:text-red-400 transition-colors"
                                     >
-                                      Cancel
+                                      {t('buttons.cancel')}
                                     </button>
                                   )}
                                 </div>
@@ -465,13 +470,13 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                       );
                     })}
                     {builtinModels.length === 0 && (
-                      <div className="text-sm text-gc-text-dim text-center py-6">Loading model catalog...</div>
+                      <div className="text-sm text-gc-text-dim text-center py-6">{t('settings.loadingCatalog')}</div>
                     )}
                   </div>
 
                   {/* Requirements note */}
                   <p className="text-[11px] text-gc-text-dim mt-3 leading-relaxed">
-                    Requires Apple Silicon Mac with Python 3.10+. First run installs dependencies automatically (~2 min).
+                    {t('settings.requirements')}
                   </p>
                 </Card>
               )}
@@ -480,7 +485,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               {llmBackend === 'lmstudio' && (
                 <>
                   <Card>
-                    <Label hint="OpenAI-compatible endpoint">Server URL</Label>
+                    <Label hint={t('settings.serverUrlHintOpenAI')}>{t('settings.serverUrl')}</Label>
                     <Input
                       type="text"
                       value={lmstudioUrl}
@@ -492,13 +497,13 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
 
                   <Card>
                     <div className="flex items-center justify-between mb-3">
-                      <Label>Judge Model</Label>
+                      <Label>{t('settings.judgeModel')}</Label>
                       <div className="flex items-center gap-2">
                         {loadingModels && (
-                          <span className="text-xs text-gray-400 animate-pulse">fetching…</span>
+                          <span className="text-xs text-gray-400 animate-pulse">{t('settings.fetching')}</span>
                         )}
                         <Btn variant="ghost" onClick={fetchModels} disabled={loadingModels} className="!px-2 !py-1 text-xs">
-                          ↻ Refresh
+                          {t('settings.refresh')}
                         </Btn>
                       </div>
                     </div>
@@ -524,7 +529,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                               : 'border-dashed border-gc-border hover:border-gc-text-dim bg-gc-card'
                           }`}
                         >
-                          <span className="text-sm text-gc-text-dim">+ Use a custom model name</span>
+                          <span className="text-sm text-gc-text-dim">{t('settings.customModel')}</span>
                         </button>
 
                         {showCustomInput && (
@@ -539,7 +544,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                         )}
 
                         <p className="text-xs text-gc-text-dim pt-1">
-                          {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} loaded in LM Studio
+                          {t('settings.modelsLoaded', { count: availableModels.length, plural: language === 'en' && availableModels.length !== 1 ? 's' : '' })}
                         </p>
                       </div>
                     ) : (
@@ -547,7 +552,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                         <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                           <span>⚠️</span>
                           <span className="text-sm text-amber-700 dark:text-amber-300">
-                            {loadingModels ? 'Connecting to LM Studio…' : 'No models found — is LM Studio running?'}
+                            {loadingModels ? t('settings.connectingLmStudio') : t('settings.noModelsLmStudio')}
                           </span>
                         </div>
                         <Input
@@ -567,7 +572,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               {llmBackend === 'ollama' && (
                 <>
                   <Card>
-                    <Label hint="Ollama API endpoint">Server URL</Label>
+                    <Label hint={t('settings.serverUrlHintOllama')}>{t('settings.serverUrl')}</Label>
                     <Input
                       type="text"
                       value={ollamaUrl}
@@ -576,19 +581,19 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                       disabled={saving}
                     />
                     <p className="mt-2 text-xs text-gray-400">
-                      Make sure Ollama is running: <code className="px-1.5 py-0.5 rounded bg-gc-border text-xs">ollama serve</code>
+                      {t('settings.ollamaServe')} <code className="px-1.5 py-0.5 rounded bg-gc-border text-xs">ollama serve</code>
                     </p>
                   </Card>
 
                   <Card>
                     <div className="flex items-center justify-between mb-3">
-                      <Label>Judge Model</Label>
+                      <Label>{t('settings.judgeModel')}</Label>
                       <div className="flex items-center gap-2">
                         {loadingModels && (
-                          <span className="text-xs text-gray-400 animate-pulse">fetching…</span>
+                          <span className="text-xs text-gray-400 animate-pulse">{t('settings.fetching')}</span>
                         )}
                         <Btn variant="ghost" onClick={fetchModels} disabled={loadingModels} className="!px-2 !py-1 text-xs">
-                          ↻ Refresh
+                          {t('settings.refresh')}
                         </Btn>
                       </div>
                     </div>
@@ -612,7 +617,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                               : 'border-dashed border-gc-border hover:border-gc-text-dim bg-gc-card'
                           }`}
                         >
-                          <span className="text-sm text-gc-text-dim">+ Use a custom model name</span>
+                          <span className="text-sm text-gc-text-dim">{t('settings.customModel')}</span>
                         </button>
 
                         {showCustomInput && (
@@ -627,7 +632,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                         )}
 
                         <p className="text-xs text-gc-text-dim pt-1">
-                          {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} available in Ollama
+                          {t('settings.modelsAvailable', { count: availableModels.length, plural: language === 'en' && availableModels.length !== 1 ? 's' : '' })}
                         </p>
                       </div>
                     ) : (
@@ -635,7 +640,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                         <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                           <span>⚠️</span>
                           <span className="text-sm text-amber-700 dark:text-amber-300">
-                            {loadingModels ? 'Connecting to Ollama…' : 'No models found — is Ollama running?'}
+                            {loadingModels ? t('settings.connectingOllama') : t('settings.noModelsOllama')}
                           </span>
                         </div>
                         <Input
@@ -646,7 +651,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                           disabled={saving}
                         />
                         <p className="text-xs text-gray-400">
-                          Pull a model first: <code className="px-1.5 py-0.5 rounded bg-gc-border text-xs">ollama pull qwen3:4b</code>
+                          {t('settings.ollamaPull')} <code className="px-1.5 py-0.5 rounded bg-gc-border text-xs">ollama pull qwen3:4b</code>
                         </p>
                       </div>
                     )}
@@ -659,13 +664,13 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
           {/* ─── Gateway Tab ─── */}
           {activeTab === 'gateway' && (
             <Card>
-              <Label hint="from ~/.openclaw/openclaw.json">OpenClaw Gateway Token</Label>
+              <Label hint={t('settings.gatewayTokenHint')}>{t('settings.gatewayToken')}</Label>
               <div className="flex gap-2">
                 <Input
                   type="password"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder="Click detect or paste token..."
+                  placeholder={t('settings.tokenPlaceholder')}
                   disabled={saving}
                   style={{ fontFamily: 'monospace', fontSize: '13px' }}
                 />
@@ -683,22 +688,22 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
         {/* Footer Actions */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gc-border bg-gc-card">
           <Btn variant="ghost" onClick={onClose} disabled={saving}>
-            {activeTab === 'llm' && llmBackend === 'built-in' ? 'Close' : 'Cancel'}
+            {activeTab === 'llm' && llmBackend === 'built-in' ? t('buttons.close') : t('buttons.cancel')}
           </Btn>
           <div className="flex gap-2">
             {activeTab === 'llm' && llmBackend !== 'built-in' && (
               <>
                 <Btn variant="secondary" onClick={handleTestConnection} disabled={saving}>
-                  {saving ? '...' : <><SearchIcon size={14} /> Test</>}
+                  {saving ? '...' : <><SearchIcon size={14} /> {t('buttons.test')}</>}
                 </Btn>
                 <Btn variant="primary" onClick={handleSaveLlm} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save & Apply'}
+                  {saving ? t('settings.saving') : t('settings.saveApply')}
                 </Btn>
               </>
             )}
             {activeTab === 'gateway' && (
               <Btn variant="primary" onClick={handleSaveGateway} disabled={saving || !token}>
-                {saving ? 'Saving…' : 'Save & Reconnect'}
+                {saving ? t('settings.saving') : t('settings.saveReconnect')}
               </Btn>
             )}
           </div>

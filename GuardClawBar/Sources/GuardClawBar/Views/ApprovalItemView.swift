@@ -4,6 +4,7 @@ struct ApprovalItemView: View {
     @Bindable var appState: AppState
     let approval: ApprovalItem
     @State private var isActing = false
+    private var L: Loc { Loc.shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -13,7 +14,7 @@ struct ApprovalItemView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(approval.toolName ?? "Unknown tool")
+                    Text(approval.toolName ?? L.t("approvals.unknownTool"))
                         .font(.subheadline)
                         .fontWeight(.medium)
                     if let input = approval.displayInput {
@@ -40,7 +41,7 @@ struct ApprovalItemView: View {
             HStack(spacing: 8) {
                 Spacer()
                 Button(action: { performAction(approve: true) }) {
-                    Label("Approve", systemImage: "checkmark")
+                    Label(L.t("common.approve"), systemImage: "checkmark")
                         .font(.caption)
                 }
                 .buttonStyle(.borderedProminent)
@@ -49,7 +50,7 @@ struct ApprovalItemView: View {
                 .disabled(isActing)
 
                 Button(action: { performAction(approve: false) }) {
-                    Label("Deny", systemImage: "xmark")
+                    Label(L.t("common.deny"), systemImage: "xmark")
                         .font(.caption)
                 }
                 .buttonStyle(.bordered)
@@ -75,7 +76,7 @@ struct ApprovalItemView: View {
     }
 
     private var riskBadge: some View {
-        Text("Risk: \(riskScore)/10")
+        Text(L.t("approvals.risk", riskScore))
             .font(.caption)
             .fontWeight(.semibold)
             .foregroundStyle(riskColor)

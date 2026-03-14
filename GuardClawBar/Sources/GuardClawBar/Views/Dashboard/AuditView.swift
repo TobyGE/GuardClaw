@@ -9,6 +9,7 @@ struct AuditView: View {
     @State private var scanProgressMessage: String = ""
     @State private var expandedId: String? = nil
     @State private var configChanged = false
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
 
@@ -19,9 +20,9 @@ struct AuditView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Security Audit")
+                            Text(L.t("audit.headline"))
                                 .font(.headline)
-                            Text("Static analysis powered by agent-audit. Scans MCP configs, credentials, code vulnerabilities, and OWASP Agentic Top 10.")
+                            Text(L.t("audit.description"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -29,7 +30,7 @@ struct AuditView: View {
                         Button {
                             Task { await runScan() }
                         } label: {
-                            Label(isScanning ? "Scanning..." : "Run Scan", systemImage: isScanning ? "progress.indicator" : "play.fill")
+                            Label(isScanning ? L.t("audit.scanning") : L.t("audit.runScan"), systemImage: isScanning ? "progress.indicator" : "play.fill")
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(isScanning)
@@ -44,15 +45,15 @@ struct AuditView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Configuration changed since last scan")
+                            Text(L.t("audit.configChanged"))
                                 .font(.caption)
                                 .fontWeight(.medium)
-                            Text("MCP plugins or settings have been modified. Re-scan recommended.")
+                            Text(L.t("audit.configChangedDesc"))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Re-scan") {
+                        Button(L.t("audit.rescan")) {
                             Task { await runScan() }
                         }
                         .controlSize(.small)
@@ -77,16 +78,16 @@ struct AuditView: View {
                     findingsSection
                 } else if hasScanned && !isScanning {
                     ContentUnavailableView(
-                        "No Issues Found",
+                        L.t("audit.noIssues"),
                         systemImage: "checkmark.shield",
-                        description: Text("Your configuration looks clean")
+                        description: Text(L.t("audit.noIssuesDesc"))
                     )
                     .frame(height: 200)
                 } else if !hasScanned && !isScanning {
                     ContentUnavailableView(
-                        "Not Scanned Yet",
+                        L.t("audit.notScanned"),
                         systemImage: "magnifyingglass",
-                        description: Text("Click Run Scan to analyze your agent configuration")
+                        description: Text(L.t("audit.notScannedDesc"))
                     )
                     .frame(height: 200)
                 }
@@ -95,7 +96,7 @@ struct AuditView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             ProgressView().controlSize(.small)
-                            Text(scanProgressMessage.isEmpty ? "Scanning..." : scanProgressMessage)
+                            Text(scanProgressMessage.isEmpty ? L.t("audit.scanning") : scanProgressMessage)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -116,7 +117,7 @@ struct AuditView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Security Scan")
+        .navigationTitle(L.t("audit.title"))
         .task {
             await loadCachedResults()
         }
@@ -137,15 +138,15 @@ struct AuditView: View {
     private func summarySection(_ s: AuditSummary) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 16) {
-                summaryPill(label: "Tools", value: "\(s.totalTools ?? 0)", color: .blue)
-                summaryPill(label: "Skills", value: "\(s.totalSkills ?? 0)", color: .blue)
+                summaryPill(label: L.t("audit.tools"), value: "\(s.totalTools ?? 0)", color: .blue)
+                summaryPill(label: L.t("audit.skills"), value: "\(s.totalSkills ?? 0)", color: .blue)
                 summaryPill(
-                    label: "Risky Tools",
+                    label: L.t("audit.riskyTools"),
                     value: "\(s.dangerousTools ?? 0)",
                     color: (s.dangerousTools ?? 0) > 0 ? .red : .green
                 )
                 summaryPill(
-                    label: "Risky Skills",
+                    label: L.t("audit.riskySkills"),
                     value: "\(s.dangerousSkills ?? 0)",
                     color: (s.dangerousSkills ?? 0) > 0 ? .red : .green
                 )
@@ -160,7 +161,7 @@ struct AuditView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.red)
-                    Text("Risky: " + riskyNames.joined(separator: ", "))
+                    Text(L.t("audit.riskyNames", riskyNames.joined(separator: ", ")))
                         .font(.caption2)
                         .foregroundStyle(.red)
                     Spacer()
@@ -183,7 +184,7 @@ struct AuditView: View {
                     .fontWeight(.bold)
             }
             .foregroundStyle(count > 0 ? .red : .green)
-            Text("Vulnerabilities")
+            Text(L.t("audit.vulnerabilities"))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -207,7 +208,7 @@ struct AuditView: View {
 
     private var findingsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Findings")
+            Text(L.t("audit.findings"))
                 .font(.headline)
 
             // Group findings by sourceName (risky tool/skill)
@@ -234,7 +235,7 @@ struct AuditView: View {
                     Text(name)
                         .font(.body)
                         .fontWeight(.semibold)
-                    Text("\(source) — \(items.count) vulnerabilities found")
+                    Text(L.t("audit.vulnsFound", source, items.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -302,7 +303,7 @@ struct AuditView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "hand.raised.fill")
                             .font(.caption2)
-                        Text("Block Extension")
+                        Text(L.t("audit.blockExtension"))
                             .font(.caption)
                             .fontWeight(.medium)
                     }
@@ -319,7 +320,7 @@ struct AuditView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "trash")
                             .font(.caption2)
-                        Text("Uninstall")
+                        Text(L.t("common.uninstall"))
                             .font(.caption)
                             .fontWeight(.medium)
                     }
@@ -355,7 +356,7 @@ struct AuditView: View {
 
     private func runScan() async {
         isScanning = true
-        scanProgressMessage = "Starting scan..."
+        scanProgressMessage = L.t("download.startingScan")
         errorMessage = nil
 
         // Poll progress in background
@@ -380,7 +381,7 @@ struct AuditView: View {
                 errorMessage = err
             }
         } catch {
-            errorMessage = "Scan failed: \(error.localizedDescription)"
+            errorMessage = L.t("audit.scanFailed", error.localizedDescription)
             hasScanned = true
         }
 

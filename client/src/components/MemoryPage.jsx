@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import StatCard from './StatCard';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 function ConfidenceBar({ value }) {
   // value: -1 to +1
@@ -28,21 +29,22 @@ function ActionBadge({ action }) {
   );
 }
 
-function relativeTime(ts) {
-  if (!ts) return 'Never';
+function relativeTime(ts, t) {
+  if (!ts) return t('memoryPage.never');
   const diff = Date.now() - ts;
   const secs = Math.floor(diff / 1000);
-  if (secs < 60) return 'just now';
+  if (secs < 60) return t('memoryPage.justNow');
   const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return t('memoryPage.mAgo', { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t('memoryPage.hAgo', { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+  if (days < 30) return t('memoryPage.dAgo', { n: days });
+  return t('memoryPage.moAgo', { n: Math.floor(days / 30) });
 }
 
 function MemoryPage() {
+  const { t } = useI18n();
   const [stats, setStats] = useState(null);
   const [patterns, setPatterns] = useState([]);
   const [sortKey, setSortKey] = useState('lastSeen');
@@ -117,7 +119,7 @@ function MemoryPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-gc-text-secondary">Loading memory data...</div>
+        <div className="text-gc-text-secondary">{t('memoryPage.loading')}</div>
       </div>
     );
   }
@@ -127,22 +129,22 @@ function MemoryPage() {
       {/* Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
-          title="TOTAL DECISIONS"
+          title={t('memoryPage.totalDecisions')}
           value={stats?.totalDecisions || 0}
           color="text-gc-text"
         />
         <StatCard
-          title="PATTERNS"
+          title={t('memoryPage.patterns')}
           value={stats?.totalPatterns || 0}
           color="text-gc-primary"
         />
         <StatCard
-          title="APPROVE RATE"
+          title={t('memoryPage.approveRate')}
           value={`${stats?.approveRate || 0}%`}
           color="text-gc-safe"
         />
         <StatCard
-          title="AUTO-APPROVE"
+          title={t('memoryPage.autoApprove')}
           value={stats?.autoApproveCount || 0}
           color="text-blue-400"
         />
@@ -151,31 +153,31 @@ function MemoryPage() {
       {/* Patterns Table */}
       <div className="bg-gc-card rounded-lg border border-gc-border overflow-hidden">
         <div className="px-6 py-4 border-b border-gc-border flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gc-text">Learned Patterns</h2>
+          <h2 className="text-xl font-semibold text-gc-text">{t('memoryPage.learnedPatterns')}</h2>
           <button
             onClick={() => setShowResetConfirm(true)}
             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gc-danger/20 text-red-400 border border-gc-danger/30 hover:bg-gc-danger/30 transition-colors"
           >
-            Reset Memory
+            {t('memoryPage.resetMemory')}
           </button>
         </div>
 
         {patterns.length === 0 ? (
           <div className="px-6 py-12 text-center text-gc-text-secondary">
-            No patterns learned yet. Approve or deny some tool calls to build memory.
+            {t('memoryPage.noPatterns')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gc-bg">
                 <tr>
-                  <SortHeader label="Pattern" field="pattern" />
-                  <SortHeader label="Tool" field="toolName" />
-                  <SortHeader label="Approves" field="approveCount" />
-                  <SortHeader label="Denies" field="denyCount" />
-                  <SortHeader label="Confidence" field="confidence" />
-                  <SortHeader label="Action" field="suggestedAction" />
-                  <SortHeader label="Last Seen" field="lastSeen" />
+                  <SortHeader label={t('memoryPage.pattern')} field="pattern" />
+                  <SortHeader label={t('memoryPage.tool')} field="toolName" />
+                  <SortHeader label={t('memoryPage.approves')} field="approveCount" />
+                  <SortHeader label={t('memoryPage.denies')} field="denyCount" />
+                  <SortHeader label={t('memoryPage.confidence')} field="confidence" />
+                  <SortHeader label={t('memoryPage.action')} field="suggestedAction" />
+                  <SortHeader label={t('memoryPage.lastSeen')} field="lastSeen" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gc-border">
@@ -189,7 +191,7 @@ function MemoryPage() {
                     <td className="px-4 py-3 text-sm text-gc-danger font-medium">{p.denyCount}</td>
                     <td className="px-4 py-3"><ConfidenceBar value={p.confidence} /></td>
                     <td className="px-4 py-3"><ActionBadge action={p.suggestedAction} /></td>
-                    <td className="px-4 py-3 text-sm text-gc-text-secondary whitespace-nowrap">{relativeTime(p.lastSeen)}</td>
+                    <td className="px-4 py-3 text-sm text-gc-text-secondary whitespace-nowrap">{relativeTime(p.lastSeen, t)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -203,11 +205,11 @@ function MemoryPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowResetConfirm(false)}>
           <div className="bg-gc-card rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gc-border">
-              <h3 className="text-lg font-bold text-gc-text">Reset All Memory?</h3>
+              <h3 className="text-lg font-bold text-gc-text">{t('memoryPage.resetTitle')}</h3>
             </div>
             <div className="px-6 py-4">
               <p className="text-sm text-gc-text-secondary">
-                This will permanently delete all {stats?.totalDecisions || 0} decisions and {stats?.totalPatterns || 0} learned patterns. This action cannot be undone.
+                {t('memoryPage.resetConfirm', { decisions: stats?.totalDecisions || 0, patterns: stats?.totalPatterns || 0 })}
               </p>
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gc-border">
@@ -215,13 +217,13 @@ function MemoryPage() {
                 onClick={() => setShowResetConfirm(false)}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-gc-text-secondary hover:text-gc-text hover:bg-gc-border transition-colors"
               >
-                Cancel
+                {t('buttons.cancel')}
               </button>
               <button
                 onClick={handleReset}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-gc-danger text-white hover:bg-red-600 transition-colors"
               >
-                Reset Memory
+                {t('memoryPage.resetMemory')}
               </button>
             </div>
           </div>

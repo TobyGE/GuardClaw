@@ -4,6 +4,7 @@ struct ProtectionView: View {
     @Environment(AppState.self) var appState
     @State private var statusMessage: String? = nil
     @State private var blockingOverride: Bool? = nil
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
 
@@ -16,13 +17,13 @@ struct ProtectionView: View {
     }
 
     private var failClosedDetailTitle: String {
-        failClosed ? "Fail-open risk removed" : "Fail-open risk active"
+        failClosed ? L.t("protection.failOpenRemoved") : L.t("protection.failOpenActive")
     }
 
     private var failClosedDetailBody: String {
         failClosed
-            ? "If GuardClaw or the local judge times out, crashes, or is offline, risky actions stop and wait for recovery instead of running without review."
-            : "If GuardClaw or the local judge times out, crashes, or is offline, risky actions may continue without review. This favors availability over safety."
+            ? L.t("protection.failClosedDetail")
+            : L.t("protection.failOpenDetail")
     }
 
     var body: some View {
@@ -30,11 +31,11 @@ struct ProtectionView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // Active Blocking Card
                 protectionCard(
-                    title: "Active Blocking",
+                    title: L.t("protection.activeBlocking"),
                     icon: "shield.slash",
                     description: blockingEnabled
-                        ? "Risky tool calls require approval before executing."
-                        : "Monitor only — GuardClaw watches but doesn't block anything.",
+                        ? L.t("protection.blockingOnDesc")
+                        : L.t("protection.blockingOffDesc"),
                     color: blockingEnabled ? .green : .orange,
                     isOn: blockingEnabled,
                     onToggle: toggleBlocking
@@ -42,11 +43,11 @@ struct ProtectionView: View {
 
                 // Fail-Closed Card
                 protectionCard(
-                    title: "Fail-Closed (Offline)",
+                    title: L.t("protection.failClosedOffline"),
                     icon: "lock.fill",
                     description: failClosed
-                        ? "If the judge is unreachable, risky tool calls are blocked until protection recovers."
-                        : "If the judge is unreachable, risky tool calls may proceed without GuardClaw review.",
+                        ? L.t("protection.failClosedOnDesc")
+                        : L.t("protection.failClosedOffDesc"),
                     color: failClosed ? .blue : .gray,
                     isOn: failClosed,
                     onToggle: toggleFailClosed
@@ -63,7 +64,7 @@ struct ProtectionView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
-                    Label("Offline Judge Behavior", systemImage: failClosed ? "checkmark.shield" : "exclamationmark.triangle")
+                    Label(L.t("protection.offlineJudgeBehavior"), systemImage: failClosed ? "checkmark.shield" : "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(failClosed ? Color.secondary : Color.orange)
                 }
@@ -77,25 +78,25 @@ struct ProtectionView: View {
                 // Explanation
                 GroupBox {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("Strict", systemImage: "shield.checkered").font(.caption).fontWeight(.semibold)
-                        Text("Active Blocking + Fail-Closed. Maximum protection.")
+                        Label(L.t("protection.strict"), systemImage: "shield.checkered").font(.caption).fontWeight(.semibold)
+                        Text(L.t("protection.strictDesc"))
                             .font(.caption2).foregroundStyle(.secondary)
                         Divider()
-                        Label("Balanced", systemImage: "shield.lefthalf.filled").font(.caption).fontWeight(.semibold)
-                        Text("Active Blocking + Fail-Open. Protection with availability fallback.")
+                        Label(L.t("protection.balanced"), systemImage: "shield.lefthalf.filled").font(.caption).fontWeight(.semibold)
+                        Text(L.t("protection.balancedDesc"))
                             .font(.caption2).foregroundStyle(.secondary)
                         Divider()
-                        Label("Monitor Only", systemImage: "eye").font(.caption).fontWeight(.semibold)
-                        Text("No blocking. GuardClaw logs and alerts without intervening.")
+                        Label(L.t("protection.monitorOnly"), systemImage: "eye").font(.caption).fontWeight(.semibold)
+                        Text(L.t("protection.monitorOnlyDesc"))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 } label: {
-                    Text("Presets").font(.caption).foregroundStyle(.secondary)
+                    Text(L.t("protection.presets")).font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(24)
         }
-        .navigationTitle("Protection")
+        .navigationTitle(L.t("protection.title"))
         .onAppear {
             blockingOverride = appState.serverStatus?.blocking?.active ?? appState.serverStatus?.blocking?.enabled
         }
@@ -134,10 +135,10 @@ struct ProtectionView: View {
         Task {
             do {
                 _ = try await api.toggleBlocking(enabled: newVal)
-                statusMessage = "\u{2713} Blocking \(newVal ? "enabled" : "disabled")"
+                statusMessage = "\u{2713} " + (newVal ? L.t("protection.blockingEnabled") : L.t("protection.blockingDisabled"))
             } catch {
                 blockingOverride = previousVal
-                statusMessage = "Failed: \(error.localizedDescription)"
+                statusMessage = L.t("settings.failed", error.localizedDescription)
             }
         }
     }
@@ -147,10 +148,10 @@ struct ProtectionView: View {
             do {
                 _ = try await api.toggleFailClosed(enabled: newVal)
                 statusMessage = newVal
-                    ? "\u{2713} Fail-closed enabled — risky calls stop if GuardClaw goes offline"
-                    : "Fail-closed disabled — risky calls may continue if GuardClaw or the judge fails"
+                    ? "\u{2713} " + L.t("protection.failClosedEnabled")
+                    : L.t("protection.failClosedDisabled")
             } catch {
-                statusMessage = "Failed: \(error.localizedDescription)"
+                statusMessage = L.t("settings.failed", error.localizedDescription)
             }
         }
     }

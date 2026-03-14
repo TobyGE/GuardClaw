@@ -473,8 +473,12 @@ app.get('/api/status', async (req, res) => {
   const cursorConnected = cursorLastHookTime > 0 && (Date.now() - cursorLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
   backends['cursor'] = { connected: cursorConnected, label: 'Cursor', type: 'http-hook' };
 
+  // OpenCode uses HTTP hooks via JS/TS plugin
+  const opencodeConnected = opencodeLastHookTime > 0 && (Date.now() - opencodeLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
+  backends['opencode'] = { connected: opencodeConnected, label: 'OpenCode', type: 'http-hook' };
+
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || geminiConnected || cursorConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
+  const anyConnected = ccConnected || geminiConnected || cursorConnected || opencodeConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -2879,6 +2883,7 @@ function mapCursorParams(toolName, toolInput) {
 }
 
 let cursorLastHookTime = 0;
+let opencodeLastHookTime = 0;
 
 app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
   cursorLastHookTime = Date.now();
@@ -3169,6 +3174,292 @@ app.post('/api/setup/cursor/uninstall', (req, res) => {
     fs.writeFileSync(hooksPath, JSON.stringify(hooksConfig, null, 2) + '\n');
 
     console.log(`[GuardClaw] Cursor hooks removed from ${hooksPath}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── OpenCode Hook Integration ───────────────────────────────────────────────
+
+function mapOpenCodeTool(toolName) {
+  const map = {
+    bash: 'exec',
+    read: 'read',
+    write: 'write',
+    edit: 'edit',
+    glob: 'glob',
+    grep: 'grep',
+    list: 'read',
+    webfetch: 'web_fetch',
+    websearch: 'web_search',
+    patch: 'edit',
+    todowrite: 'write',
+    todoread: 'read',
+    question: 'ask_user',
+    skill: 'skill',
+    lsp: 'lsp',
+  };
+  return map[toolName] || toolName;
+}
+
+function mapOpenCodeParams(toolName, toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return {};
+  switch (toolName) {
+    case 'bash': return { command: toolInput.command || '' };
+    case 'read': return { file_path: toolInput.filePath || toolInput.file_path || '' };
+    case 'write': return { file_path: toolInput.filePath || toolInput.file_path || '', content: toolInput.content || '' };
+    case 'edit': return { file_path: toolInput.filePath || toolInput.file_path || '', old_string: toolInput.old_string || '', new_string: toolInput.new_string || '' };
+    case 'glob': return { pattern: toolInput.pattern || toolInput.glob || '', path: toolInput.path || '.' };
+    case 'grep': return { pattern: toolInput.pattern || toolInput.regex || '', path: toolInput.path || '.' };
+    case 'webfetch': return { url: toolInput.url || '', command: `web_fetch ${toolInput.url || ''}` };
+    case 'websearch': return { query: toolInput.query || '', command: `web_search ${toolInput.query || ''}` };
+    case 'list': return { file_path: toolInput.path || toolInput.directory || '.' };
+    case 'patch': return { file_path: toolInput.filePath || '', content: toolInput.patch || '' };
+    default: return toolInput;
+  }
+}
+
+app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+  opencodeLastHookTime = Date.now();
+  const toolName = req.body.tool_name || req.body.toolName;
+  const toolInput = req.body.tool_input || req.body.toolInput || {};
+  const sessionId = req.body.session_id || req.body.sessionId;
+  console.log(`[GuardClaw] OpenCode pre-tool-use:`, JSON.stringify(req.body).slice(0, 500));
+  if (!toolName) return res.json({ decision: 'allow' });
+
+  const gcToolName = mapOpenCodeTool(toolName);
+  const gcParams = mapOpenCodeParams(toolName, toolInput);
+  const sessionKey = sessionId ? `opencode:${sessionId}` : 'opencode:default';
+
+  try {
+    const chainHistory = getChainHistory(sessionKey, gcToolName);
+    const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+
+    // Memory lookup
+    const mem = memoryStore.lookup(gcToolName, commandStr);
+    let memoryHint = null;
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = { pattern: mem.pattern, approveCount: mem.approveCount, denyCount: mem.denyCount, confidence: mem.confidence, suggestedAction: mem.suggestedAction };
+    }
+
+    // Auto-approve from memory
+    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+      const baseScore = 5;
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
+      const adjScore = Math.max(1, Math.min(10, baseScore + adj));
+      if (adjScore < 9) {
+        console.log(`[GuardClaw] OpenCode auto-approve (memory): ${gcToolName} score=${adjScore}`);
+        return res.json({ decision: 'allow' });
+      }
+    }
+
+    // Evaluate with safeguard service
+    let analysis;
+    if (gcToolName === 'exec') {
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory);
+    } else {
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory);
+    }
+
+    // Memory adjustment
+    if (memoryHint) {
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, analysis.riskScore);
+      if (adj !== 0) {
+        analysis.originalRiskScore = analysis.riskScore;
+        analysis.riskScore = Math.max(1, Math.min(10, analysis.riskScore + adj));
+      }
+    }
+
+    // Store event
+    const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+    const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
+    eventStore.addEvent({
+      type: 'opencode-tool',
+      tool: gcToolName,
+      command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
+      description: displayInput.slice(0, 500),
+      sessionKey,
+      riskScore: analysis.riskScore,
+      category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
+      allowed: analysis.riskScore < 8 ? 1 : 0,
+      safeguard: {
+        riskScore: analysis.riskScore,
+        reasoning: analysis.reasoning,
+        category: analysis.category,
+        verdict,
+        allowed: analysis.riskScore < 8,
+        backend: 'opencode',
+      },
+      timestamp: Date.now(),
+    });
+
+    const OPENCODE_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_OPENCODE_PASS_THRESHOLD || '8', 10);
+
+    if (analysis.riskScore >= OPENCODE_PASS_THRESHOLD && blockingEnabled) {
+      // High risk: create pending approval and wait
+      const approvalId = `opencode-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
+      console.log(`[GuardClaw] OpenCode ASK: ${gcToolName} (${approvalId}) — ${blockReason}`);
+
+      const decision = await new Promise((resolve) => {
+        pendingApprovals.set(approvalId, {
+          toolName: gcToolName,
+          originalToolName: toolName,
+          displayInput: displayInput.slice(0, 500),
+          params: gcParams,
+          riskScore: analysis.riskScore,
+          reason: blockReason,
+          createdAt: Date.now(),
+          sessionKey,
+          backend: 'opencode',
+          resolve,
+        });
+
+        eventStore.notifyListeners({
+          type: 'approval-request',
+          data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'opencode' }),
+        });
+        const opencodePending = pendingApprovals.get(approvalId);
+        if (opencodePending) approvalNotifier.notifyApprovalRequest(opencodePending).catch(() => {});
+
+        setTimeout(() => {
+          if (pendingApprovals.has(approvalId)) {
+            pendingApprovals.delete(approvalId);
+            resolve({ denied: true, reason: 'Timed out waiting for approval' });
+          }
+        }, 300_000);
+      });
+
+      if (decision.denied) {
+        console.log(`[GuardClaw] OpenCode DENIED: ${gcToolName} (${approvalId})`);
+        return res.json({ decision: 'deny', reason: `\u26E8 GuardClaw BLOCK: ${decision.reason || blockReason}`, message: blockReason });
+      }
+
+      console.log(`[GuardClaw] OpenCode APPROVED: ${gcToolName} (${approvalId})`);
+      return res.json({ decision: 'allow', reason: `\u26E8 GuardClaw APPROVED: ${gcToolName} (score ${analysis.riskScore})`, message: `Approved by user` });
+    }
+
+    const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+    console.log(`[GuardClaw] OpenCode ALLOW: ${compactInput} score=${analysis.riskScore}`);
+    return res.json({ decision: 'allow', reason: `score ${analysis.riskScore}`, message: `${analysis.reasoning || analysis.category}` });
+
+  } catch (error) {
+    console.error('[GuardClaw] OpenCode hook error:', error.message);
+    return res.json({ decision: 'allow' }); // fail-open
+  }
+});
+
+app.post('/api/hooks/opencode/post-tool-use', rateLimit(60_000, 120), (req, res) => {
+  opencodeLastHookTime = Date.now();
+  const toolName = req.body.tool_name || req.body.toolName;
+  const toolInput = req.body.tool_input || req.body.toolInput || {};
+  const toolOutput = req.body.tool_output || req.body.output;
+  const sessionId = req.body.session_id || req.body.sessionId;
+  if (!toolName) return res.json({});
+
+  const gcToolName = mapOpenCodeTool(toolName);
+  const gcParams = mapOpenCodeParams(toolName, toolInput);
+  const sessionKey = sessionId ? `opencode:${sessionId}` : 'opencode:default';
+
+  // Chain tracking
+  addToToolHistory(sessionKey, gcToolName, gcParams, toolOutput);
+
+  // Credential scanning on output
+  if (toolOutput && typeof toolOutput === 'string') {
+    const credPatterns = [/(?:AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}/i, /ghp_[a-zA-Z0-9]{36}/, /sk-[a-zA-Z0-9]{20,}/];
+    for (const pat of credPatterns) {
+      if (pat.test(toolOutput)) {
+        eventStore.addEvent({
+          type: 'opencode-tool',
+          tool: gcToolName,
+          description: `[CREDENTIAL DETECTED in output] ${gcToolName}`,
+          sessionKey,
+          riskScore: 10,
+          category: 'high-risk',
+          allowed: 0,
+          safeguard: { riskScore: 10, reasoning: 'Credential detected in tool output', category: 'credential-leak', verdict: 'alert', backend: 'opencode' },
+          timestamp: Date.now(),
+        });
+        break;
+      }
+    }
+  }
+
+  res.json({});
+});
+
+// OpenCode chat message capture
+app.post('/api/hooks/opencode/message', rateLimit(60_000, 120), (req, res) => {
+  opencodeLastHookTime = Date.now();
+  const sessionId = req.body.session_id || req.body.sessionId;
+  const userMessage = req.body.user_message || '';
+  const agent = req.body.agent || 'default';
+  const model = req.body.model || null;
+  const sessionKey = sessionId ? `opencode:${sessionId}` : 'opencode:default';
+
+  // Store user message
+  if (userMessage) {
+    eventStore.addEvent({
+      type: 'opencode-text',
+      sessionKey,
+      text: userMessage,
+      subType: 'user',
+      safeguard: { backend: 'opencode', agent, model },
+      timestamp: Date.now(),
+    });
+  }
+
+  res.json({ ok: true });
+});
+
+// OpenCode setup/uninstall/status
+app.post('/api/setup/opencode', (req, res) => {
+  try {
+    const opencodeDir = path.join(os.homedir(), '.config', 'opencode', 'plugins');
+    if (!fs.existsSync(opencodeDir)) {
+      fs.mkdirSync(opencodeDir, { recursive: true });
+    }
+
+    // Find plugin source
+    let pluginSource = null;
+    const candidates = [
+      path.join(path.dirname(process.argv[1] || ''), 'plugins', 'opencode-guardclaw', 'index.ts'),
+      path.join(import.meta.dirname, '..', 'plugins', 'opencode-guardclaw', 'index.ts'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { pluginSource = c; break; }
+    }
+    if (!pluginSource) {
+      return res.status(404).json({ error: 'OpenCode plugin source not found in app bundle' });
+    }
+
+    const destPath = path.join(opencodeDir, 'guardclaw.ts');
+    fs.copyFileSync(pluginSource, destPath);
+    console.log(`[GuardClaw] OpenCode plugin installed at ${destPath}`);
+    res.json({ ok: true, path: destPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/opencode/status', (req, res) => {
+  try {
+    const pluginPath = path.join(os.homedir(), '.config', 'opencode', 'plugins', 'guardclaw.ts');
+    const installed = fs.existsSync(pluginPath);
+    res.json({ installed, path: pluginPath });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/opencode/uninstall', (req, res) => {
+  try {
+    const pluginPath = path.join(os.homedir(), '.config', 'opencode', 'plugins', 'guardclaw.ts');
+    if (fs.existsSync(pluginPath)) {
+      fs.unlinkSync(pluginPath);
+      console.log(`[GuardClaw] OpenCode plugin removed from ${pluginPath}`);
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4695,6 +4986,21 @@ app.listen(PORT, () => {
         console.log(`❌ ${llmStatus.backend.toUpperCase()}: ${llmStatus.message}`);
         if (llmStatus.backend === 'lmstudio') {
           console.log('   GuardClaw will use pattern-matching fallback until LM Studio connects.');
+        }
+      }
+
+      // Auto-load built-in model on startup if backend is built-in and a model is downloaded
+      if (safeguardService.backend === 'built-in' && !llmStatus.connected) {
+        try {
+          const models = llmEngine.listModels();
+          const downloaded = models.find(m => m.downloaded && !m.incomplete);
+          if (downloaded) {
+            console.log(`🔄 Auto-loading built-in model: ${downloaded.name}...`);
+            await llmEngine.loadModel(downloaded.id);
+            console.log(`✅ Built-in model ${downloaded.name} loaded`);
+          }
+        } catch (e) {
+          console.log(`⚠️  Auto-load failed: ${e.message}`);
         }
       }
 

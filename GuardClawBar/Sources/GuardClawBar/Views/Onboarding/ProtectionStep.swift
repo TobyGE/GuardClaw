@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ProtectionStep: View {
+    private var L: Loc { Loc.shared }
     let onFinish: () -> Void
     @State private var selectedLevel = "strict"
     @State private var isApplying = false
@@ -10,10 +11,10 @@ struct ProtectionStep: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 6) {
-                Text("Choose Protection Level")
+                Text(L.t("protStep.title"))
                     .font(.title2)
                     .fontWeight(.bold)
-                Text("You can change this anytime in the Protection settings.")
+                Text(L.t("protStep.subtitle"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -21,9 +22,9 @@ struct ProtectionStep: View {
             VStack(spacing: 10) {
                 ProtectionLevelCard(
                     id: "strict",
-                    title: "Strict",
-                    subtitle: "Active Blocking + Fail-Closed",
-                    description: "Recommended. Risky calls require approval, and GuardClaw will not silently fail open when the judge is offline.",
+                    title: L.t("protStep.strict"),
+                    subtitle: L.t("protStep.strictSub"),
+                    description: L.t("protStep.strictDesc"),
                     icon: "lock.shield.fill",
                     color: .red,
                     isSelected: selectedLevel == "strict"
@@ -31,9 +32,9 @@ struct ProtectionStep: View {
 
                 ProtectionLevelCard(
                     id: "balanced",
-                    title: "Balanced",
-                    subtitle: "Active Blocking + Fail-Open",
-                    description: "Keeps approvals on, but if the judge is offline some risky calls may continue without review.",
+                    title: L.t("protStep.balanced"),
+                    subtitle: L.t("protStep.balancedSub"),
+                    description: L.t("protStep.balancedDesc"),
                     icon: "shield.lefthalf.filled",
                     color: .blue,
                     isSelected: selectedLevel == "balanced"
@@ -41,9 +42,9 @@ struct ProtectionStep: View {
 
                 ProtectionLevelCard(
                     id: "monitor",
-                    title: "Monitor Only",
-                    subtitle: "No blocking, log only",
-                    description: "Observe without intervening. Safe for evaluating GuardClaw.",
+                    title: L.t("protStep.monitor"),
+                    subtitle: L.t("protStep.monitorSub"),
+                    description: L.t("protStep.monitorDesc"),
                     icon: "eye",
                     color: .gray,
                     isSelected: selectedLevel == "monitor"
@@ -58,7 +59,7 @@ struct ProtectionStep: View {
                 if isApplying {
                     ProgressView().controlSize(.small)
                 } else {
-                    Text("Finish Setup")
+                    Text(L.t("protStep.finish"))
                         .frame(maxWidth: .infinity)
                 }
             }

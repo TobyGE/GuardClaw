@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var llmConnected: Bool? = nil
     @State private var gatewayToken: String = ""
     @State private var tokenMessage: String? = nil
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
@@ -28,8 +29,25 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Settings")
+                Text(L.t("settings.title"))
                     .font(.headline)
+
+                // -- Language toggle --
+                HStack {
+                    Text(L.t("settings.language"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { Loc.shared.lang },
+                        set: { Loc.shared.lang = $0 }
+                    )) {
+                        Text("EN").tag("en")
+                        Text("中文").tag("zh")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 100)
+                }
 
                 // -- Judge --
                 VStack(alignment: .leading, spacing: 6) {
@@ -38,7 +56,7 @@ struct SettingsView: View {
                         Circle()
                             .fill(llmConnected == true ? Color.green : Color.gray)
                             .frame(width: 6, height: 6)
-                        Text("Judge")
+                        Text(L.t("settings.judge"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -53,9 +71,9 @@ struct SettingsView: View {
                                 }
                             }
                         )) {
-                            Text("Built-in").tag("built-in")
-                            Text("LM Studio").tag("lmstudio")
-                            Text("Ollama").tag("ollama")
+                            Text(L.t("settings.builtIn")).tag("built-in")
+                            Text(L.t("settings.lmStudio")).tag("lmstudio")
+                            Text(L.t("settings.ollama")).tag("ollama")
                         }
                         .pickerStyle(.menu)
                         .controlSize(.mini)
@@ -67,7 +85,7 @@ struct SettingsView: View {
                         if isLoadingModels && models.isEmpty {
                             HStack {
                                 ProgressView().controlSize(.small)
-                                Text("Loading...")
+                                Text(L.t("common.loading"))
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
@@ -84,7 +102,7 @@ struct SettingsView: View {
 
                 // -- Connections --
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Connections")
+                    Text(L.t("settings.connections"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -100,11 +118,11 @@ struct SettingsView: View {
                             Text("\u{2713}")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
-                            Button("Uninstall") { uninstallClaudeCode() }
+                            Button(L.t("common.uninstall")) { uninstallClaudeCode() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         } else {
-                            Button("Install") { setupClaudeCode() }
+                            Button(L.t("common.install")) { setupClaudeCode() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         }
@@ -122,11 +140,11 @@ struct SettingsView: View {
                             Text("\u{2713}")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
-                            Button("Uninstall") { uninstallOpenClaw() }
+                            Button(L.t("common.uninstall")) { uninstallOpenClaw() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         } else {
-                            Button("Install") { setupOpenClaw() }
+                            Button(L.t("common.install")) { setupOpenClaw() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         }
@@ -150,11 +168,11 @@ struct SettingsView: View {
                             Text("\u{2713}")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
-                            Button("Uninstall") { uninstallGeminiCLI() }
+                            Button(L.t("common.uninstall")) { uninstallGeminiCLI() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         } else {
-                            Button("Install") { setupGeminiCLI() }
+                            Button(L.t("common.install")) { setupGeminiCLI() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         }
@@ -172,11 +190,11 @@ struct SettingsView: View {
                             Text("\u{2713}")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.green)
-                            Button("Uninstall") { uninstallCursor() }
+                            Button(L.t("common.uninstall")) { uninstallCursor() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         } else {
-                            Button("Install") { setupCursor() }
+                            Button(L.t("common.install")) { setupCursor() }
                                 .font(.system(size: 9))
                                 .controlSize(.mini)
                         }
@@ -229,7 +247,7 @@ struct SettingsView: View {
 
                 // -- Server URL --
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Server URL")
+                    Text(L.t("settings.serverURL"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("http://localhost:3002", text: $serverURL)
@@ -240,7 +258,7 @@ struct SettingsView: View {
 
                 // -- Poll Interval --
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Poll Interval: \(String(format: "%.0f", pollInterval))s")
+                    Text(L.t("settings.pollInterval", String(format: "%.0f", pollInterval)))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Slider(value: $pollInterval, in: 1...30, step: 1)
@@ -249,7 +267,7 @@ struct SettingsView: View {
 
                 HStack {
                     Spacer()
-                    Button("Save") { save() }
+                    Button(L.t("common.save")) { save() }
                         .controlSize(.small)
                 }
             }
@@ -313,11 +331,11 @@ struct SettingsView: View {
                 _ = try await api.setupClaudeCode()
                 await MainActor.run {
                     ccHooksInstalled = true
-                    ccSetupMessage = "\u{2713} Hooks installed — restart Claude Code"
+                    ccSetupMessage = "\u{2713} " + Loc.shared.t("settings.hooksInstalled", "Claude Code")
                 }
             } catch {
                 await MainActor.run {
-                    ccSetupMessage = "Failed: \(error.localizedDescription)"
+                    ccSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -329,11 +347,11 @@ struct SettingsView: View {
                 _ = try await api.setupOpenClaw()
                 await MainActor.run {
                     ocPluginInstalled = true
-                    ocSetupMessage = "\u{2713} Plugin installed — restart OpenClaw"
+                    ocSetupMessage = "\u{2713} " + Loc.shared.t("settings.pluginInstalled", "OpenClaw")
                 }
             } catch {
                 await MainActor.run {
-                    ocSetupMessage = "Failed: \(error.localizedDescription)"
+                    ocSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -345,11 +363,11 @@ struct SettingsView: View {
                 _ = try await api.uninstallClaudeCode()
                 await MainActor.run {
                     ccHooksInstalled = false
-                    ccSetupMessage = "Hooks removed — restart Claude Code"
+                    ccSetupMessage = Loc.shared.t("settings.hooksRemoved", "Claude Code")
                 }
             } catch {
                 await MainActor.run {
-                    ccSetupMessage = "Failed: \(error.localizedDescription)"
+                    ccSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -361,11 +379,11 @@ struct SettingsView: View {
                 _ = try await api.uninstallOpenClaw()
                 await MainActor.run {
                     ocPluginInstalled = false
-                    ocSetupMessage = "Plugin removed — restart OpenClaw"
+                    ocSetupMessage = Loc.shared.t("settings.pluginRemoved", "OpenClaw")
                 }
             } catch {
                 await MainActor.run {
-                    ocSetupMessage = "Failed: \(error.localizedDescription)"
+                    ocSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -377,11 +395,11 @@ struct SettingsView: View {
                 _ = try await api.setupGeminiCLI()
                 await MainActor.run {
                     geminiInstalled = true
-                    geminiMessage = "\u{2713} Hooks installed — restart Gemini CLI"
+                    geminiMessage = "\u{2713} " + Loc.shared.t("settings.hooksInstalled", "Gemini CLI")
                 }
             } catch {
                 await MainActor.run {
-                    geminiMessage = "Failed: \(error.localizedDescription)"
+                    geminiMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -393,11 +411,11 @@ struct SettingsView: View {
                 _ = try await api.uninstallGeminiCLI()
                 await MainActor.run {
                     geminiInstalled = false
-                    geminiMessage = "Hooks removed — restart Gemini CLI"
+                    geminiMessage = Loc.shared.t("settings.hooksRemoved", "Gemini CLI")
                 }
             } catch {
                 await MainActor.run {
-                    geminiMessage = "Failed: \(error.localizedDescription)"
+                    geminiMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -409,11 +427,11 @@ struct SettingsView: View {
                 _ = try await api.setupCursor()
                 await MainActor.run {
                     cursorInstalled = true
-                    cursorMessage = "\u{2713} Hooks installed — restart Cursor"
+                    cursorMessage = "\u{2713} " + Loc.shared.t("settings.hooksInstalled", "Cursor")
                 }
             } catch {
                 await MainActor.run {
-                    cursorMessage = "Failed: \(error.localizedDescription)"
+                    cursorMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -425,11 +443,11 @@ struct SettingsView: View {
                 _ = try await api.uninstallCursor()
                 await MainActor.run {
                     cursorInstalled = false
-                    cursorMessage = "Hooks removed — restart Cursor"
+                    cursorMessage = Loc.shared.t("settings.hooksRemoved", "Cursor")
                 }
             } catch {
                 await MainActor.run {
-                    cursorMessage = "Failed: \(error.localizedDescription)"
+                    cursorMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }
@@ -442,16 +460,17 @@ private struct ProtectionSection: View {
     @Binding var blockingEnabled: Bool
     @Binding var failClosedEnabled: Bool
     let api: GuardClawAPI
+    private var L: Loc { Loc.shared }
 
     private var failClosedSummary: String {
         failClosedEnabled
-            ? "When GuardClaw or the judge is unreachable, risky tool calls are blocked instead of slipping through unreviewed."
-            : "Risk: if the judge times out, crashes, or is offline, risky tool calls can continue without GuardClaw approval."
+            ? L.t("settings.failClosedOn")
+            : L.t("settings.failClosedOff")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Protection")
+            Text(L.t("settings.protection"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -470,14 +489,14 @@ private struct ProtectionSection: View {
                         }
                     }
                 )) {
-                    Text("Active Blocking")
+                    Text(L.t("settings.activeBlocking"))
                         .font(.caption)
                 }
                 .toggleStyle(.switch)
                 .controlSize(.mini)
             }
 
-            Text(blockingEnabled ? "Risky tool calls require approval" : "Monitor only — nothing blocked")
+            Text(blockingEnabled ? L.t("settings.blockingOn") : L.t("settings.blockingOff"))
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
 
@@ -491,7 +510,7 @@ private struct ProtectionSection: View {
                         }
                     }
                 )) {
-                    Text("Fail-Closed (Offline)")
+                    Text(L.t("settings.failClosed"))
                         .font(.caption)
                 }
                 .toggleStyle(.switch)
@@ -511,24 +530,25 @@ private struct GatewayTokenSection: View {
     @Binding var token: String
     @Binding var message: String?
     let api: GuardClawAPI
+    private var L: Loc { Loc.shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Gateway Token")
+            Text(L.t("settings.gatewayToken"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 4) {
-                SecureField("Token", text: $token)
+                SecureField(L.t("settings.tokenPlaceholder"), text: $token)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
                     .onSubmit { saveToken() }
 
-                Button("Save") { saveToken() }
+                Button(L.t("common.save")) { saveToken() }
                     .font(.system(size: 9))
                     .controlSize(.mini)
 
-                Button("Detect") { detectToken() }
+                Button(L.t("common.detect")) { detectToken() }
                     .font(.system(size: 9))
                     .controlSize(.mini)
             }
@@ -536,7 +556,7 @@ private struct GatewayTokenSection: View {
             if let msg = message {
                 Text(msg)
                     .font(.system(size: 9))
-                    .foregroundStyle(msg.contains("✓") ? .green : .secondary)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .secondary)
             }
         }
     }
@@ -546,9 +566,9 @@ private struct GatewayTokenSection: View {
         Task {
             do {
                 _ = try await api.saveToken(token: token)
-                await MainActor.run { message = "✓ Token saved" }
+                await MainActor.run { message = "\u{2713} " + Loc.shared.t("settings.tokenSaved") }
             } catch {
-                await MainActor.run { message = "Failed: \(error.localizedDescription)" }
+                await MainActor.run { message = Loc.shared.t("settings.failed", error.localizedDescription) }
             }
         }
     }
@@ -560,13 +580,13 @@ private struct GatewayTokenSection: View {
                 await MainActor.run {
                     if let t = resp.token {
                         token = t
-                        message = "✓ Auto-detected from OpenClaw config"
+                        message = "\u{2713} " + Loc.shared.t("settings.autoDetected")
                     } else {
-                        message = "No token found in OpenClaw config"
+                        message = Loc.shared.t("settings.noTokenFound")
                     }
                 }
             } catch {
-                await MainActor.run { message = "Not found" }
+                await MainActor.run { message = Loc.shared.t("settings.notFound") }
             }
         }
     }
@@ -578,6 +598,7 @@ private struct ModelRowView: View {
     let model: BuiltinModel
     let api: GuardClawAPI
     let onRefresh: () -> Void
+    private var L: Loc { Loc.shared }
 
     private var isBusy: Bool { model.downloading || model.loading }
 
@@ -600,7 +621,7 @@ private struct ModelRowView: View {
                 .foregroundStyle(model.loaded ? .green : .primary)
 
             if model.recommended == true {
-                Text("rec")
+                Text(L.t("settings.rec"))
                     .font(.system(size: 8, weight: .bold))
                     .textCase(.uppercase)
                     .padding(.horizontal, 4)
@@ -627,11 +648,11 @@ private struct ModelRowView: View {
         } else if isBusy {
             busyActions
         } else if model.downloaded {
-            Button("Run") { setup() }
+            Button(L.t("common.run")) { setup() }
                 .font(.system(size: 9))
                 .controlSize(.mini)
         } else {
-            Button("Setup & Run") { setup() }
+            Button(L.t("settings.setupRun")) { setup() }
                 .font(.system(size: 9))
                 .controlSize(.mini)
         }
@@ -640,10 +661,10 @@ private struct ModelRowView: View {
     private var loadedActions: some View {
         HStack(spacing: 4) {
             Circle().fill(.green).frame(width: 6, height: 6)
-            Text("Active")
+            Text(L.t("common.active"))
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.green)
-            Button("Stop") { Task { _ = try? await api.unloadModel(); onRefresh() } }
+            Button(L.t("common.stop")) { Task { _ = try? await api.unloadModel(); onRefresh() } }
                 .font(.system(size: 9))
                 .controlSize(.mini)
         }
@@ -652,7 +673,7 @@ private struct ModelRowView: View {
     private var busyActions: some View {
         Group {
             if model.downloading {
-                Button("Cancel") { Task { _ = try? await api.cancelDownload(id: model.id); onRefresh() } }
+                Button(L.t("common.cancel")) { Task { _ = try? await api.cancelDownload(id: model.id); onRefresh() } }
                     .font(.system(size: 9))
                     .controlSize(.mini)
             }
@@ -664,7 +685,7 @@ private struct ModelRowView: View {
             ProgressView(value: model.downloading ? max(Double(model.progress), 2) / 100.0 : 1.0)
                 .tint(.blue)
 
-            Text(model.statusMessage ?? (model.downloading ? "Downloading... \(model.progress)%" : "Loading model..."))
+            Text(model.statusMessage ?? (model.downloading ? L.t("settings.downloading", model.progress) : L.t("settings.loadingModel")))
                 .font(.system(size: 9))
                 .foregroundStyle(.blue)
         }

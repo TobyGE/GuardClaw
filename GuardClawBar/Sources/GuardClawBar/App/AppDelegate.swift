@@ -20,10 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         statusItemController = StatusItemController(appState: state)
         state.startPolling()
 
-        // Set up notifications
-        let nm = NotificationManager()
-        nm.requestPermission()
-        UNUserNotificationCenter.current().delegate = self
+        // Set up notifications (may fail in debug builds without a proper app bundle)
+        if Bundle.main.bundleIdentifier != nil {
+            let nm = NotificationManager()
+            nm.requestPermission()
+            UNUserNotificationCenter.current().delegate = self
+        }
 
         NotificationCenter.default.addObserver(
             self,

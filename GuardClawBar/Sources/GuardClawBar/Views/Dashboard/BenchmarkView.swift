@@ -10,14 +10,17 @@ struct BenchmarkView: View {
     @State private var benchBackend: String = "current"
     @State private var benchModel: String = ""
     @State private var externalModels: [String] = []
+    private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
-    private let backends = [
-        ("current", "Current Judge"),
-        ("built-in", "Built-in"),
-        ("lmstudio", "LM Studio"),
-        ("ollama", "Ollama"),
-    ]
+    private var backends: [(String, String)] {
+        [
+            ("current", L.t("benchmark.currentJudge")),
+            ("built-in", L.t("settings.builtIn")),
+            ("lmstudio", "LM Studio"),
+            ("ollama", "Ollama"),
+        ]
+    }
 
     var body: some View {
         ScrollView {
@@ -35,9 +38,9 @@ struct BenchmarkView: View {
                     resultsSection
                 } else if !isRunning {
                     ContentUnavailableView(
-                        "No Results Yet",
+                        L.t("benchmark.noResults"),
                         systemImage: "chart.bar",
-                        description: Text("Run the benchmark to test your judge's accuracy")
+                        description: Text(L.t("benchmark.noResultsDesc"))
                     )
                     .frame(height: 200)
                 }
@@ -45,28 +48,28 @@ struct BenchmarkView: View {
                 if let msg = statusMessage {
                     Text(msg)
                         .font(.caption)
-                        .foregroundStyle(msg.contains("✓") ? .green : .red)
+                        .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
                 }
             }
             .padding(24)
         }
-        .navigationTitle("Benchmark")
+        .navigationTitle(L.t("benchmark.title"))
     }
 
     // MARK: - Run Controls
 
     private var runControlSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Accuracy Benchmark")
+            Text(L.t("benchmark.headline"))
                 .font(.headline)
 
-            Text("Tests the safety judge against 30 curated scenarios. Higher is better — aim for 85%+.")
+            Text(L.t("benchmark.description"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             // Backend & model picker
             HStack(spacing: 12) {
-                Picker("Backend", selection: $benchBackend) {
+                Picker(L.t("benchmark.backend"), selection: $benchBackend) {
                     ForEach(backends, id: \.0) { key, label in
                         Text(label).tag(key)
                     }
@@ -85,8 +88,8 @@ struct BenchmarkView: View {
                 }
 
                 if !externalModels.isEmpty {
-                    Picker("Model", selection: $benchModel) {
-                        Text("Auto").tag("")
+                    Picker(L.t("benchmark.model"), selection: $benchModel) {
+                        Text(L.t("benchmark.auto")).tag("")
                         ForEach(externalModels, id: \.self) { m in
                             Text(m).tag(m)
                         }
@@ -100,7 +103,7 @@ struct BenchmarkView: View {
                     Button(role: .destructive) {
                         Task { await abortBenchmark() }
                     } label: {
-                        Label("Abort", systemImage: "stop.fill")
+                        Label(L.t("benchmark.abort"), systemImage: "stop.fill")
                     }
                     .buttonStyle(.bordered)
                     .tint(.red)
@@ -108,7 +111,7 @@ struct BenchmarkView: View {
                     Button {
                         Task { await runBenchmark() }
                     } label: {
-                        Label("Run Benchmark", systemImage: "play.fill")
+                        Label(L.t("benchmark.runBenchmark"), systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -117,7 +120,7 @@ struct BenchmarkView: View {
 
                 if let latest = results.first, let acc = latest.accuracy {
                     HStack(spacing: 4) {
-                        Text("Latest:")
+                        Text(L.t("benchmark.latest"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text("\(Int(acc * 100))%")
@@ -138,7 +141,7 @@ struct BenchmarkView: View {
         VStack(alignment: .leading, spacing: 8) {
             ProgressView(value: progress)
                 .tint(.blue)
-            Text(progressMessage.isEmpty ? "Running..." : progressMessage)
+            Text(progressMessage.isEmpty ? L.t("benchmark.running") : progressMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -151,7 +154,7 @@ struct BenchmarkView: View {
 
     private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Results History")
+            Text(L.t("benchmark.resultsHistory"))
                 .font(.headline)
 
             ForEach(results) { run in
@@ -179,7 +182,7 @@ struct BenchmarkView: View {
     private func runBenchmark() async {
         isRunning = true
         progress = 0
-        progressMessage = "Starting benchmark..."
+        progressMessage = L.t("benchmark.running")
 
         var urlStr = "\(SettingsStore.shared.serverURL)/api/benchmark/run"
         var queryParts: [String] = []
@@ -207,7 +210,7 @@ struct BenchmarkView: View {
                 }
             }
         } catch {
-            statusMessage = "Benchmark error: \(error.localizedDescription)"
+            statusMessage = L.t("benchmark.error", error.localizedDescription)
         }
 
         isRunning = false
@@ -231,11 +234,11 @@ struct BenchmarkView: View {
                 progressMessage = "[\(done)/\(total)] \(label)"
             case "complete":
                 let acc = (json["accuracy"] as? Double ?? 0) * 100
-                statusMessage = "✓ Done — accuracy: \(String(format: "%.0f", acc))%"
+                statusMessage = "\u{2713} " + L.t("benchmark.done", String(format: "%.0f", acc))
             case "aborted":
-                statusMessage = "Benchmark aborted"
+                statusMessage = L.t("benchmark.benchmarkAborted")
             case "error":
-                statusMessage = "Error: \(json["error"] as? String ?? "unknown")"
+                statusMessage = L.t("benchmark.error", json["error"] as? String ?? "unknown")
             default: break
             }
         }
@@ -244,7 +247,7 @@ struct BenchmarkView: View {
     private func abortBenchmark() async {
         _ = try? await api.abortBenchmark()
         isRunning = false
-        statusMessage = "Aborted"
+        statusMessage = L.t("benchmark.aborted")
     }
 }
 
@@ -252,6 +255,7 @@ struct BenchmarkRunCard: View {
     let run: BenchmarkRun
     let isSelected: Bool
     let onTap: () -> Void
+    private var L: Loc { Loc.shared }
 
     private var accuracy: Double { run.accuracy ?? 0 }
     private var accuracyColor: Color { accuracy >= 0.85 ? .green : accuracy >= 0.7 ? .orange : .red }
@@ -274,15 +278,15 @@ struct BenchmarkRunCard: View {
                 .frame(width: 48, height: 48)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(run.model ?? "Unknown model")
+                    Text(run.model ?? L.t("benchmark.unknownModel"))
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    let backendSuffix = run.backend.map { " · \($0)" } ?? ""
-                    Text("\(run.correct ?? 0)/\(run.total ?? 0) correct\(backendSuffix)")
+                    let backendSuffix = run.backend.map { " \u{00B7} \($0)" } ?? ""
+                    Text(L.t("benchmark.correct", run.correct ?? 0, run.total ?? 0, backendSuffix))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if let latency = run.avgLatencyMs {
-                        Text("Avg \(String(format: "%.0f", latency))ms")
+                        Text(L.t("benchmark.avgLatency", String(format: "%.0f", latency)))
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }

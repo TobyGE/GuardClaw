@@ -2,14 +2,15 @@ import SwiftUI
 
 struct ApprovalsPageView: View {
     @Environment(AppState.self) var appState
+    private var L: Loc { Loc.shared }
 
     var body: some View {
         Group {
             if appState.pendingApprovals.isEmpty {
                 ContentUnavailableView(
-                    "No Pending Approvals",
+                    L.t("approvals.noApprovals"),
                     systemImage: "checkmark.shield",
-                    description: Text("High-risk tool calls will appear here for review")
+                    description: Text(L.t("approvals.noApprovalsDesc"))
                 )
             } else {
                 ScrollView {
@@ -22,11 +23,11 @@ struct ApprovalsPageView: View {
                 }
             }
         }
-        .navigationTitle("Approvals")
+        .navigationTitle(L.t("approvals.title"))
         .toolbar {
             if appState.pendingCount > 0 {
                 ToolbarItem {
-                    Text("\(appState.pendingCount) pending")
+                    Text(L.t("approvals.pending", appState.pendingCount))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -39,6 +40,7 @@ struct ApprovalCard: View {
     @Environment(AppState.self) var appState
     let approval: ApprovalItem
     @State private var isActing = false
+    private var L: Loc { Loc.shared }
 
     private var riskScore: Int { Int(approval.riskScore ?? 0) }
     private var riskColor: Color {
@@ -56,7 +58,7 @@ struct ApprovalCard: View {
                         Image(systemName: "terminal")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Text(approval.toolName ?? "Unknown")
+                        Text(approval.toolName ?? L.t("approvals.unknownTool"))
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
@@ -74,7 +76,7 @@ struct ApprovalCard: View {
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundStyle(riskColor)
-                    Text("Risk Score")
+                    Text(L.t("approvals.riskScore"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -104,7 +106,7 @@ struct ApprovalCard: View {
                         isActing = false
                     }
                 } label: {
-                    Label("Deny", systemImage: "xmark")
+                    Label(L.t("common.deny"), systemImage: "xmark")
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
@@ -119,7 +121,7 @@ struct ApprovalCard: View {
                         isActing = false
                     }
                 } label: {
-                    Label("Always Approve", systemImage: "checkmark.seal")
+                    Label(L.t("approvals.alwaysApprove"), systemImage: "checkmark.seal")
                 }
                 .buttonStyle(.bordered)
                 .tint(.blue)
@@ -132,7 +134,7 @@ struct ApprovalCard: View {
                         isActing = false
                     }
                 } label: {
-                    Label("Approve", systemImage: "checkmark")
+                    Label(L.t("common.approve"), systemImage: "checkmark")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
@@ -141,7 +143,7 @@ struct ApprovalCard: View {
 
             // Elapsed time
             if let elapsed = approval.elapsed {
-                Text("Waiting \(String(format: "%.1f", elapsed))s")
+                Text(L.t("approvals.waiting", String(format: "%.1f", elapsed)))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }

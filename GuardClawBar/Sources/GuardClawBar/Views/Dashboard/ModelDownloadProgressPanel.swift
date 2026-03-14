@@ -49,9 +49,10 @@ struct ModelDownloadProgressView: View {
     let modelName: String
     let onDismiss: () -> Void
 
+    private var L: Loc { Loc.shared }
     @State private var progress: Double = 0
     @State private var phase: DownloadPhase = .starting
-    @State private var statusText = "Preparing..."
+    @State private var statusText = Loc.shared.t("download.preparing")
     @State private var pollTimer: Timer?
     @State private var initiallyDownloaded: Bool? = nil  // nil = not yet checked
 
@@ -142,12 +143,12 @@ struct ModelDownloadProgressView: View {
 
     private var titleText: String {
         switch phase {
-        case .starting:    return "Setting up \(modelName)"
-        case .downloading: return "Downloading \(modelName)"
-        case .downloaded:  return "\(modelName) downloaded"
-        case .loading:     return "Loading \(modelName)"
-        case .ready:       return "\(modelName) is ready"
-        case .failed:      return "Setup failed"
+        case .starting:    return L.t("download.settingUp", modelName)
+        case .downloading: return L.t("download.downloading", modelName)
+        case .downloaded:  return L.t("download.downloaded", modelName)
+        case .loading:     return L.t("download.loadingModel", modelName)
+        case .ready:       return L.t("download.ready", modelName)
+        case .failed:      return L.t("download.setupFailed")
         }
     }
 
@@ -175,7 +176,7 @@ struct ModelDownloadProgressView: View {
                 } else {
                     // Fresh download just completed — notify
                     phase = .downloaded
-                    statusText = "Open Judge settings to load it into memory"
+                    statusText = L.t("download.openJudge")
                     pollTimer?.invalidate()
                     NotificationManager().notifyModelDownloaded(modelName: modelName)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { onDismiss() }
@@ -183,14 +184,14 @@ struct ModelDownloadProgressView: View {
             } else if model.downloading {
                 phase = .downloading
                 progress = Double(model.progress)
-                statusText = "\(model.progress)% — will finish in the background"
+                statusText = L.t("download.progress", model.progress)
             } else if let err = model.setupError {
                 phase = .failed
                 statusText = err
                 pollTimer?.invalidate()
             } else {
                 phase = .starting
-                statusText = "Preparing download..."
+                statusText = L.t("download.preparingDownload")
             }
         }
     }

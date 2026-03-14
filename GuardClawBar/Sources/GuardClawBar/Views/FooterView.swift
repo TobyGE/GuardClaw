@@ -5,6 +5,7 @@ struct FooterView: View {
     @Bindable var appState: AppState
     @State private var showSettings = false
     @State private var updateStatus: UpdateStatus = .idle
+    private var L: Loc { Loc.shared }
 
     enum UpdateStatus: Equatable {
         case idle
@@ -21,11 +22,11 @@ struct FooterView: View {
                     Image(systemName: "arrow.down.circle.fill")
                         .foregroundStyle(.blue)
                         .font(.caption)
-                    Text("\(version) available")
+                    Text(L.t("footer.available", version))
                         .font(.caption2)
                         .fontWeight(.medium)
                     Spacer()
-                    Button("Download") {
+                    Button(L.t("common.download")) {
                         if case .available(_, let url) = updateStatus,
                            let downloadURL = URL(string: url) {
                             NSWorkspace.shared.open(downloadURL)
@@ -38,7 +39,7 @@ struct FooterView: View {
             }
 
             HStack(spacing: 12) {
-                Button("Open Dashboard") {
+                Button(L.t("footer.openDashboard")) {
                     AppDelegate.shared?.openDashboard()
                 }
                 .buttonStyle(.plain)
@@ -54,7 +55,7 @@ struct FooterView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(updateStatus == .checking)
-                .help("Check for updates")
+                .help(L.t("footer.checkUpdates"))
 
                 Button(action: { showSettings.toggle() }) {
                     Image(systemName: "gear")
