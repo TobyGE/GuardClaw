@@ -21,3 +21,14 @@ MEMORY.md
 canvas/
 .guardclaw/
 .node-cache/
+
+# LoRA artifacts (keep scripts, exclude model weights and training data)
+lora/adapters/
+lora/adapters-original/
+lora/adapters-best/
+lora/checkpoints/
+lora/train.jsonl
+lora/valid.jsonl
+lora/eval-results.json
+*.safetensors
+*.safetensors.enc

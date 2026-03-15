@@ -9,6 +9,7 @@ import fs from 'fs';
 import os from 'os';
 import http from 'http';
 import { fileURLToPath } from 'url';
+import { hasEncryptedAdapter, decryptAdapterToTemp } from './adapter-crypto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -470,14 +471,44 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       this._statusMessage = 'Starting model server...';
       console.log(`[LLMEngine] Starting mlx_lm.server with model: ${catalog.name}...`);
 
-      this._process = spawn(resolvedPython, [
+      // Check for LoRA adapters (plaintext or encrypted)
+      const loraDir = path.join(process.cwd(), 'lora');
+      const loraAdapterPath = path.join(loraDir, 'adapters');
+      const loraEncDir = path.join(loraDir, 'adapters-enc');
+      const hasPlainAdapter = fs.existsSync(path.join(loraAdapterPath, 'adapters.safetensors'));
+      const hasEncAdapter = hasEncryptedAdapter(loraEncDir);
+
+      let adapterPathForServer = null;
+      let adapterCleanup = null;
+
+      if (hasEncAdapter) {
+        // Decrypt to temp dir, use that, clean up after server exits
+        try {
+          const { tmpDir, cleanup } = decryptAdapterToTemp(loraEncDir);
+          adapterPathForServer = tmpDir;
+          adapterCleanup = cleanup;
+          console.log(`[LLMEngine] LoRA adapter decrypted (device-locked)`);
+        } catch (err) {
+          console.error(`[LLMEngine] Failed to decrypt adapter: ${err.message}`);
+        }
+      } else if (hasPlainAdapter) {
+        adapterPathForServer = loraAdapterPath;
+        console.log(`[LLMEngine] LoRA adapter found: ${loraAdapterPath}`);
+      }
+
+      const serverArgs = [
         '-m', 'mlx_lm', 'server',
         '--model', modelPath,
         '--port', String(MLX_PORT),
         '--decode-concurrency', '4',
         '--prompt-concurrency', '4',
         '--chat-template-args', '{"enable_thinking":false}',
-      ], {
+      ];
+      if (adapterPathForServer) {
+        serverArgs.push('--adapter-path', adapterPathForServer);
+      }
+
+      this._process = spawn(resolvedPython, serverArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -490,6 +521,10 @@ print(json.dumps({"done": True, "path": path}), flush=True)
 
       this._process.on('close', (code) => {
         console.log(`[LLMEngine] mlx_lm.server exited (code ${code})`);
+        if (adapterCleanup) {
+          adapterCleanup();
+          console.log(`[LLMEngine] Decrypted adapter cleaned up`);
+        }
         if (this._loadedModelId === modelId) {
           this._process = null;
           this._loadedModelId = null;
@@ -498,6 +533,13 @@ print(json.dumps({"done": True, "path": path}), flush=True)
 
       this._statusMessage = 'Loading model into memory...';
       await this._waitForServer();
+
+      // Clean up decrypted adapter after model is loaded into memory
+      if (adapterCleanup) {
+        adapterCleanup();
+        adapterCleanup = null;
+        console.log(`[LLMEngine] Decrypted adapter cleaned up (model loaded)`);
+      }
 
       this._loadedModelId = modelId;
       this._loadingModelId = null;

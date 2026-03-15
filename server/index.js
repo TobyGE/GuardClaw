@@ -8,7 +8,6 @@ import os from 'os';
 import childProcess from 'child_process';
 import crypto from 'crypto';
 import { ClawdbotClient } from './clawdbot-client.js';
-import { NanobotClient } from './nanobot-client.js';
 import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
 import { SessionPoller } from './session-poller.js';
@@ -58,7 +57,7 @@ function saveBlockingConfig() {
 
 loadBlockingConfig();
 
-// Backend selection: auto (default) | openclaw | nanobot
+// Backend selection: auto (default) | openclaw
 const BACKEND = (process.env.BACKEND || 'auto').toLowerCase();
 
 // Middleware
@@ -176,6 +175,9 @@ function inferPendingDenials(sessionKey, excludeKey = null) {
     if (ask.sessionKey === sessionKey && key !== excludeKey) {
       ccPendingAsks.delete(key);
       memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
+      if (ask.eventId) {
+        eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: false, verdict: 'user-denied' } });
+      }
       console.log(`[GuardClaw] 🧠 Memory: user DENIED blocked action → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
 
       // Clean up linked Bar pending approval (user denied in CC dialog)
@@ -363,32 +365,6 @@ if (BACKEND === 'openclaw' || BACKEND === 'auto') {
   activeClients.push({ client: openclawClient, name: 'openclaw' });
 }
 
-// Nanobot client (only for nanobot or auto mode)
-let nanobotClient = null;
-if (BACKEND === 'nanobot' || BACKEND === 'auto') {
-  nanobotClient = new NanobotClient(
-    process.env.NANOBOT_URL || 'ws://127.0.0.1:18790',
-    {
-      autoReconnect: true,
-      reconnectDelay: 5000,
-      maxReconnectDelay: 30000,
-      onConnect: () => {
-        logger.info('Nanobot connection established');
-      },
-      onDisconnect: () => {
-        logger.warn('Nanobot connection lost');
-      },
-      onReconnecting: (attempt, delay) => {
-        if (delay === -1) {
-          logger.warn(`Nanobot: gave up reconnecting after ${attempt - 1} attempts. Not available.`);
-        } else {
-          logger.info(`Nanobot reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
-        }
-      }
-    }
-  );
-  activeClients.push({ client: nanobotClient, name: 'nanobot' });
-}
 
 // Session poller (only works with OpenClaw)
 const sessionPoller = openclawClient
@@ -456,18 +432,18 @@ app.get('/api/status', async (req, res) => {
   const approvalStats = approvalHandler ? approvalHandler.getStats() : null;
 
   // Per-backend connection status
-  const backendLabels = { openclaw: 'OC', nanobot: 'NB' };
+  const backendLabels = { openclaw: 'OpenClaw' };
   const backends = {};
   for (const { client, name } of activeClients) {
     backends[name] = { ...client.getConnectionStats(), label: backendLabels[name] || name };
   }
   // Claude Code uses HTTP hooks — consider it "connected" if we received a hook recently
   const ccConnected = ccLastHookTime > 0 && (Date.now() - ccLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
-  backends['claude-code'] = { connected: ccConnected, label: 'CC', type: 'http-hook' };
+  backends['claude-code'] = { connected: ccConnected, label: 'Claude Code', type: 'http-hook' };
 
   // Gemini CLI uses subprocess hooks via HTTP bridge
   const geminiConnected = geminiLastHookTime > 0 && (Date.now() - geminiLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
-  backends['gemini-cli'] = { connected: geminiConnected, label: 'Gemini', type: 'http-hook' };
+  backends['gemini-cli'] = { connected: geminiConnected, label: 'Gemini CLI', type: 'http-hook' };
 
   // Cursor IDE uses subprocess hooks via HTTP bridge
   const cursorConnected = cursorLastHookTime > 0 && (Date.now() - cursorLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
@@ -478,7 +454,7 @@ app.get('/api/status', async (req, res) => {
   backends['opencode'] = { connected: opencodeConnected, label: 'OpenCode', type: 'http-hook' };
 
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || geminiConnected || cursorConnected || opencodeConnected || activeClients.some(({ client }) => client.getConnectionStats().connected);
+  const anyConnected = ccConnected || geminiConnected || cursorConnected || opencodeConnected || coworkWatcherActive || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -492,7 +468,7 @@ app.get('/api/status', async (req, res) => {
   res.json({
     // Connection status
     connected: anyConnected,
-    connectionStats: openclawClient ? openclawClient.getConnectionStats() : (nanobotClient ? nanobotClient.getConnectionStats() : {}),
+    connectionStats: openclawClient ? openclawClient.getConnectionStats() : {},
     backends,
 
     // Poller status
@@ -754,7 +730,7 @@ app.get('/api/events/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const filter = req.query.filter || null;   // 'safe', 'warning', 'blocked'
   const sessionFilter = req.query.session || null;
-  const backend = req.query.backend || null; // 'openclaw', 'claude-code', 'nanobot'
+  const backend = req.query.backend || null; // 'openclaw', 'claude-code', 'cowork'
   const since = req.query.since ? parseInt(req.query.since) : null; // timestamp for delta polling
 
   // Filtering pushed down to SQLite for performance
@@ -1357,21 +1333,24 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     };
     const displayInput = formatDisplayInput(gcToolName, gcParams);
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'ask' : 'pass-through') : 'auto-approved';
+    const isHighRisk = analysis.riskScore >= 8;
+    const eventId = `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     eventStore.addEvent({
+      id: eventId,
       type: 'claude-code-tool',
       tool: gcToolName,
       command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
       description: displayInput,
       sessionKey,
       riskScore: analysis.riskScore,
-      category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
-      allowed: analysis.riskScore < 8 ? 1 : 0,
+      category: isHighRisk ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
+      allowed: isHighRisk ? null : 1,  // null = pending user decision
       safeguard: {
         riskScore: analysis.riskScore,
         reasoning: analysis.reasoning,
         category: analysis.category,
         verdict,
-        allowed: analysis.riskScore < 8,
+        allowed: isHighRisk ? null : true,  // null = pending
       },
       data: JSON.stringify({
         toolName: gcToolName,
@@ -1458,6 +1437,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       sessionKey,
       timestamp: Date.now(),
       approvalId, // link to Bar pending approval for cleanup
+      eventId, // link to stored event for updating allowed status
     });
 
     // If no PostToolUse arrives within 15s, infer user denied in CC dialog → clean up Bar pending
@@ -1466,6 +1446,10 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         const ask = ccPendingAsks.get(askKey);
         ccPendingAsks.delete(askKey);
         memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
+        // Update the stored event to reflect denial
+        if (ask.eventId) {
+          eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: false, verdict: 'user-denied' } });
+        }
         console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (15s timeout) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
         if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
           const entry = pendingApprovals.get(ask.approvalId);
@@ -1673,6 +1657,10 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
   if (pendingAsk) {
     ccPendingAsks.delete(askKey);
     memoryStore.recordDecision(pendingAsk.toolName, pendingAsk.displayInput, pendingAsk.riskScore, 'approve', sessionKey);
+    // Update the stored event to reflect user's actual approval
+    if (pendingAsk.eventId) {
+      eventStore.updateEvent(pendingAsk.eventId, { safeguard: { riskScore: pendingAsk.riskScore, allowed: true, verdict: 'user-approved' } });
+    }
     console.log(`[GuardClaw] 🧠 Memory: user APPROVED blocked action → ${pendingAsk.toolName}: ${pendingAsk.commandStr.slice(0, 80)}`);
     // Clean up linked Bar pending approval (user approved in CC dialog)
     if (pendingAsk.approvalId && pendingApprovals.has(pendingAsk.approvalId)) {
@@ -2182,7 +2170,7 @@ app.post('/api/hooks/llm-output', (req, res) => {
   // Determine backend from sessionKey
   let backend = 'openclaw';
   if (sessionKey?.startsWith('claude-code:')) backend = 'claude-code';
-  else if (sessionKey?.startsWith('nanobot')) backend = 'nanobot';
+  else if (sessionKey?.startsWith('cowork:')) backend = 'cowork';
 
   eventStore.recordAgentTokens(backend, {
     input: usage.input_tokens || usage.prompt_tokens || usage.input || 0,
@@ -4926,6 +4914,196 @@ for (const { client } of activeClients) {
   client.onEvent(handleAgentEvent);
 }
 
+// ─── MCP bridge endpoints (for Cowork monitoring) ────────────────────────────
+
+app.post('/api/mcp/safety-check', async (req, res) => {
+  const { source, actionType, description, command } = req.body;
+  logger.info(`[MCP] Safety check from ${source}: ${actionType} — ${description}`);
+  try {
+    const action = command || description;
+    const result = actionType === 'command'
+      ? await safeguardService.analyzeCommand(action, { sessionKey: `mcp:${source}`, recentHistory: [] })
+      : await safeguardService.analyzeToolAction(actionType === 'file_write' ? 'write' : actionType, { command: action, content: description }, { sessionKey: `mcp:${source}`, recentHistory: [] });
+    // Store as event
+    eventStore.addEvent({
+      type: 'cowork-mcp',
+      tool: actionType === 'command' ? 'exec' : actionType,
+      sessionKey: `cowork:${source}`,
+      riskScore: result.riskScore,
+      category: result.category,
+      allowed: result.riskScore < 8,
+      data: { command: action, description, reasoning: result.reasoning, source },
+    });
+    broadcastEvent({ type: 'cowork-mcp', tool: actionType, riskScore: result.riskScore, description, source });
+    res.json({ riskScore: result.riskScore, category: result.category, reasoning: result.reasoning });
+  } catch (err) {
+    logger.error(`[MCP] Safety check error: ${err.message}`);
+    res.json({ riskScore: 1, reasoning: 'GuardClaw analysis unavailable' });
+  }
+});
+
+app.post('/api/mcp/report', (req, res) => {
+  const { source, action, result, details } = req.body;
+  logger.info(`[MCP] Report from ${source}: ${action} → ${result}`);
+  eventStore.add({
+    type: 'cowork-mcp',
+    tool: 'report',
+    sessionKey: `cowork:${source}`,
+    riskScore: null,
+    category: 'audit',
+    allowed: true,
+    data: { action, result, details, source },
+  });
+  broadcastEvent({ type: 'cowork-mcp', tool: 'report', action, result, source });
+  res.json({ ok: true });
+});
+
+// ─── Cowork transcript watcher ───────────────────────────────────────────────
+
+const COWORK_SESSIONS_DIR = path.join(
+  os.homedir(), 'Library', 'Application Support', 'Claude', 'local-agent-mode-sessions'
+);
+let coworkWatcherActive = false;
+
+function startCoworkWatcher() {
+  const watchers = new Map(); // sessionFile -> { watcher, offset }
+
+  function scanForAuditFiles() {
+    try {
+      const files = [];
+      // Recursively find audit.jsonl files
+      function walk(dir, depth = 0) {
+        if (depth > 6) return;
+        try {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) walk(full, depth + 1);
+            else if (entry.name === 'audit.jsonl') files.push(full);
+          }
+        } catch {}
+      }
+      walk(COWORK_SESSIONS_DIR);
+      return files;
+    } catch { return []; }
+  }
+
+  function processNewLines(filePath) {
+    const state = watchers.get(filePath);
+    if (!state) return;
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.size <= state.offset) return;
+      const fd = fs.openSync(filePath, 'r');
+      const buf = Buffer.alloc(stat.size - state.offset);
+      fs.readSync(fd, buf, 0, buf.length, state.offset);
+      fs.closeSync(fd);
+      state.offset = stat.size;
+      const lines = buf.toString('utf8').trim().split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          processCoworkEntry(entry, filePath);
+        } catch {}
+      }
+    } catch {}
+  }
+
+  function processCoworkEntry(entry, filePath) {
+    const sessionId = entry.session_id || 'unknown';
+    const sessionKey = `cowork:${sessionId}`;
+    // Extract tool calls from assistant messages
+    if (entry.type === 'assistant' && entry.message?.content) {
+      const toolUses = (Array.isArray(entry.message.content) ? entry.message.content : [])
+        .filter(c => c.type === 'tool_use');
+      for (const tu of toolUses) {
+        const toolName = tu.name || 'unknown';
+        const input = tu.input || {};
+        const command = input.command || input.path || input.pattern || input.query ||
+          input.url || input.file_path || JSON.stringify(input).slice(0, 200);
+        logger.info(`[Cowork] Tool call: ${toolName} — ${String(command).slice(0, 100)}`);
+        // Score with simple rules (avoid async LLM issues for audit-only mode)
+        const isExec = ['Bash', 'exec'].includes(toolName);
+        let riskScore = 1;
+        if (isExec) {
+          const cmd = String(command);
+          if (/\brm\b.*-rf|curl.*\|.*bash|chmod\s+777|mkfs|dd\s+if=/.test(cmd)) riskScore = 9;
+          else if (/\brm\b|\bkill\b|sudo|chmod|chown|curl\b.*-o|wget\b/.test(cmd)) riskScore = 5;
+          else riskScore = 2;
+        } else if (['Write', 'write'].includes(toolName)) riskScore = 4;
+        else if (['Edit', 'edit'].includes(toolName)) riskScore = 3;
+        else if (['Read', 'Glob', 'Grep', 'ToolSearch', 'read', 'glob', 'grep', 'toolsearch'].includes(toolName)) riskScore = 1;
+        else riskScore = 2;
+        eventStore.addEvent({
+          type: 'cowork-audit',
+          tool: isExec ? 'exec' : toolName.toLowerCase(),
+          sessionKey,
+          safeguard: { riskScore, category: 'cowork', allowed: true },
+          data: { tool: toolName, command: String(command).slice(0, 500), source: 'cowork' },
+        });
+        broadcastEvent({
+          type: 'cowork-audit',
+          tool: toolName,
+          riskScore,
+          sessionKey,
+          command: String(command).slice(0, 200),
+          source: 'cowork',
+        });
+      }
+    }
+    // Log user prompts
+    if (entry.type === 'user' && entry.message?.content) {
+      const text = typeof entry.message.content === 'string'
+        ? entry.message.content
+        : JSON.stringify(entry.message.content).slice(0, 200);
+      logger.info(`[Cowork] User prompt: ${text.slice(0, 100)}`);
+      eventStore.addEvent({
+        type: 'cowork-audit',
+        tool: null,
+        sessionKey: `cowork:${sessionId}`,
+        safeguard: { riskScore: null, category: 'prompt', allowed: true },
+        data: { prompt: text.slice(0, 500), source: 'cowork' },
+      });
+      broadcastEvent({ type: 'cowork-prompt', sessionKey: `cowork:${sessionId}`, source: 'cowork' });
+    }
+  }
+
+  function trackFile(filePath) {
+    if (watchers.has(filePath)) return;
+    try {
+      const stat = fs.statSync(filePath);
+      watchers.set(filePath, { offset: stat.size }); // Start from current end
+      logger.info(`[Cowork] Tracking ${path.basename(path.dirname(filePath))}/audit.jsonl (${stat.size} bytes)`);
+    } catch {}
+  }
+
+  // Poll all tracked files + scan for new ones
+  function pollAll() {
+    // Check existing tracked files
+    for (const filePath of watchers.keys()) {
+      processNewLines(filePath);
+    }
+    // Scan for new audit files
+    for (const f of scanForAuditFiles()) {
+      trackFile(f);
+    }
+  }
+
+  // Initial scan
+  try {
+    fs.accessSync(COWORK_SESSIONS_DIR);
+    for (const f of scanForAuditFiles()) trackFile(f);
+    // Poll every 2 seconds
+    setInterval(pollAll, 2000);
+    coworkWatcherActive = true;
+    logger.info(`[Cowork] Watcher started (polling 2s) — monitoring ${COWORK_SESSIONS_DIR}`);
+  } catch {
+    logger.info('[Cowork] No Cowork sessions directory found, skipping watcher');
+  }
+}
+
+// Cowork watcher disabled — audit-only monitoring, no intervention capability yet
+// startCoworkWatcher();
+
 // ─── Start server ────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
@@ -4941,9 +5119,7 @@ app.listen(PORT, () => {
   if (process.env.AUTO_CONNECT !== 'false') {
     // Connect all active backends
     const connectPromises = activeClients.map(({ client, name }) => {
-      const url = name === 'openclaw'
-        ? (process.env.OPENCLAW_URL || process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789')
-        : (process.env.NANOBOT_URL || 'ws://127.0.0.1:18790');
+      const url = process.env.OPENCLAW_URL || process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789';
       console.log(`🔌 Connecting to ${name}... (${url})`);
 
       return client.connect()

@@ -31,7 +31,6 @@
     "label": "后端：",
     "showingEvents": "显示 {{count}} 个事件",
     "openclaw": "OpenClaw",
-    "nanobot": "Nanobot",
     "claudeCode": "Claude Code",
     "opencode": "OpenCode"
   },

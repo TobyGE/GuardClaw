@@ -31,7 +31,6 @@
     "label": "Backend:",
     "showingEvents": "Showing {{count}} event{{plural}}",
     "openclaw": "OpenClaw",
-    "nanobot": "Nanobot",
     "claudeCode": "Claude Code",
     "opencode": "OpenCode"
   },

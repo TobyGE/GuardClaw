@@ -162,7 +162,6 @@ function App() {
         const ss = selectedSessionRef.current;
         const matchesBackend = bf === 'all'
           || (bf === 'openclaw' && eventSessionKey2.startsWith('agent:'))
-          || (bf === 'nanobot' && eventSessionKey2.startsWith('nanobot'))
           || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'))
           || (bf === 'gemini-cli' && eventSessionKey2.startsWith('gemini:'))
           || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'))
@@ -597,7 +596,6 @@ function App() {
                 <div className="flex items-center space-x-2">
                   {backends && [
                     { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('openclaw'); } },
-                    { key: 'nanobot', label: 'Nanobot', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession(null); setBackendFilter('nanobot'); } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                     { key: 'opencode', label: 'OpenCode', activeColor: 'bg-teal-600', onClick: () => { setSelectedSession(null); setBackendFilter('opencode'); } },
                   ]
@@ -630,7 +628,7 @@ function App() {
                     {t('events.realtime')}
                     {backendFilter !== 'all' && (
                       <span className="ml-2 text-sm text-gc-text-dim">
-                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'nanobot' ? t('backend.nanobot') : backendFilter === 'opencode' ? t('backend.opencode') : t('backend.claudeCode')})
+                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'opencode' ? t('backend.opencode') : t('backend.claudeCode')})
                       </span>
                     )}
                     {backendFilter === 'all' && (
@@ -659,7 +657,6 @@ function App() {
                 const isOC = backendFilter === 'openclaw';
                 const visibleSessions = sessions.filter(s => {
                   if (isOC) return s.key.startsWith('agent:') && s.key !== 'agent:main:main';
-                  if (backendFilter === 'nanobot') return s.key.startsWith('nanobot');
                   if (isCC) return false; // CC subagents fold into Main tab (ephemeral, fire-and-forget)
                   // "All" view: exclude CC sessions (they have their own Main/Sub-agent tabs in CC view)
                   if (backendFilter === 'all' && s.key.startsWith('claude-code:')) return false;
@@ -669,7 +666,6 @@ function App() {
                 if (!isCC && !isOC && visibleSessions.length <= 1) return null;
                 const getSessionBackend = (key) => {
                   if (key.startsWith('claude-code:')) return { label: 'CC', color: 'bg-purple-500' };
-                  if (key.startsWith('nanobot')) return { label: 'NB', color: 'bg-blue-500' };
                   return { label: 'OC', color: 'bg-blue-600' };
                 };
                 return (

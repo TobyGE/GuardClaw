@@ -276,10 +276,9 @@ function configShow() {
   
   const envContent = readEnvFile();
   const vars = {
-    'BACKEND': 'Backend mode (auto/openclaw/nanobot)',
+    'BACKEND': 'Backend mode (auto/openclaw)',
     'OPENCLAW_URL': 'OpenClaw Gateway URL',
     'OPENCLAW_TOKEN': 'OpenClaw authentication token',
-    'NANOBOT_URL': 'Nanobot Gateway URL',
     'SAFEGUARD_BACKEND': 'Safeguard backend (lmstudio/ollama/anthropic)',
     'LMSTUDIO_URL': 'LM Studio API URL',
     'LMSTUDIO_MODEL': 'LM Studio model name',
