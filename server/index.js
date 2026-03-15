@@ -1357,6 +1357,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         originalToolName: tool_name,
         payload: { params: gcParams },
         safeguard: { riskScore: analysis.riskScore, reasoning: analysis.reasoning, category: analysis.category, verdict },
+        taskContext: taskContext || null,
         source: 'claude-code',
         timestamp: Date.now(),
       }),

@@ -200,8 +200,22 @@ One-command script that patches OpenClaw's WebSocket broadcast logic to send too
 bash scripts/patch-openclaw.sh
 ```
 
-### nanobot support
-GuardClaw works with [nanobot](https://github.com/HKUDS/nanobot) as an alternative to OpenClaw. Connect via the Settings panel or `--gateway` CLI flag.
+## LoRA Fine-tuning & Licensing
+
+### LoRA fine-tuned safety scorer
+Fine-tune Qwen3-4B on GuardClaw's own approve/deny decision history using QLoRA on Apple Silicon (mlx-lm). Training pipeline: `lora/export-training-data.js` exports from memory.db → `lora/train-lora.sh` runs LoRA training → `lora/eval.py` evaluates on 61-case benchmark. Built-in LLM engine auto-detects and loads adapters at startup.
+
+### Encrypted adapter distribution (device-locked)
+LoRA adapters are encrypted with AES-256-GCM. Decryption key is derived from `PBKDF2(master_secret + device_hardware_UUID)`, binding each adapter to a specific machine. Runtime flow: decrypt to temp dir → load into memory → overwrite and delete plaintext. Prevents adapter redistribution.
+
+### Commercial licensing system (planned)
+End-to-end automated licensing for paid LoRA adapters:
+1. **Purchase** — User buys license on LemonSqueezy/Gumroad → receives license key
+2. **Activation** — User enters license key in GuardClaw Settings → app sends `(license_key, hardware_UUID)` to activation API
+3. **Delivery** — API validates license, generates machine-bound `.enc` adapter, returns to client
+4. **Loading** — GuardClaw saves `.enc` to `lora/adapters-enc/`, decrypts and loads automatically
+
+Requires: lightweight activation API (Cloudflare Worker), license key input UI in Settings/Bar, payment platform integration. Machine binding prevents key+file sharing — `.enc` only decrypts on the registered device.
 
 ## Memory & Learning
 

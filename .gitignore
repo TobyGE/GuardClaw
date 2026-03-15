@@ -30,5 +30,7 @@ lora/checkpoints/
 lora/train.jsonl
 lora/valid.jsonl
 lora/eval-results.json
+lora/training-data/
+lora/adapters-enc/
 *.safetensors
 *.safetensors.enc
