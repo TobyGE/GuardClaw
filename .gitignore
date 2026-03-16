@@ -32,5 +32,8 @@ lora/valid.jsonl
 lora/eval-results.json
 lora/training-data/
 lora/adapters-enc/
+lora/judge.db
+lora/judge.db-wal
+lora/judge.db-shm
 *.safetensors
 *.safetensors.enc

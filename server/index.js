@@ -18,6 +18,7 @@ import { configRoutes } from './routes/config.js';
 import { benchmarkRoutes } from './routes/benchmark.js';
 import modelsRouter, { setBackendSwitcher } from './routes/models.js';
 import llmEngine from './llm-engine.js';
+import { judgeStore } from './judge-store.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
@@ -95,6 +96,9 @@ setInterval(() => {
   }
 }, 120_000);
 
+// Initialize judge training data store
+judgeStore.init();
+
 // Services
 const safeguardService = new SafeguardService(
   process.env.ANTHROPIC_API_KEY,
@@ -150,6 +154,7 @@ const MAX_TOOL_HISTORY = 30;
 const evaluationCache = new Map(); // key → { result, expiresAt }
 const lastCCPromptId = new Map();    // sessionKey → promptEventId (for prompt→reply linking)
 const lastCCPromptText = new Map();  // sessionKey → last user prompt text (for LLM context)
+const lastOCPromptText = new Map();  // sessionKey → last user prompt text (for OC/Gemini LLM context)
 const ccTranscriptPaths = new Map(); // session_id → transcript_path (cached from Stop hook)
 const ccLastReadLine = new Map();    // session_id → last line number processed for intermediate text
 // Active CC sub-agents: session_id → { agent_id, agent_type, startTime }
@@ -1007,6 +1012,10 @@ app.post('/api/evaluate', async (req, res) => {
       return `- "${p.pattern}" — user marked ${verdict} (${p.approveCount} approves, ${p.denyCount} denies)`;
     }).join('\n') : null;
 
+    // Build taskContext from cached user prompt (OC/Gemini sessions)
+    const userPrompt = lastOCPromptText.get(sessionKey);
+    const taskContext = userPrompt ? { userPrompt, cwd: null, recentTools: null } : null;
+
     let analysis;
 
     if (toolName === 'skill' || toolName === 'Skill') {
@@ -1018,14 +1027,16 @@ app.post('/api/evaluate', async (req, res) => {
     } else if (toolName === 'exec') {
       // For exec, analyze the command with full LLM analysis
       const cmd = params.command || '';
-      analysis = await safeguardService.analyzeCommand(cmd, chainHistory, memoryContext);
+      const jm = { sessionKey, source: 'oc' };
+      analysis = await safeguardService.analyzeCommand(cmd, chainHistory, memoryContext, taskContext, jm);
     } else {
       // For other tools, analyze the action
+      const jm = { sessionKey, source: 'oc' };
       analysis = await safeguardService.analyzeToolAction({
         tool: toolName,
         summary: JSON.stringify(params),
         ...params
-      }, chainHistory, memoryContext);
+      }, chainHistory, memoryContext, taskContext, jm);
     }
 
     // Memory: apply score adjustment from earlier lookup
@@ -1302,9 +1313,11 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       }
       analysis = await safeguardService.analyzeSkillContent(skillName, skillFile?.content || null);
     } else if (gcToolName === 'exec') {
-      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, memoryContext, taskContext);
+      const jm = { sessionKey, source: 'cc' };
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, memoryContext, taskContext, jm);
     } else {
-      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, memoryContext, taskContext);
+      const jm = { sessionKey, source: 'cc' };
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, memoryContext, taskContext, jm);
     }
 
     // Memory adjustment
@@ -1794,12 +1807,20 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
       }
     }
 
+    // Build taskContext from cached user prompt + Gemini-provided cwd
+    const geminiUserPrompt = lastOCPromptText.get(sessionKey);
+    const geminiCwd = req.body.cwd || null;
+    const taskContext = (geminiUserPrompt || geminiCwd)
+      ? { userPrompt: geminiUserPrompt || null, cwd: geminiCwd, recentTools: null }
+      : null;
+
     // Evaluate
+    const jm = { sessionKey, source: 'gemini' };
     let analysis;
     if (gcToolName === 'exec') {
-      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory);
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, null, taskContext, jm);
     } else {
-      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory);
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, null, taskContext, jm);
     }
 
     // Memory adjustment
@@ -2145,6 +2166,11 @@ app.post('/api/hooks/llm-input', (req, res) => {
   const truncated = typeof prompt === 'string' ? prompt.slice(0, 2000) : '';
   console.log(`[GuardClaw] 💬 llm-input: session=${key}, model=${model}, prompt_len=${truncated.length}, history=${historyLength}`);
 
+  // Cache user prompt for taskContext in /api/evaluate (OC/Gemini)
+  if (truncated) {
+    lastOCPromptText.set(key, truncated.slice(0, 500));
+  }
+
   eventStore.addEvent({
     type: 'user-message',
     sessionKey: key,
@@ -2197,6 +2223,11 @@ app.post('/api/hooks/message-received', (req, res) => {
   const key = rawKey === 'agent:main:webchat' || rawKey.includes('webchat') ? 'agent:main:main' : rawKey;
   const truncated = contentStr.substring(0, 2000);
   console.log(`[GuardClaw] 💬 message-received: from=${from}, session=${key} (raw=${rawKey}), len=${truncated.length}`);
+
+  // Cache user prompt for taskContext in /api/evaluate (OC/Gemini)
+  if (truncated && from !== 'assistant') {
+    lastOCPromptText.set(key, truncated.slice(0, 500));
+  }
 
   eventStore.addEvent({
     type: 'user-message',
@@ -2910,12 +2941,17 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
       }
     }
 
+    // Build taskContext from cached user prompt
+    const cursorUserPrompt = lastOCPromptText.get(sessionKey);
+    const cursorTaskContext = cursorUserPrompt ? { userPrompt: cursorUserPrompt, cwd: null, recentTools: null } : null;
+
     // Evaluate
+    const jm = { sessionKey, source: 'cursor' };
     let analysis;
     if (gcToolName === 'exec') {
-      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory);
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, null, cursorTaskContext, jm);
     } else {
-      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory);
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, null, cursorTaskContext, jm);
     }
 
     // Memory adjustment
@@ -3243,12 +3279,17 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
       }
     }
 
+    // Build taskContext from cached user prompt
+    const ocUserPrompt = lastOCPromptText.get(sessionKey);
+    const ocTaskContext = ocUserPrompt ? { userPrompt: ocUserPrompt, cwd: null, recentTools: null } : null;
+
     // Evaluate with safeguard service
+    const jm = { sessionKey, source: 'opencode' };
     let analysis;
     if (gcToolName === 'exec') {
-      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory);
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, null, ocTaskContext, jm);
     } else {
-      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory);
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, null, ocTaskContext, jm);
     }
 
     // Memory adjustment

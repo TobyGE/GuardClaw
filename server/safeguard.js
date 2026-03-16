@@ -1,5 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import llmEngine from './llm-engine.js';
+import { judgeStore } from './judge-store.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SYSTEM_PROMPTS = JSON.parse(readFileSync(path.join(__dirname, 'system-prompts.json'), 'utf8'));
 
 // ---------------------------------------------------------------------------
 // Rule-based fast-path: commands that are clearly safe skip LLM entirely.
@@ -339,23 +346,8 @@ export class SafeguardService {
     return this.analyzeToolAction(action);
   }
 
-  async analyzeCommand(command, chainHistory = null, memoryContext = null, taskContext = null) {
-    // High-risk fast-path: block without LLM for high-confidence dangerous patterns.
-    // Must run BEFORE the safe fast-path — some safe base commands (echo, cat) can
-    // be piped into dangerous sinks (nc, base64 | bash) and must not be let through.
-    for (const { re, score, reason } of HIGH_RISK_PATTERNS) {
-      if (re.test(command)) {
-        this.cacheStats.ruleCalls++;
-        return {
-          riskScore: score,
-          category: 'high-risk',
-          reasoning: `Rule-based: ${reason}`,
-          allowed: false,
-          warnings: [reason],
-          backend: 'rules',
-        };
-      }
-    }
+  async analyzeCommand(command, chainHistory = null, memoryContext = null, taskContext = null, judgeMeta = null) {
+    this._currentJudgeMeta = judgeMeta;
 
     // Safe fast-path: obviously safe commands skip LLM entirely
     // (bypass fast-path if chain history exists — a "safe" command can be dangerous in context)
@@ -417,7 +409,8 @@ export class SafeguardService {
     return result;
   }
 
-  async analyzeToolAction(action, chainHistory = null, memoryContext = null, taskContext = null) {
+  async analyzeToolAction(action, chainHistory = null, memoryContext = null, taskContext = null, judgeMeta = null) {
+    this._currentJudgeMeta = judgeMeta;
     // Handle chat content separately
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);
@@ -450,70 +443,8 @@ export class SafeguardService {
       };
     }
 
-    // Read tool: generally safe, but sensitive paths need higher scrutiny
-    if (action.tool === 'read') {
-      const filePath = action.file_path || action.parsedInput?.file_path || action.summary || '';
-
-      // Known sensitive paths — high risk, should trigger approval prompt
-      const sensitive = SENSITIVE_READ_PATHS.find(({ re }) => re.test(filePath));
-      if (sensitive) {
-        this.cacheStats.ruleCalls++;
-        return {
-          riskScore: 8,
-          category: 'sensitive-read',
-          reasoning: `Reading sensitive file: ${sensitive.reason} — ${filePath}`,
-          allowed: false,
-          warnings: [sensitive.reason],
-          backend: 'rules',
-        };
-      }
-
-      // Catch .env files anywhere (not just home dir)
-      // e.g. ~/projects/app/.env.production, /tmp/.env
-      if (/\.env(\.[a-zA-Z]+)?$/.test(filePath) || /\/\.env\./.test(filePath)) {
-        this.cacheStats.ruleCalls++;
-        return {
-          riskScore: 7,
-          category: 'sensitive-read',
-          reasoning: `Reading environment file that may contain secrets — ${filePath}`,
-          allowed: true,
-          warnings: ['Environment file may contain API keys or credentials'],
-          backend: 'rules',
-        };
-      }
-
-      // Catch common credential file patterns not in SENSITIVE_READ_PATHS
-      const CRED_FILE_PATTERNS = [
-        { re: /(?:secret|token|password|passwd|credential|api[_-]?key)s?(?:\.|$)/i, reason: 'Filename suggests credentials' },
-        { re: /\bid_(?:rsa|ed25519|ecdsa|dsa)\b/, reason: 'SSH private key file' },
-        { re: /\.pem$/, reason: 'PEM certificate/key file' },
-        { re: /\.p12$|\.pfx$/, reason: 'PKCS12 certificate bundle' },
-        { re: /\.key$/, reason: 'Key file' },
-        { re: /\.keystore$|\.jks$/, reason: 'Java keystore' },
-      ];
-      const credMatch = CRED_FILE_PATTERNS.find(({ re }) => re.test(filePath));
-      if (credMatch) {
-        this.cacheStats.ruleCalls++;
-        return {
-          riskScore: 7,
-          category: 'sensitive-read',
-          reasoning: `${credMatch.reason} — ${filePath}`,
-          allowed: true,
-          warnings: [credMatch.reason],
-          backend: 'rules',
-        };
-      }
-
-      this.cacheStats.ruleCalls++;
-      return {
-        riskScore: 1,
-        category: 'safe',
-        reasoning: `Reading project file — ${filePath || 'unknown path'}`,
-        allowed: true,
-        warnings: [],
-        backend: 'rules',
-      };
-    }
+    // Read tool: no longer fast-pathed — let LLM judge all reads
+    // (sensitive paths like .ssh/, .aws/, .env are in the system prompt rules)
 
     // WebFetch: URL can carry exfiltrated data in query params or path
     if (action.tool === 'web_fetch') {
@@ -522,7 +453,7 @@ export class SafeguardService {
       if (chainHistory && chainHistory.length > 0) {
         // Let LLM judge whether this is exfiltration given the chain context
         const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
-        return this.runLLMPrompt(prompt, action);
+        return this.runLLMPrompt(prompt, action, judgeMeta);
       }
       // No chain — check URL for embedded secrets patterns
       const SECRET_IN_URL = [
@@ -806,7 +737,7 @@ export class SafeguardService {
     // Safe path + no dangerous content — build LLM prompt with content snippet
     const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
     const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection);
-    return this.runLLMPrompt(prompt, action);
+    return this.runLLMPrompt(prompt, action, judgeMeta);
   }
 
   createWriteAnalysisPrompt(filePath, content, oldStr, tool, taskSection = '') {
@@ -820,7 +751,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
   }
 
   // Run LLM with a prompt, routing to the configured backend.
-  async runLLMPrompt(prompt, action) {
+  async runLLMPrompt(prompt, action, judgeMeta = null) {
     const cacheKey = prompt.substring(0, 300);
     const cached = this.getFromCache(cacheKey);
     if (cached) { this.cacheStats.hits++; return { ...cached, cached: true }; }
@@ -839,6 +770,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
         default:         result = this.fallbackToolAnalysis(action);
       }
     }
+
     this.addToCache(cacheKey, result);
     return result;
   }
@@ -1141,10 +1073,25 @@ Respond ONLY with valid JSON, no markdown formatting.`;
     if (!history || history.length === 0) return '';
     // Escape XML-like tags in tool output to prevent injection that breaks out of <chain_history>
     const escapeXml = (str) => str.replace(/</g, '＜').replace(/>/g, '＞');
-    const lines = history.map(h => {
+
+    // Deduplicate consecutive identical tool calls (same tool + same params)
+    const deduped = [];
+    for (const h of history) {
+      const key = `${h.toolName}:${JSON.stringify(h.params).substring(0, 120)}`;
+      const prev = deduped.length > 0 ? deduped[deduped.length - 1] : null;
+      if (prev && prev._key === key) {
+        prev._count++;
+        prev.timestamp = h.timestamp; // use latest timestamp
+      } else {
+        deduped.push({ ...h, _key: key, _count: 1 });
+      }
+    }
+
+    const lines = deduped.map(h => {
       const ago = Math.round((Date.now() - h.timestamp) / 1000);
       const agoStr = ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)}m ago`;
-      let line = `[${agoStr}] ${h.toolName}: ${escapeXml(JSON.stringify(h.params).substring(0, 120))}`;
+      const countStr = h._count > 1 ? ` (×${h._count})` : '';
+      let line = `[${agoStr}] ${h.toolName}${countStr}: ${escapeXml(JSON.stringify(h.params).substring(0, 120))}`;
       if (h.resultSnippet) line += `\n  → output: ${escapeXml(h.resultSnippet.substring(0, 200))}`;
       return line;
     });
@@ -1186,26 +1133,7 @@ Use this to calibrate your judgment — if the user consistently marks a pattern
     return `
 
 TASK CONTEXT (what the user asked the agent to do):
-${parts.join('\n')}
-
-SEMANTIC INTENT ALIGNMENT (highest priority — follow these 3 steps):
-
-Step 1 — CLASSIFY USER INTENT: Read the user's request as a whole sentence. Determine whether it is:
-  (a) QUESTION — asking for information, explanation, or analysis (e.g., "look at the delete function bug", "how does push notification work?", "what does this rm command do?"). The presence of action-words like "delete", "push", "remove" does NOT make it a modification request — read the full sentence.
-  (b) MODIFICATION — explicitly instructing the agent to change, create, delete, or execute something (e.g., "delete test.txt", "push to main", "remove the old config").
-
-Step 2 — CHECK ALIGNMENT (type + scope):
-  - If user intent is QUESTION: any write/edit/execute/push action is UNALIGNED — the agent is acting without authorization.
-  - If user intent is MODIFICATION: check whether the tool action matches BOTH the type and scope of what the user requested.
-    • Type match: user said "delete" → tool is deleting (not creating or pushing).
-    • Scope match: user said "delete test.txt" → tool targets test.txt (not / or ~/ or unrelated files).
-    • If type matches but scope is wider or different → SCOPE_MISMATCH.
-    • If type and scope both match → ALIGNED.
-
-Step 3 — ADJUST VERDICT based on alignment:
-  - ALIGNED → prefer SAFE or WARNING (never BLOCK unless it hits an absolute BLOCK rule like system paths, credentials, etc.)
-  - SCOPE_MISMATCH → WARNING or BLOCK (the action exceeds what the user authorized)
-  - UNALIGNED (question + action, or completely unrelated action) → WARNING or BLOCK depending on impact`;
+${parts.join('\n')}`;
   }
 
   createToolAnalysisPrompt(action, chainHistory = null, memoryContext = null, taskContext = null) {
@@ -1288,74 +1216,7 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the comman
       temperature: 0.05,
       max_tokens: 250,
       promptStyle: 'full',
-      system: `/no_think
-You are a security judge for an AI agent sandbox. Your job: classify tool actions as SAFE, WARNING, or BLOCK.
-
-RULES FOR SHELL COMMANDS (check in order, use FIRST match):
-
-BLOCK — truly dangerous regardless of user intent:
-- rm -rf targeting / or ~ or system paths (/etc, /usr, /System, /Library, /var)
-- sudo anything
-- Piping to bash/sh/zsh for execution (curl|bash, wget|sh, base64 -d|bash)
-- Sending file contents to external servers (nc, curl POST to non-localhost with file data)
-- dd if=...of=/dev, mkfs (disk destruction)
-- Writing/appending to shell config (.bashrc, .zshrc, .profile) or .ssh/
-- Fork bombs
-
-SAFE — normal development work:
-- Reading/displaying: cat, head, tail, grep, sed, awk, wc, less, diff, find, ls, file, stat, ps, df, du, lsof, pgrep
-- Dev tools: git (any subcommand), npm/pnpm/yarn install/run/build/test, node/python running script FILES, pip, cargo
-- Fetching + local processing: curl/wget piped to jq/grep/head/tail (data parsing)
-- NOTE: node -e / python3 -c (inline code execution) is NOT automatically safe — evaluate the code content
-- File ops: cd, mkdir, touch, cp, mv
-- System info: echo, printf, env, which, whoami, date, uname
-- Local service tools: openclaw, guardclaw
-- rm / rm -rf on project-local paths when TASK CONTEXT shows user explicitly requested cleanup/removal
-
-WARNING — has side effects but not destructive:
-- kill, pkill, killall (process management)
-- rm, rm -rf on project directories (node_modules, dist, build, .next, /tmp) when user intent is unclear
-- chmod, chown on user files
-- curl POST/PUT/DELETE requests
-- Anything not matching SAFE or BLOCK
-
-RULES FOR TOOL ACTIONS (non-exec tools):
-
-BLOCK — truly unrecoverable or exfiltrating:
-- write/edit to shell startup config (~/.bashrc, ~/.zshrc, ~/.profile), SSH keys (~/.ssh/), system paths (/etc, /usr, /System, /Library/LaunchAgents)
-- write/edit containing literal API keys (sk-..., AKIA..., ghp_...), passwords, or private keys
-- message/sessions_send leaking PII (SSN, credit card, passwords) NOT explicitly requested by user
-- canvas eval with fetch to external URLs, require(), or child_process
-- browser interacting with payment/banking pages
-
-SAFE — no dangerous side effects:
-- web_search, image, tts, session_status, sessions_list, sessions_history
-- read to non-sensitive project files (NOT ~/.ssh, ~/.aws, .env, credentials, key files)
-- web_fetch to well-known domains with no secrets in URL
-- process (OpenClaw internal process manager — not Unix kill)
-- write/edit to project dirs (~/guardclaw, ~/openclaw, ~/.openclaw/workspace, ~/projects, ~/Desktop, /tmp)
-- browser: snapshot, screenshot, navigate to URLs
-- canvas: present, navigate, snapshot (not eval)
-- nodes: status, describe, location
-
-WARNING — has side effects but is normal agent work:
-- message (sending messages externally)
-- sessions_spawn, sessions_send
-- write/edit to unknown or ambiguous paths (when user intent is unclear)
-- browser form interactions, clicking buttons
-- canvas eval (display code without external fetch)
-- nodes: camera, screen recording, notifications
-- write/edit/exec when user only asked a question (no instruction to act)
-- Anything not matching SAFE or BLOCK
-
-INTENT ALIGNMENT (use TASK CONTEXT if present):
-1. Classify user intent: QUESTION (asking/explaining/analyzing) vs MODIFICATION (explicit instruction to change/delete/execute). Do NOT keyword-match — read the full sentence.
-2. If QUESTION + action writes/modifies/executes → UNALIGNED → WARNING or BLOCK.
-3. If MODIFICATION + action matches type AND scope → ALIGNED → prefer SAFE or WARNING (unless BLOCK rules apply).
-4. If MODIFICATION + action scope exceeds request → SCOPE_MISMATCH → WARNING or BLOCK.
-
-Output ONLY valid JSON. No thinking, no explanation, no markdown fences.
-Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: state what the command/action does, then why it is safe/warning/block"}`
+      system: SYSTEM_PROMPTS['qwen3-4b']
     },
 
     // qwen2.5-0.5b-instruct: tiny model — minimal rules in system
@@ -1446,6 +1307,26 @@ ACTION: ${action.summary}${detailSection}`;
   }
   // ────────────────────────────────────────────────────────────────────────────
 
+  // Record every LLM judge call to judge.db for training data collection.
+  // Called from analyzeWithBuiltIn and analyzeWithLMStudioPrompt.
+  _recordJudgeCall(result, action) {
+    if (!result._rawResponse) return;
+    const meta = this._currentJudgeMeta;
+    judgeStore.record({
+      backend: this.backend,
+      model: result._model,
+      tool: action?.tool || 'exec',
+      systemPrompt: result._systemPrompt,
+      userPrompt: result._userPrompt,
+      response: result._rawResponse,
+      riskScore: result.riskScore,
+      verdict: result.riskScore >= 8 ? 'BLOCK' : result.riskScore >= 4 ? 'WARNING' : 'SAFE',
+      reasoning: result.reasoning,
+      sessionKey: meta?.sessionKey,
+      source: meta?.source,
+    });
+  }
+
   async analyzeWithLMStudioPrompt(prompt, action) {
     const url = `${this.config.lmstudioUrl}/chat/completions`;
 
@@ -1497,7 +1378,16 @@ ACTION: ${action.summary}${detailSection}`;
         llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
       }
       const content = data.choices[0].message.content;
-      return this.parseAnalysisResponse(content, prompt, action?.summary);
+      const result = this.parseAnalysisResponse(content, prompt, action?.summary);
+      result._rawResponse = content;
+      result._systemPrompt = modelCfg.system;
+      result._userPrompt = userPrompt;
+      result._model = modelToUse;
+
+      // Record every LLM judge call for training data
+      this._recordJudgeCall(result, action);
+
+      return result;
     } catch (error) {
       console.error('[SafeguardService] LM Studio analysis failed:', error);
       console.error('[SafeguardService] Model:', modelToUse);
@@ -1527,7 +1417,16 @@ ACTION: ${action.summary}${detailSection}`;
       });
 
       const content = data.choices[0].message.content;
-      return this.parseAnalysisResponse(content, prompt, action?.summary);
+      const result = this.parseAnalysisResponse(content, prompt, action?.summary);
+      result._rawResponse = content;
+      result._systemPrompt = modelCfg.system;
+      result._userPrompt = userPrompt;
+      result._model = llmEngine.loadedModelId || 'built-in';
+
+      // Record every LLM judge call for training data
+      this._recordJudgeCall(result, action);
+
+      return result;
     } catch (error) {
       console.error('[SafeguardService] Built-in analysis failed:', error.message);
       return this.fallbackToolAnalysis(action || { summary: 'unknown' });
