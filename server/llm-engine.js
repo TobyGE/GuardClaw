@@ -534,12 +534,8 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       this._statusMessage = 'Loading model into memory...';
       await this._waitForServer();
 
-      // Clean up decrypted adapter after model is loaded into memory
-      if (adapterCleanup) {
-        adapterCleanup();
-        adapterCleanup = null;
-        console.log(`[LLMEngine] Decrypted adapter cleaned up (model loaded)`);
-      }
+      // Keep decrypted adapter on disk — mlx_lm.server may re-read it on each request.
+      // It will be cleaned up when the server process exits (see 'close' handler above).
 
       this._loadedModelId = modelId;
       this._loadingModelId = null;
@@ -614,13 +610,8 @@ print(json.dumps({"done": True, "path": path}), flush=True)
       throw new Error('No model loaded');
     }
 
-    // mlx_lm.server uses the full model path as its model ID
-    if (!this._serverModelId) {
-      this._serverModelId = await this._getServerModelId();
-    }
-
     const payload = {
-      model: this._serverModelId,
+      model: 'default_model',
       messages,
       temperature,
       max_tokens: maxTokens,
