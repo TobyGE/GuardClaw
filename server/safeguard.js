@@ -500,7 +500,7 @@ export class SafeguardService {
         this.cacheStats.ruleCalls++;
         const reason = (patternMatch || pathMatch).reason;
         // Broad credential search across home dir or root = higher risk
-        const broadSearch = !searchPath || /^[/~]$|^\/Users\/|^\/home\//.test(searchPath);
+        const broadSearch = !searchPath || /^[/~]\/?$/.test(searchPath) || /^\/(Users|home)\/[^/]+\/?$/.test(searchPath);
         const score = broadSearch ? 8 : 7;
         return {
           riskScore: score,
@@ -529,23 +529,24 @@ export class SafeguardService {
       const SAFE_CONTEXT = /\btokens?[\s_.-]?(?:usage|tracking|count|limits?|consumption|budget|costs?|monitor|meters?|bar)\b|\bkeys?[\s_.-]?(?:features?|points?|takeaways?|findings?|concepts?|words?|boards?|strokes?|frames?|notes?|values?|pairs?)\b/i;
       const hasSafeContext = SAFE_CONTEXT.test(task);
 
-      const DANGEROUS_AGENT_TASKS = [
-        { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation' },
-        { re: /\bssh\b|credential|secret|password|\btokens?\b|\bkeys?\b/i, reason: 'Agent tasked with credential access', skipIfSafe: true },
-        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations' },
+      const AGENT_TASKS = [
+        { re: /delete|remove|drop|destroy|wipe|purge/i, reason: 'Agent tasked with destructive operation', score: 8 },
+        { re: /\bssh\b|credential|secret|password|\btokens?\b|\bkeys?\b/i, reason: 'Agent tasked with credential access', skipIfSafe: true, score: 8 },
+        { re: /curl|wget|fetch|http|api|upload|send|post/i, reason: 'Agent tasked with network operations', score: 6 },
       ];
-      const dangerousTask = DANGEROUS_AGENT_TASKS.find(({ re, skipIfSafe }) => {
+      const matchedTask = AGENT_TASKS.find(({ re, skipIfSafe }) => {
         if (!re.test(task)) return false;
         // If the match is in a known-safe context (e.g., "token usage"), skip it
         if (skipIfSafe && hasSafeContext) return false;
         return true;
       });
+      const riskScore = matchedTask ? matchedTask.score : 4;
       return {
-        riskScore: dangerousTask ? 8 : 4,
+        riskScore,
         category: 'agent-spawn',
-        reasoning: dangerousTask ? `${dangerousTask.reason}: ${task.slice(0, 100)}` : `Sub-agent spawned: ${task.slice(0, 100)}`,
-        allowed: !dangerousTask,
-        warnings: dangerousTask ? [dangerousTask.reason] : ['Sub-agent runs with full tool permissions'],
+        reasoning: matchedTask ? `${matchedTask.reason}: ${task.slice(0, 100)}` : `Sub-agent spawned: ${task.slice(0, 100)}`,
+        allowed: riskScore < 8,
+        warnings: matchedTask ? [matchedTask.reason] : ['Sub-agent runs with full tool permissions'],
         backend: 'rules',
       };
     }
@@ -601,7 +602,7 @@ export class SafeguardService {
 
     // write / edit: judge path + content together
     if (action.tool === 'write' || action.tool === 'edit') {
-      return this.analyzeWriteAction(action, taskContext);
+      return this.analyzeWriteAction(action, chainHistory, taskContext, judgeMeta);
     }
 
     // Check cache first
@@ -648,7 +649,8 @@ export class SafeguardService {
 
   // Specialized analysis for write / edit tool calls.
   // Judges both the file path and the content being written.
-  async analyzeWriteAction(action, taskContext = null) {
+  async analyzeWriteAction(action, chainHistory = null, taskContext = null, judgeMeta = null) {
+    this._currentJudgeMeta = judgeMeta;
     const input = action.parsedInput || {};
     const filePath = input.file_path || input.path || action.file_path || action.path || '';
     const content = input.content || input.new_string || action.content || action.new_string || '';
@@ -674,7 +676,7 @@ export class SafeguardService {
       { re: /\/var\/spool\/cron|\/etc\/cron/, reason: 'Cron job — persistent execution' },
       { re: /\/Library\/Launch(Agents|Daemons)\//, reason: 'macOS LaunchAgent/Daemon — persistent execution' },
       { re: /\/\.git\/hooks\//, reason: 'Git hook — executes on git operations' },
-      { re: /\/(usr|bin|sbin|System)\//, reason: 'System binary path' },
+      { re: /^\/(usr|bin|sbin|System)\//, reason: 'System binary path' },
     ];
 
     for (const { re, reason } of PERSISTENCE_PATHS) {
@@ -736,7 +738,8 @@ export class SafeguardService {
 
     // Safe path + no dangerous content — build LLM prompt with content snippet
     const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
-    const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection);
+    const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+    const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection + chainSection);
     return this.runLLMPrompt(prompt, action, judgeMeta);
   }
 
@@ -1241,7 +1244,7 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the comman
       promptStyle: 'full',
       system: `You are a security judge for an AI agent sandbox. Classify the given action as SAFE, WARNING, or BLOCK.
 
-BLOCK: rm -rf / or ~, sudo, curl|bash, wget|sh, writing to .bashrc/.zshrc/.ssh/authorized_keys, system paths (/etc, /usr), sending secrets/credentials externally, API keys in code, canvas eval with external fetch
+BLOCK: rm -rf / or ~, sudo, curl|bash, wget|sh, writing to .bashrc/.zshrc/.ssh/authorized_keys, system paths (/etc, /usr), exfiltrating secrets/credentials externally, API keys in code, canvas eval with external fetch
 SAFE: read-only commands (ls, cat, grep, git, npm, find), project-scoped writes, web_search, read non-sensitive files, browser snapshot/navigate
 WARNING: kill/pkill, curl POST, message/send externally, sessions_spawn, unknown paths, browser form interactions, anything else
 
@@ -1644,7 +1647,7 @@ ACTION: ${action.summary}${detailSection}`;
           riskScore: score,
           category: score >= 9 ? 'destructive' : 'system',
           reasoning: `${reason} (pre-filter)`,
-          allowed: false,
+          allowed: score < 8,
           warnings: [reason],
           backend: 'rules'
         };

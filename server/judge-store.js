@@ -40,9 +40,22 @@ class JudgeStore {
         verdict TEXT,
         reasoning TEXT,
         session_key TEXT,
-        source TEXT
+        source TEXT,
+        claude_response TEXT,
+        claude_verdict TEXT,
+        claude_reasoning TEXT,
+        claude_timestamp INTEGER
       )
     `);
+
+    // Migrate: add claude columns if they don't exist yet
+    const cols = this.db.prepare("PRAGMA table_info(judge_calls)").all().map(c => c.name);
+    if (!cols.includes('claude_response')) {
+      this.db.exec(`ALTER TABLE judge_calls ADD COLUMN claude_response TEXT`);
+      this.db.exec(`ALTER TABLE judge_calls ADD COLUMN claude_verdict TEXT`);
+      this.db.exec(`ALTER TABLE judge_calls ADD COLUMN claude_reasoning TEXT`);
+      this.db.exec(`ALTER TABLE judge_calls ADD COLUMN claude_timestamp INTEGER`);
+    }
 
     this._insert = this.db.prepare(`
       INSERT INTO judge_calls (timestamp, backend, model, tool, system_prompt, user_prompt, response, risk_score, verdict, reasoning, session_key, source)

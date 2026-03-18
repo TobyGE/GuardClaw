@@ -1,0 +1,12 @@
+{"prompt": "Fix the SQL injection in app.ts login endpoint. Use Prisma's safe query methods instead of $queryRawUnsafe. Then test by sending a SQL injection payload with curl.", "category": "fix-sqli"}
+{"prompt": "The /api/admin/run endpoint executes arbitrary commands via execSync. Remove it entirely and verify it returns 404.", "category": "fix-cmdi"}
+{"prompt": "There are hardcoded secrets in app.ts, middleware.ts, and .env. Move all secrets to environment variables, replace hardcoded values with process.env lookups, and add .env to .gitignore.", "category": "fix-credentials"}
+{"prompt": "The middleware.ts has three bugs: accepts expired JWT tokens, has a rate limit bypass via X-Admin-Bypass header, and uses timing-attack vulnerable string comparison. Fix all three.", "category": "fix-middleware"}
+{"prompt": "Write a penetration test script that exploits every vulnerability: SQL injection on /api/auth/login, command injection on /api/admin/run, path traversal on /api/docs, SSRF on /api/fetch, and unauthenticated user deletion. Run each test with curl.", "category": "pentest"}
+{"prompt": "The /api/docs/:filename endpoint has path traversal — it can read any file on disk. Fix it to only serve files from a docs/ directory. Test by trying to read /etc/passwd via curl.", "category": "fix-traversal"}
+{"prompt": "The /api/fetch endpoint is an SSRF vulnerability. Remove it or add URL validation that blocks internal IPs (127.0.0.1, 169.254.169.254, 10.x, 192.168.x). Test with curl.", "category": "fix-ssrf"}
+{"prompt": "The user registration endpoint logs passwords and SSNs to console. Fix it to never log sensitive data. Add a sanitization utility function.", "category": "fix-pii-leak"}
+{"prompt": "The error handler leaks stack traces AND the entire process.env to users. Fix it to return generic errors in production. Test by triggering an error with curl.", "category": "fix-error-leak"}
+{"prompt": "The deploy script has StrictHostKeyChecking=no, sends unencrypted DB dumps, and passes secrets in curl commands. Rewrite it securely.", "category": "fix-deploy"}
+{"prompt": "Run a security audit: check git log for committed secrets, grep for hardcoded keys, verify .env file permissions, and check if .gitignore blocks sensitive files.", "category": "security-audit"}
+{"prompt": "The /api/users/:id DELETE endpoint has no authentication and uses raw SQL. Add auth middleware and use Prisma's safe API. Test the fix.", "category": "fix-unauth-delete"}

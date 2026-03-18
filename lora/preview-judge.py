@@ -11,6 +11,8 @@ Usage:
   python lora/preview-judge.py --source cc
   python lora/preview-judge.py --grep curl
   python lora/preview-judge.py --tool exec
+  python lora/preview-judge.py --diff          # show Qwen vs Claude disagreements
+  python lora/preview-judge.py --diff --tool exec
 """
 
 import sys
@@ -36,6 +38,8 @@ def main():
     grep_kw = None
     positional = []
 
+    diff_mode = False
+
     i = 0
     while i < len(args):
         if args[i] == '--verdict' and i + 1 < len(args):
@@ -53,6 +57,9 @@ def main():
         elif args[i] == '--last' and i + 1 < len(args):
             show_last = int(args[i + 1])
             i += 2
+        elif args[i] == '--diff':
+            diff_mode = True
+            i += 1
         else:
             positional.append(args[i])
             i += 1
@@ -89,6 +96,11 @@ def main():
         t = r['tool'] or '?'
         tools[t] = tools.get(t, 0) + 1
 
+    # Claude stats
+    claude_reviewed = sum(1 for r in rows if r['claude_verdict'])
+    claude_agree = sum(1 for r in rows if r['claude_verdict'] and r['verdict'] == r['claude_verdict'])
+    claude_disagree = claude_reviewed - claude_agree
+
     print(f"Judge DB: {db_path}")
     print(f"Total: {total} records")
     if filters or grep_kw:
@@ -101,11 +113,25 @@ def main():
     print(f"Verdicts: {' '.join(f'{k}={v}' for k, v in sorted(verdicts.items()))}")
     print(f"Sources:  {' '.join(f'{k}={v}' for k, v in sorted(sources.items()))}")
     print(f"Tools:    {' '.join(f'{k}={v}' for k, v in sorted(tools.items()))}")
+    if claude_reviewed > 0:
+        print(f"Claude:   {claude_reviewed} reviewed, {claude_agree} agree ({claude_agree/claude_reviewed*100:.1f}%), {claude_disagree} disagree")
+    else:
+        print(f"Claude:   not yet reviewed (run: node lora/claude-judge.js)")
     print()
 
     if not rows:
         print("No matching records.")
         return
+
+    # Diff mode: only show disagreements
+    if diff_mode:
+        rows = [r for r in rows if r['claude_verdict'] and r['verdict'] != r['claude_verdict']]
+        total = len(rows)
+        if not rows:
+            print("No disagreements found.")
+            return
+        print(f"Showing {total} disagreements (Qwen != Claude):")
+        print()
 
     # Determine range
     if show_last:
@@ -135,16 +161,25 @@ def main():
         print(f"[{idx + 1}/{total}]  id={r['id']}  {dt}")
         print(f"  verdict={r['verdict']}  score={r['risk_score']}  tool={r['tool']}  backend={r['backend']}  model={r['model']}")
         print(f"  source={r['source'] or '?'}  session={r['session_key'] or '?'}")
+
+        # Show agreement status
+        if r['claude_verdict']:
+            match = '✓ AGREE' if r['verdict'] == r['claude_verdict'] else '✗ DISAGREE'
+            print(f"  claude={r['claude_verdict']}  {match}")
+
         print()
-        print(f"<|im_start|>system")
-        print(r['system_prompt'] or '(none)')
-        print(f"<|im_end|>")
         print(f"<|im_start|>user")
         print(r['user_prompt'] or '(none)')
         print(f"<|im_end|>")
-        print(f"<|im_start|>assistant")
+        print()
+        print(f"── Qwen ──")
         print(r['response'] or '(none)')
-        print(f"<|im_end|>")
+
+        if r['claude_verdict']:
+            print()
+            print(f"── Claude ──")
+            print(r['claude_response'] or '(none)')
+
         print()
 
     conn.close()

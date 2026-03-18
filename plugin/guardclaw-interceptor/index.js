@@ -212,9 +212,9 @@ export default function (api) {
           `**Why:** ${result.reason}`,
           ``,
           `**Help GuardClaw learn — is this safe?**`,
-          `/approve — yes, this is fine`,
-          `/approve-always — always allow this pattern`,
-          `/deny — no, this is risky`,
+          `/gc-approve — yes, this is fine`,
+          `/gc-approve-always — always allow this pattern`,
+          `/gc-deny — no, this is risky`,
         ].join('\n') : [
           `⛨ **GuardClaw BLOCK** \`${event.toolName}\`: \`${displayInput}\``,
           ``,
@@ -224,9 +224,9 @@ export default function (api) {
           `**Why:** ${result.reason}`,
           ``,
           `**Reply one of these to respond:**`,
-          `/approve — allow this command once`,
-          `/approve-always — always allow this pattern`,
-          `/deny — block and cancel`,
+          `/gc-approve — allow this command once`,
+          `/gc-approve-always — always allow this pattern`,
+          `/gc-deny — block and cancel`,
         ].join('\n');
 
         // Fire-and-forget: inject directly to user, don't block the hook response
@@ -582,12 +582,10 @@ export default function (api) {
     };
   };
 
-  // Register both hyphenated and non-hyphenated versions
-  api.registerCommand({ name: 'approve-last', description: 'Approve the last blocked tool call', handler: handleApprove });
-  api.registerCommand({ name: 'approve', description: 'Approve the last blocked tool call', handler: handleApprove });
-  api.registerCommand({ name: 'approve-always', description: 'Approve and always allow this pattern', handler: handleApproveAlways });
-  api.registerCommand({ name: 'deny-last', description: 'Deny the last blocked tool call', handler: handleDeny });
-  api.registerCommand({ name: 'deny', description: 'Deny the last blocked tool call', handler: handleDeny });
+  // Register commands (use gc- prefix to avoid conflicts with Telegram built-in commands)
+  api.registerCommand({ name: 'gc-approve', description: 'Approve the last blocked tool call', handler: handleApprove });
+  api.registerCommand({ name: 'gc-approve-always', description: 'Approve and always allow this pattern', handler: handleApproveAlways });
+  api.registerCommand({ name: 'gc-deny', description: 'Deny the last blocked tool call', handler: handleDeny });
 
   api.registerCommand({
     name: 'pending',

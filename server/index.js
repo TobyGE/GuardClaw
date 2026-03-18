@@ -1454,7 +1454,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       eventId, // link to stored event for updating allowed status
     });
 
-    // If no PostToolUse arrives within 15s, infer user denied in CC dialog → clean up Bar pending
+    // If no PostToolUse arrives within timeout, infer user denied in CC dialog → clean up Bar pending
+    // agent_spawn gets longer timeout: CC sends subagent-start/stop instead of PostToolUse
+    const timeoutMs = gcToolName === 'agent_spawn' ? 120_000 : 15_000;
     setTimeout(() => {
       if (ccPendingAsks.has(askKey)) {
         const ask = ccPendingAsks.get(askKey);
@@ -1750,6 +1752,8 @@ function mapGeminiTool(toolName) {
     save_memory: 'write',
     write_todos: 'write',
     codebase_investigator: 'agent_spawn',
+    grep_search: 'grep',
+    generalist: 'agent_spawn',
   };
   return map[toolName] || toolName;
 }
@@ -1858,49 +1862,12 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
     const GEMINI_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_GEMINI_PASS_THRESHOLD || '8', 10);
 
     if (analysis.riskScore >= GEMINI_PASS_THRESHOLD && blockingEnabled) {
-      // High risk: create pending approval and wait for user decision
-      const approvalId = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      // High risk: immediately block (no pending approval wait)
+      // LLM analysis is already recorded in judge.db — Gemini will skip this tool and continue
       const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
-      console.log(`[GuardClaw] Gemini ASK: ${gcToolName} (${approvalId}) — ${blockReason}`);
-
-      const decision = await new Promise((resolve) => {
-        pendingApprovals.set(approvalId, {
-          toolName: gcToolName,
-          originalToolName: toolName,
-          displayInput: displayInput.slice(0, 500),
-          params: gcParams,
-          riskScore: analysis.riskScore,
-          reason: blockReason,
-          createdAt: Date.now(),
-          sessionKey,
-          backend: 'gemini-cli',
-          resolve,
-        });
-
-        // Notify Dashboard + channels
-        eventStore.notifyListeners({
-          type: 'approval-request',
-          data: JSON.stringify({ id: approvalId, toolName: gcToolName, backend: 'gemini-cli' }),
-        });
-        const geminiPending = pendingApprovals.get(approvalId);
-        if (geminiPending) approvalNotifier.notifyApprovalRequest(geminiPending).catch(() => {});
-
-        // Timeout after 5 minutes → block
-        setTimeout(() => {
-          if (pendingApprovals.has(approvalId)) {
-            pendingApprovals.delete(approvalId);
-            resolve({ denied: true, reason: 'Timed out waiting for approval' });
-          }
-        }, 300_000);
-      });
-
-      if (decision.denied) {
-        console.log(`[GuardClaw] Gemini DENIED: ${gcToolName} (${approvalId})`);
-        return res.json({ decision: 'block', reason: decision.reason || blockReason });
-      }
-
-      console.log(`[GuardClaw] Gemini APPROVED: ${gcToolName} (${approvalId})`);
-      return res.json({ decision: 'allow' });
+      console.log(`[GuardClaw] Gemini BLOCK: ${gcToolName} — ${blockReason}`);
+      const message = `⛨ GuardClaw BLOCK ${gcToolName}: ${displayInput.slice(0, 80)} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
+      return res.json({ decision: 'block', reason: blockReason, message });
     }
 
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
@@ -2108,7 +2075,25 @@ app.post('/api/hooks/subagent-start', (req, res) => {
   if (session_id && agent_id) {
     ccActiveSubagents.set(session_id, { agent_id, agent_type: agent_type || 'unknown', startTime: Date.now() });
 
+    // SubagentStart means user approved the agent_spawn — clear pending ask
     const parentKey = `claude-code:${session_id}`;
+    for (const [key, ask] of ccPendingAsks) {
+      if (ask.sessionKey === parentKey && ask.toolName === 'agent_spawn') {
+        ccPendingAsks.delete(key);
+        memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'approve', ask.sessionKey);
+        if (ask.eventId) {
+          eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: true, verdict: 'user-approved' } });
+        }
+        if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
+          pendingApprovals.get(ask.approvalId).resolve({ denied: false });
+          pendingApprovals.delete(ask.approvalId);
+          eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: ask.approvalId }) });
+        }
+        console.log(`[GuardClaw] 🧠 Memory: user APPROVED agent_spawn (subagent-start received)`);
+        break;
+      }
+    }
+
     const subKey = `claude-code:${session_id}:subagent:${agent_id}`;
     eventStore.addEvent({
       type: 'claude-code-tool',

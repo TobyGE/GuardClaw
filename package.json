@@ -13,7 +13,7 @@
     "client:dev": "cd client && ./node_modules/.bin/vite",
     "build": "cd client && ./node_modules/.bin/vite build",
     "start": "node server/index.js",
-    "test": "echo \"Tests coming soon\" && exit 0"
+    "test": "node --test test/"
   },
   "keywords": [
     "openclaw",
