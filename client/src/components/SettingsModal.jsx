@@ -87,6 +87,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   const [activeTab, setActiveTab] = useState(defaultTab || 'llm');
   useEffect(() => { if (defaultTab) setActiveTab(defaultTab); }, [defaultTab]);
   const [token, setToken] = useState(currentToken || '');
+  const [qclawToken, setQclawToken] = useState('');
   const [llmBackend, setLlmBackend] = useState(currentLlmConfig?.backend || 'built-in');
   const [lmstudioUrl, setLmstudioUrl] = useState(currentLlmConfig?.lmstudioUrl || 'http://localhost:1234/v1');
   const [lmstudioModel, setLmstudioModel] = useState(currentLlmConfig?.lmstudioModel || 'qwen/qwen3-4b-2507');
@@ -245,6 +246,42 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
         setMessage({ type: 'success', text: t('settings.tokenAutoDetected') });
       } else {
         setMessage({ type: 'error', text: t('settings.tokenNotFound') });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: `Error: ${error.message}` });
+    } finally { setSaving(false); }
+  };
+
+  const handleSaveQclawToken = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      const response = await fetch('/api/config/qclaw-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: qclawToken })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setMessage({ type: 'success', text: t('settings.qclawTokenSaved') });
+        setTimeout(() => onClose(), 1500);
+      } else {
+        setMessage({ type: 'error', text: data.error || t('settings.tokenFailed') });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: `Error: ${error.message}` });
+    } finally { setSaving(false); }
+  };
+
+  const handleAutoDetectQclaw = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      const response = await fetch('/api/config/detect-qclaw-token');
+      const data = await response.json();
+      if (response.ok && data.token) {
+        setQclawToken(data.token);
+        setMessage({ type: 'success', text: t('settings.qclawTokenAutoDetected') });
+      } else {
+        setMessage({ type: 'error', text: t('settings.qclawTokenNotFound') });
       }
     } catch (error) {
       setMessage({ type: 'error', text: `Error: ${error.message}` });
@@ -663,22 +700,40 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
 
           {/* ─── Gateway Tab ─── */}
           {activeTab === 'gateway' && (
-            <Card>
-              <Label hint={t('settings.gatewayTokenHint')}>{t('settings.gatewayToken')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder={t('settings.tokenPlaceholder')}
-                  disabled={saving}
-                  style={{ fontFamily: 'monospace', fontSize: '13px' }}
-                />
-                <Btn variant="secondary" onClick={handleAutoDetect} disabled={saving} className="shrink-0">
-                  <SearchIcon size={14} />
-                </Btn>
-              </div>
-            </Card>
+            <>
+              <Card>
+                <Label hint={t('settings.gatewayTokenHint')}>{t('settings.gatewayToken')}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder={t('settings.tokenPlaceholder')}
+                    disabled={saving}
+                    style={{ fontFamily: 'monospace', fontSize: '13px' }}
+                  />
+                  <Btn variant="secondary" onClick={handleAutoDetect} disabled={saving} className="shrink-0">
+                    <SearchIcon size={14} />
+                  </Btn>
+                </div>
+              </Card>
+              <Card>
+                <Label hint={t('settings.qclawTokenHint')}>{t('settings.qclawToken')}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    value={qclawToken}
+                    onChange={(e) => setQclawToken(e.target.value)}
+                    placeholder={t('settings.tokenPlaceholder')}
+                    disabled={saving}
+                    style={{ fontFamily: 'monospace', fontSize: '13px' }}
+                  />
+                  <Btn variant="secondary" onClick={handleAutoDetectQclaw} disabled={saving} className="shrink-0">
+                    <SearchIcon size={14} />
+                  </Btn>
+                </div>
+              </Card>
+            </>
           )}
 
           {/* Toast */}
@@ -702,9 +757,19 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
               </>
             )}
             {activeTab === 'gateway' && (
-              <Btn variant="primary" onClick={handleSaveGateway} disabled={saving || !token}>
-                {saving ? t('settings.saving') : t('settings.saveReconnect')}
-              </Btn>
+              <>
+                {token && (
+                  <Btn variant="primary" onClick={handleSaveGateway} disabled={saving}>
+                    {saving ? t('settings.saving') : t('settings.saveReconnect')}
+                  </Btn>
+                )}
+                {qclawToken && (
+                  <Btn variant="primary" onClick={handleSaveQclawToken} disabled={saving}
+                    className="bg-orange-500 hover:bg-orange-600 border-orange-500">
+                    {saving ? t('settings.saving') : t('settings.qclawSaveReconnect')}
+                  </Btn>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -8,6 +8,7 @@ import os from 'os';
 import childProcess from 'child_process';
 import crypto from 'crypto';
 import { ClawdbotClient } from './clawdbot-client.js';
+import { QclawClient } from './qclaw-client.js';
 import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
 import { SessionPoller } from './session-poller.js';
@@ -370,13 +371,43 @@ if (BACKEND === 'openclaw' || BACKEND === 'auto') {
   activeClients.push({ client: openclawClient, name: 'openclaw' });
 }
 
+// Qclaw client (only for qclaw or auto mode)
+let qclawClient = null;
+if (BACKEND === 'qclaw' || BACKEND === 'auto') {
+  qclawClient = new QclawClient(
+    process.env.QCLAW_URL || 'ws://127.0.0.1:28789',
+    process.env.QCLAW_TOKEN,
+    {
+      autoReconnect: true,
+      reconnectDelay: 5000,
+      maxReconnectDelay: 30000,
+      onConnect: () => {
+        logger.info('Qclaw connection established');
+        if (sessionPoller && sessionPoller.polling) {
+          sessionPoller.testPermissions();
+        }
+      },
+      onDisconnect: () => {
+        logger.warn('Qclaw connection lost');
+      },
+      onReconnecting: (attempt, delay) => {
+        if (attempt <= 3 || attempt % 10 === 0) {
+          logger.info(`Qclaw reconnecting... (attempt ${attempt}, delay ${Math.round(delay/1000)}s)`);
+        }
+      }
+    }
+  );
+  activeClients.push({ client: qclawClient, name: 'qclaw' });
+}
 
-// Session poller (only works with OpenClaw)
-const sessionPoller = openclawClient
-  ? new SessionPoller(openclawClient, safeguardService, eventStore)
+
+// Session poller and approval handler use first available gateway client (OpenClaw or Qclaw)
+const primaryGatewayClient = openclawClient || qclawClient;
+
+const sessionPoller = primaryGatewayClient
+  ? new SessionPoller(primaryGatewayClient, safeguardService, eventStore)
   : null;
 
-// Approval handler (only works with OpenClaw)
 // Blocking feature (optional)
 // Use `let` so the toggle endpoint can update it at runtime without gateway restart
 let blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
@@ -384,11 +415,11 @@ let blockingEnabled = process.env.GUARDCLAW_BLOCKING_ENABLED === 'true';
 // Fail-closed: when GuardClaw is offline, block dangerous tools (default: ON)
 // Can be toggled at runtime via POST /api/config/fail-closed
 let failClosedEnabled = process.env.GUARDCLAW_FAIL_CLOSED !== 'false';
-const approvalHandler = (openclawClient && blockingEnabled)
-  ? new ApprovalHandler(openclawClient, safeguardService, eventStore, { blockingConfig, memoryStore })
+const approvalHandler = (primaryGatewayClient && blockingEnabled)
+  ? new ApprovalHandler(primaryGatewayClient, safeguardService, eventStore, { blockingConfig, memoryStore })
   : null;
 
-if (openclawClient && !blockingEnabled) {
+if (primaryGatewayClient && !blockingEnabled) {
   console.log('[GuardClaw] 👀 Blocking disabled - monitoring only');
 }
 
@@ -437,7 +468,7 @@ app.get('/api/status', async (req, res) => {
   const approvalStats = approvalHandler ? approvalHandler.getStats() : null;
 
   // Per-backend connection status
-  const backendLabels = { openclaw: 'OpenClaw' };
+  const backendLabels = { openclaw: 'OpenClaw', qclaw: 'Qclaw' };
   const backends = {};
   for (const { client, name } of activeClients) {
     backends[name] = { ...client.getConnectionStats(), label: backendLabels[name] || name };
@@ -473,7 +504,7 @@ app.get('/api/status', async (req, res) => {
   res.json({
     // Connection status
     connected: anyConnected,
-    connectionStats: openclawClient ? openclawClient.getConnectionStats() : {},
+    connectionStats: primaryGatewayClient ? primaryGatewayClient.getConnectionStats() : {},
     backends,
 
     // Poller status
@@ -1510,10 +1541,11 @@ app.get('/api/approvals/pending', (req, res) => {
       backend: entry.backend || 'claude-code',
     });
   }
-  // OC approvals
+  // Gateway approvals (OpenClaw or Qclaw)
   if (approvalHandler) {
+    const gatewayBackend = qclawClient && !openclawClient ? 'qclaw' : 'openclaw';
     for (const item of approvalHandler.getPendingApprovals()) {
-      pending.push({ ...item, backend: 'openclaw' });
+      pending.push({ ...item, backend: item.backend || gatewayBackend });
     }
   }
   res.json({ pending, count: pending.length });
@@ -2261,12 +2293,13 @@ app.post('/api/chat-inject', async (req, res) => {
   if (!sessionKey || !message) {
     return res.status(400).json({ error: 'sessionKey and message required' });
   }
-  if (!openclawClient || !openclawClient.connected) {
-    return res.status(503).json({ error: 'OpenClaw not connected' });
+  const gatewayClient = (openclawClient?.connected && openclawClient) || (qclawClient?.connected && qclawClient) || null;
+  if (!gatewayClient) {
+    return res.status(503).json({ error: 'No gateway (OpenClaw/Qclaw) connected' });
   }
   try {
     const idempotencyKey = generateId('guardclaw-retry');
-    await openclawClient.request('chat.send', {
+    await gatewayClient.request('chat.send', {
       sessionKey,
       message,
       idempotencyKey,
@@ -2282,6 +2315,7 @@ app.post('/api/chat-inject', async (req, res) => {
 // ─── Extracted Route Modules ─────────────────────────────────────────────────
 const routeDeps = {
   getOpenclawClient: () => openclawClient,
+  getQclawClient: () => qclawClient,
   getSafeguardService: () => safeguardService,
   setSafeguardService: (s) => { Object.assign(safeguardService, s); },
   getFailClosed: () => failClosedEnabled,
@@ -2699,6 +2733,105 @@ app.post('/api/setup/openclaw/uninstall', (req, res) => {
       }
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
       console.log(`[GuardClaw] OC plugin unregistered from ${configPath}`);
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Qclaw plugin setup API ───────────────────────────────────────────────────
+
+app.post('/api/setup/qclaw', (req, res) => {
+  try {
+    const pluginId = 'guardclaw-interceptor';
+    const destDir = path.join(os.homedir(), '.qclaw', 'plugins', pluginId);
+    const configPath = path.join(os.homedir(), '.qclaw', 'openclaw.json');
+
+    // Find plugin source: embedded in app bundle or dev source tree
+    let srcDir = null;
+    const candidates = [
+      path.join(path.dirname(process.argv[1] || ''), 'plugin', pluginId),
+      path.join(import.meta.dirname, '..', 'plugin', pluginId),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(path.join(c, 'index.js'))) { srcDir = c; break; }
+    }
+    if (!srcDir) {
+      return res.status(404).json({ error: 'Plugin source not found in app bundle' });
+    }
+
+    // Copy plugin files to ~/.qclaw/plugins/guardclaw-interceptor/
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const file of fs.readdirSync(srcDir)) {
+      fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+    }
+    console.log(`[GuardClaw] Qclaw plugin copied to ${destDir}`);
+
+    // Register in openclaw.json
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (!config.plugins) config.plugins = {};
+      if (!config.plugins.allow) config.plugins.allow = [];
+      if (!config.plugins.allow.includes(pluginId)) config.plugins.allow.push(pluginId);
+      if (!config.plugins.load) config.plugins.load = {};
+      if (!config.plugins.load.paths) config.plugins.load.paths = [];
+      if (!config.plugins.load.paths.includes(destDir)) config.plugins.load.paths.push(destDir);
+      if (!config.plugins.entries) config.plugins.entries = {};
+      config.plugins.entries[pluginId] = { enabled: true };
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+      console.log(`[GuardClaw] Qclaw plugin registered in ${configPath}`);
+    } else {
+      console.warn(`[GuardClaw] Qclaw openclaw.json not found at ${configPath}, plugin files copied but not registered`);
+    }
+
+    res.json({ ok: true, path: destDir });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/qclaw/status', (req, res) => {
+  try {
+    const pluginDir = path.join(os.homedir(), '.qclaw', 'plugins', 'guardclaw-interceptor');
+    const hasFiles = fs.existsSync(path.join(pluginDir, 'index.js'));
+    const configPath = path.join(os.homedir(), '.qclaw', 'openclaw.json');
+    let registered = false;
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      registered = config.plugins?.entries?.['guardclaw-interceptor']?.enabled === true;
+    }
+    res.json({ installed: hasFiles && registered, path: pluginDir });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/qclaw/uninstall', (req, res) => {
+  try {
+    const pluginId = 'guardclaw-interceptor';
+    const pluginDir = path.join(os.homedir(), '.qclaw', 'plugins', pluginId);
+    const configPath = path.join(os.homedir(), '.qclaw', 'openclaw.json');
+
+    if (fs.existsSync(pluginDir)) {
+      fs.rmSync(pluginDir, { recursive: true, force: true });
+      console.log(`[GuardClaw] Qclaw plugin removed from ${pluginDir}`);
+    }
+
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (config.plugins?.allow) {
+        config.plugins.allow = config.plugins.allow.filter(p => p !== pluginId);
+      }
+      if (config.plugins?.load?.paths) {
+        config.plugins.load.paths = config.plugins.load.paths.filter(p => !p.includes(pluginId));
+      }
+      if (config.plugins?.entries?.[pluginId]) {
+        delete config.plugins.entries[pluginId];
+      }
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+      console.log(`[GuardClaw] Qclaw plugin unregistered from ${configPath}`);
     }
 
     res.json({ ok: true });
@@ -4275,41 +4408,33 @@ app.post('/api/blocking/toggle', (req, res) => {
     
     fs.writeFileSync(envPath, envContent);
     
-    // Update OpenClaw plugin configuration
-    const openclawConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    // Update OpenClaw and Qclaw plugin configuration
     let needsGatewayRestart = false;
-    
-    if (fs.existsSync(openclawConfigPath)) {
+
+    for (const [label, configPath] of [
+      ['OpenClaw', path.join(os.homedir(), '.openclaw', 'openclaw.json')],
+      ['Qclaw',    path.join(os.homedir(), '.qclaw',    'openclaw.json')],
+    ]) {
+      if (!fs.existsSync(configPath)) continue;
       try {
-        const openclawConfig = JSON.parse(fs.readFileSync(openclawConfigPath, 'utf8'));
-        
-        // Ensure plugin structure exists
-        if (!openclawConfig.plugins) openclawConfig.plugins = {};
-        if (!openclawConfig.plugins.entries) openclawConfig.plugins.entries = {};
-        
-        // Update guardclaw-interceptor plugin enabled state
-        if (!openclawConfig.plugins.entries['guardclaw-interceptor']) {
-          openclawConfig.plugins.entries['guardclaw-interceptor'] = {};
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (!cfg.plugins) cfg.plugins = {};
+        if (!cfg.plugins.entries) cfg.plugins.entries = {};
+        if (!cfg.plugins.entries['guardclaw-interceptor']) {
+          cfg.plugins.entries['guardclaw-interceptor'] = {};
         }
-        
-        const wasEnabled = openclawConfig.plugins.entries['guardclaw-interceptor'].enabled;
-        openclawConfig.plugins.entries['guardclaw-interceptor'].enabled = enabled;
-        
-        // Save updated config
-        fs.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2));
-        
-        if (wasEnabled !== enabled) {
-          needsGatewayRestart = true;
-        }
-        
-        console.log(`[GuardClaw] Updated OpenClaw plugin: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+        const wasEnabled = cfg.plugins.entries['guardclaw-interceptor'].enabled;
+        cfg.plugins.entries['guardclaw-interceptor'].enabled = enabled;
+        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+        if (wasEnabled !== enabled) needsGatewayRestart = true;
+        console.log(`[GuardClaw] Updated ${label} plugin: ${enabled ? 'ENABLED' : 'DISABLED'}`);
       } catch (err) {
-        console.error('[GuardClaw] Failed to update OpenClaw config:', err);
+        console.error(`[GuardClaw] Failed to update ${label} config:`, err);
       }
     }
-    
-    const message = needsGatewayRestart 
-      ? `Blocking ${enabled ? 'enabled' : 'disabled'}. ⚠️ OpenClaw Gateway restart required: openclaw gateway restart`
+
+    const message = needsGatewayRestart
+      ? `Blocking ${enabled ? 'enabled' : 'disabled'}. ⚠️ Gateway restart required`
       : `Blocking setting updated to ${enabled ? 'ENABLED' : 'DISABLED'}.`;
     
     res.json({ 
@@ -4377,7 +4502,7 @@ app.delete('/api/blocking/blacklist', (req, res) => {
 
 // ─── Event handling (shared across all backends) ─────────────────────────────
 
-async function handleAgentEvent(event) {
+async function handleAgentEvent(event, gatewaySource = 'openclaw') {
   const eventType = event.event || event.type;
 
   // Skip GuardClaw's own injected chat messages (echoed back from OC via chat.send)
@@ -4445,7 +4570,8 @@ async function handleAgentEvent(event) {
 
   // Use toolCallId as event id for tool-call events to enable dedup with poller
   const toolCallId = event.payload?.data?.toolCallId || event.payload?.data?.tool_call_id;
-  const eventId = (eventDetails.type === 'tool-call' && toolCallId) ? `oc-tc-${toolCallId}` : generateId('oc');
+  const srcPrefix = gatewaySource === 'qclaw' ? 'qc' : 'oc';
+  const eventId = (eventDetails.type === 'tool-call' && toolCallId) ? `${srcPrefix}-tc-${toolCallId}` : generateId(srcPrefix);
   const storedEvent = {
     id: eventId,
     timestamp: Date.now(),
@@ -4457,6 +4583,7 @@ async function handleAgentEvent(event) {
     command: eventDetails.command,
     payload: event.payload || event,
     sessionKey: sessionKey,
+    gatewaySource,
     streamingSteps: [] // Will be populated below
   };
 
@@ -4936,9 +5063,9 @@ async function analyzeStreamingStep(step) {
   }
 }
 
-// Register event handler on ALL active clients
-for (const { client } of activeClients) {
-  client.onEvent(handleAgentEvent);
+// Register event handler on ALL active clients (tagged with source name)
+for (const { client, name } of activeClients) {
+  client.onEvent((event) => handleAgentEvent(event, name));
 }
 
 // ─── MCP bridge endpoints (for Cowork monitoring) ────────────────────────────
@@ -5207,12 +5334,14 @@ app.listen(PORT, () => {
         }
       }
 
-      // Fetch OpenClaw gateway info if connected
-      if (openclawClient && openclawClient.connected) {
+      // Fetch gateway info if connected (OpenClaw or Qclaw)
+      const connectedGateway = (openclawClient?.connected && openclawClient) || (qclawClient?.connected && qclawClient) || null;
+      const connectedGatewayLabel = openclawClient?.connected ? 'OpenClaw' : qclawClient?.connected ? 'Qclaw' : null;
+      if (connectedGateway) {
         console.log('');
-        console.log('🔍 Fetching OpenClaw Gateway information...');
+        console.log(`🔍 Fetching ${connectedGatewayLabel} Gateway information...`);
         try {
-          const sessionsResponse = await openclawClient.request('sessions.list', {
+          const sessionsResponse = await connectedGateway.request('sessions.list', {
             activeMinutes: 60,
             limit: 10
           });
@@ -5240,8 +5369,8 @@ app.listen(PORT, () => {
         }
       }
 
-      // Start session poller (OpenClaw only)
-      if (sessionPoller && openclawClient && openclawClient.connected) {
+      // Start session poller (OpenClaw or Qclaw)
+      if (sessionPoller && connectedGateway) {
         const pollInterval = parseInt(process.env.POLL_INTERVAL) || 30000;
         sessionPoller.start(pollInterval);
       }

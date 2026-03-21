@@ -19,7 +19,7 @@ function App() {
   const [daysSinceInstall, setDaysSinceInstall] = useState(0);
   const [events, setEvents] = useState([]);
   const [eventFilter, setEventFilter] = useState(null); // 'safe', 'warning', 'blocked', or null
-  const [backendFilter, setBackendFilter] = useState('claude-code'); // 'openclaw', 'nanobot', 'claude-code'
+  const [backendFilter, setBackendFilter] = useState('claude-code'); // 'openclaw', 'qclaw', 'claude-code', etc.
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
 
@@ -160,8 +160,10 @@ function App() {
         const eventSessionKey2 = newEvent.sessionKey || newEvent.payload?.sessionKey || '';
         const bf = backendFilterRef.current;
         const ss = selectedSessionRef.current;
+        const evGatewaySource = newEvent.gatewaySource;
         const matchesBackend = bf === 'all'
-          || (bf === 'openclaw' && eventSessionKey2.startsWith('agent:'))
+          || (bf === 'openclaw' && eventSessionKey2.startsWith('agent:') && evGatewaySource !== 'qclaw')
+          || (bf === 'qclaw' && eventSessionKey2.startsWith('agent:') && evGatewaySource === 'qclaw')
           || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'))
           || (bf === 'gemini-cli' && eventSessionKey2.startsWith('gemini:'))
           || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'))
@@ -560,7 +562,7 @@ function App() {
                 color="text-blue-400"
               />
               <StatCard
-                title={backendFilter !== 'all' ? t('stats.eventsBackend', { backend: backendFilter === 'claude-code' ? 'CC' : backendFilter === 'openclaw' ? 'OC' : backendFilter.toUpperCase() }) : t('stats.totalEvents')}
+                title={backendFilter !== 'all' ? t('stats.eventsBackend', { backend: backendFilter === 'claude-code' ? 'CC' : backendFilter === 'openclaw' ? 'OC' : backendFilter === 'qclaw' ? 'QC' : backendFilter.toUpperCase() }) : t('stats.totalEvents')}
                 value={stats.totalEvents}
                 color="text-gc-text"
                 onClick={() => setEventFilter(null)}
@@ -596,6 +598,7 @@ function App() {
                 <div className="flex items-center space-x-2">
                   {backends && [
                     { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('openclaw'); } },
+                    { key: 'qclaw', label: 'Qclaw', activeColor: 'bg-orange-500', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('qclaw'); } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                     { key: 'opencode', label: 'OpenCode', activeColor: 'bg-teal-600', onClick: () => { setSelectedSession(null); setBackendFilter('opencode'); } },
                   ]
@@ -628,7 +631,7 @@ function App() {
                     {t('events.realtime')}
                     {backendFilter !== 'all' && (
                       <span className="ml-2 text-sm text-gc-text-dim">
-                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'opencode' ? t('backend.opencode') : t('backend.claudeCode')})
+                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'qclaw' ? t('backend.qclaw') : backendFilter === 'opencode' ? t('backend.opencode') : t('backend.claudeCode')})
                       </span>
                     )}
                     {backendFilter === 'all' && (
@@ -655,15 +658,17 @@ function App() {
               {(() => {
                 const isCC = backendFilter === 'claude-code';
                 const isOC = backendFilter === 'openclaw';
+                const isQC = backendFilter === 'qclaw';
+                const isGateway = isOC || isQC;
                 const visibleSessions = sessions.filter(s => {
-                  if (isOC) return s.key.startsWith('agent:') && s.key !== 'agent:main:main';
+                  if (isGateway) return s.key.startsWith('agent:') && s.key !== 'agent:main:main';
                   if (isCC) return false; // CC subagents fold into Main tab (ephemeral, fire-and-forget)
                   // "All" view: exclude CC sessions (they have their own Main/Sub-agent tabs in CC view)
                   if (backendFilter === 'all' && s.key.startsWith('claude-code:')) return false;
                   return true;
                 });
-                // CC/OC view: always show tab bar (Main + sub-sessions); others: only if >1 session
-                if (!isCC && !isOC && visibleSessions.length <= 1) return null;
+                // CC/Gateway view: always show tab bar (Main + sub-sessions); others: only if >1 session
+                if (!isCC && !isGateway && visibleSessions.length <= 1) return null;
                 const getSessionBackend = (key) => {
                   if (key.startsWith('claude-code:')) return { label: 'CC', color: 'bg-purple-500' };
                   return { label: 'OC', color: 'bg-blue-600' };
@@ -671,15 +676,15 @@ function App() {
                 return (
                   <div className="px-6 py-2 border-b border-gc-border flex-shrink-0 flex items-center gap-2 overflow-x-auto">
                     <button
-                      onClick={() => setSelectedSession(isOC ? 'agent:main:main' : null)}
+                      onClick={() => setSelectedSession(isGateway ? 'agent:main:main' : null)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                        (isOC ? selectedSession === 'agent:main:main' : selectedSession === null)
+                        (isGateway ? selectedSession === 'agent:main:main' : selectedSession === null)
                           ? 'bg-gc-primary text-white'
                           : 'bg-gc-border/50 text-gc-text-dim hover:bg-gc-border'
                       }`}
                     >
                       <BotIcon size={14} />
-                      {isCC ? t('events.main') : isOC ? t('events.mainAgent') : t('events.allSessions')}
+                      {isCC ? t('events.main') : isGateway ? t('events.mainAgent') : t('events.allSessions')}
                     </button>
                     {visibleSessions.map((s) => {
                       const backend = backendFilter === 'all' ? getSessionBackend(s.key) : null;

@@ -1,0 +1,42 @@
+appId: io.guardclaw.desktop
+productName: GuardClaw
+copyright: Copyright © 2026 YG
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - '!build{,/**/*}'
+  - '!dist{,/**/*}'
+  - server/**/*
+  - client/dist/**/*
+  - desktop/**/*
+  - bin/**/*
+  - package.json
+  - '!**/node_modules/**'
+  - node_modules/**/*
+  - '!**/*.{iml,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,suo,xproj,cc,d.ts,mk,a,o,obj,forge-meta,pdb}'
+  - '!**/._*'
+  - '!**/{.git,.hg,.svn,CVS,RCS,SCCS,__pycache__,.DS_Store,thumbs.db,.gitignore,.gitkeep,.gitattributes,.npmignore,.idea,.vs,.flowconfig,.jshintrc,.eslintrc,.circleci}'
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: arm64
+  icon: build/icon.icns
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+dmg:
+  title: GuardClaw ${version}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+asar: true

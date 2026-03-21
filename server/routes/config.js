@@ -7,7 +7,7 @@ import { getDataDir } from '../data-dir.js';
 
 export function configRoutes(deps) {
   const router = Router();
-  const { getOpenclawClient, getSafeguardService, setSafeguardService } = deps;
+  const { getOpenclawClient, getQclawClient, getSafeguardService, setSafeguardService } = deps;
 
   router.post('/api/config/token', async (req, res) => {
     const { token } = req.body;
@@ -47,6 +47,51 @@ export function configRoutes(deps) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const token = config?.gateway?.auth?.token;
       if (!token) return res.status(404).json({ error: 'Token not found in OpenClaw config' });
+      res.json({ token, source: configPath });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Qclaw token management
+  router.post('/api/config/qclaw-token', async (req, res) => {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Invalid token' });
+
+    try {
+      const envPath = path.join(getDataDir(), '.env');
+      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+
+      const tokenRegex = /^QCLAW_TOKEN=.*/m;
+      if (tokenRegex.test(envContent)) {
+        envContent = envContent.replace(tokenRegex, `QCLAW_TOKEN=${token}`);
+      } else {
+        envContent += `\nQCLAW_TOKEN=${token}\n`;
+      }
+      fs.writeFileSync(envPath, envContent, 'utf8');
+      process.env.QCLAW_TOKEN = token;
+
+      const qclawClient = getQclawClient?.();
+      if (qclawClient) {
+        qclawClient.token = token;
+        console.log('[GuardClaw] Qclaw token updated, reconnecting...');
+        qclawClient.disconnect();
+        setTimeout(() => qclawClient.connect().catch(err => console.error('[GuardClaw] Qclaw reconnect failed:', err)), 1000);
+      }
+      res.json({ success: true, message: 'Qclaw token saved and reconnecting' });
+    } catch (error) {
+      console.error('[GuardClaw] Failed to save Qclaw token:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/api/config/detect-qclaw-token', async (_req, res) => {
+    try {
+      const configPath = path.join(os.homedir(), '.qclaw', 'openclaw.json');
+      if (!fs.existsSync(configPath)) return res.status(404).json({ error: 'Qclaw config not found' });
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const token = config?.gateway?.auth?.token;
+      if (!token) return res.status(404).json({ error: 'Token not found in Qclaw config' });
       res.json({ token, source: configPath });
     } catch (error) {
       res.status(500).json({ error: error.message });

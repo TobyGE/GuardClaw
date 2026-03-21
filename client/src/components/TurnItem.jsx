@@ -390,11 +390,12 @@ function IntermediateText({ text }) {
  * Claude Code: userPrompt from claude-code-prompt event; multiple reply segments;
  *              no turn-level risk scoring (per-tool scoring happens in ToolCallRow).
  *
- * Source is determined by turn.isCCTurn.
+ * Source is determined by turn.isCCTurn and turn.parent?.gatewaySource.
  */
 function AgentTurnItem({ turn }) {
   const { t, language } = useI18n();
   const isCCTurn = !!turn.isCCTurn;
+  const isQclawTurn = !isCCTurn && turn.parent?.gatewaySource === 'qclaw';
   const toolCalls = turn.toolCalls || [];
 
   // ── Normalize agent replies ──
@@ -430,11 +431,13 @@ function AgentTurnItem({ turn }) {
   // ── Visual identity ──
   const pill = isCCTurn
     ? 'text-purple-600 bg-purple-50 border-purple-200'
+    : isQclawTurn
+    ? 'text-orange-600 bg-orange-50 border-orange-200'
     : 'text-blue-600 bg-blue-50 border-blue-200';
-  const pillLabel = isCCTurn ? 'Claude Code' : 'OpenClaw';
-  const botColor = isCCTurn ? 'text-purple-500' : 'text-gc-primary';
-  const replyBorder = isCCTurn ? 'border-purple-300/50' : 'border-blue-300/50';
-  const replyLabelColor = isCCTurn ? 'text-purple-400/60' : 'text-blue-400/60';
+  const pillLabel = isCCTurn ? 'Claude Code' : isQclawTurn ? 'Qclaw' : 'OpenClaw';
+  const botColor = isCCTurn ? 'text-purple-500' : isQclawTurn ? 'text-orange-500' : 'text-gc-primary';
+  const replyBorder = isCCTurn ? 'border-purple-300/50' : isQclawTurn ? 'border-orange-300/50' : 'border-blue-300/50';
+  const replyLabelColor = isCCTurn ? 'text-purple-400/60' : isQclawTurn ? 'text-orange-400/60' : 'text-blue-400/60';
 
   const [showDetails, setShowDetails] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
