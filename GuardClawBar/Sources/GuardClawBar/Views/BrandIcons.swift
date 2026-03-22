@@ -15,6 +15,7 @@ struct BrandIcon: View {
         case "claude-code": return "claude-logo"
         case "openclaw": return "openclaw-logo"
         case "gemini-cli": return "gemini-logo"
+        case "copilot": return "copilot-logo"
         case "cursor": return "cursor-logo"
         case "opencode": return "opencode-logo"
         default: return ""

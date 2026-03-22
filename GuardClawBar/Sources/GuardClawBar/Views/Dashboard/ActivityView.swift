@@ -10,6 +10,7 @@ struct ActivityView: View {
         ("claude-code", "Claude Code"),
         ("openclaw", "OpenClaw"),
         ("gemini-cli", "Gemini CLI"),
+        ("copilot", "Copilot CLI"),
         ("cursor", "Cursor"),
         ("opencode", "OpenCode"),
     ]

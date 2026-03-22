@@ -8,6 +8,8 @@ struct ConnectionsView: View {
     @State private var ocMessage: String? = nil
     @State private var geminiInstalled: Bool? = nil
     @State private var geminiMessage: String? = nil
+    @State private var copilotInstalled: Bool? = nil
+    @State private var copilotMessage: String? = nil
     @State private var cursorInstalled: Bool? = nil
     @State private var cursorMessage: String? = nil
     @State private var opencodeInstalled: Bool? = nil
@@ -41,6 +43,11 @@ struct ConnectionsView: View {
 
                 Divider()
 
+                // Copilot CLI
+                copilotCLISection
+
+                Divider()
+
                 // Cursor
                 cursorSection
 
@@ -56,6 +63,7 @@ struct ConnectionsView: View {
             await checkCCStatus()
             await checkOCPluginStatus()
             await checkGeminiStatus()
+            await checkCopilotStatus()
             await checkCursorStatus()
             await checkOpenCodeStatus()
         }
@@ -247,6 +255,60 @@ struct ConnectionsView: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    // MARK: - Copilot CLI
+
+    private var copilotConnected: Bool {
+        appState.serverStatus?.backends?["copilot"]?.connected == true
+    }
+
+    private var copilotCLISection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(copilotConnected ? Color.green : Color.gray)
+                    .frame(width: 10, height: 10)
+                Text("Copilot CLI")
+                    .font(.headline)
+                Spacer()
+                Text(copilotConnected ? L.t("common.connected") : L.t("common.notConnected"))
+                    .font(.caption)
+                    .foregroundStyle(copilotConnected ? .green : .secondary)
+            }
+
+            Text(L.t("connections.copilotDesc"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if copilotInstalled == true {
+                HStack {
+                    Label(L.t("connections.extensionActive"), systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button(L.t("common.uninstall")) {
+                        Task { await uninstallCopilot() }
+                    }
+                    .controlSize(.small)
+                }
+            } else {
+                Button {
+                    Task { await setupCopilot() }
+                } label: {
+                    Label(L.t("connections.installExtension"), systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let msg = copilotMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: - Actions
 
     private func checkCCStatus() async {
@@ -324,6 +386,32 @@ struct ConnectionsView: View {
             geminiMessage = L.t("connections.hooksRemovedRestart", "Gemini CLI")
         } catch {
             geminiMessage = L.t("settings.failed", error.localizedDescription)
+        }
+    }
+
+    private func checkCopilotStatus() async {
+        if let status = try? await api.copilotStatus() {
+            copilotInstalled = status.installed
+        }
+    }
+
+    private func setupCopilot() async {
+        do {
+            _ = try await api.setupCopilot()
+            copilotInstalled = true
+            copilotMessage = "\u{2713} " + L.t("connections.extensionInstalledRestart", "Copilot CLI")
+        } catch {
+            copilotMessage = L.t("settings.failed", error.localizedDescription)
+        }
+    }
+
+    private func uninstallCopilot() async {
+        do {
+            _ = try await api.uninstallCopilot()
+            copilotInstalled = false
+            copilotMessage = L.t("connections.extensionRemovedRestart", "Copilot CLI")
+        } catch {
+            copilotMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 

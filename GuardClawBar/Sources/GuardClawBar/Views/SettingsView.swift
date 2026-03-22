@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var ocSetupMessage: String? = nil
     @State private var geminiInstalled: Bool? = nil
     @State private var geminiMessage: String? = nil
+    @State private var copilotInstalled: Bool? = nil
+    @State private var copilotMessage: String? = nil
     @State private var cursorInstalled: Bool? = nil
     @State private var cursorMessage: String? = nil
     @State private var blockingEnabled = false
@@ -178,6 +180,28 @@ struct SettingsView: View {
                         }
                     }
 
+                    // Copilot CLI
+                    HStack {
+                        Circle()
+                            .fill(copilotInstalled == true ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                        Text("Copilot CLI")
+                            .font(.caption)
+                        Spacer()
+                        if copilotInstalled == true {
+                            Text("\u{2713}")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green)
+                            Button(L.t("common.uninstall")) { uninstallCopilot() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        } else {
+                            Button(L.t("common.install")) { setupCopilot() }
+                                .font(.system(size: 9))
+                                .controlSize(.mini)
+                        }
+                    }
+
                     // Cursor
                     HStack {
                         Circle()
@@ -213,6 +237,12 @@ struct SettingsView: View {
                     }
 
                     if let msg = geminiMessage {
+                        Text(msg)
+                            .font(.system(size: 9))
+                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+                    }
+
+                    if let msg = copilotMessage {
                         Text(msg)
                             .font(.system(size: 9))
                             .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
@@ -307,6 +337,9 @@ struct SettingsView: View {
             }
             if let status = try? await api.geminiCLIStatus() {
                 await MainActor.run { geminiInstalled = status.installed }
+            }
+            if let status = try? await api.copilotStatus() {
+                await MainActor.run { copilotInstalled = status.installed }
             }
             if let status = try? await api.cursorStatus() {
                 await MainActor.run { cursorInstalled = status.installed }
@@ -416,6 +449,38 @@ struct SettingsView: View {
             } catch {
                 await MainActor.run {
                     geminiMessage = Loc.shared.t("settings.failed", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func setupCopilot() {
+        Task {
+            do {
+                _ = try await api.setupCopilot()
+                await MainActor.run {
+                    copilotInstalled = true
+                    copilotMessage = "\u{2713} " + Loc.shared.t("settings.extensionInstalled", "Copilot CLI")
+                }
+            } catch {
+                await MainActor.run {
+                    copilotMessage = Loc.shared.t("settings.failed", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func uninstallCopilot() {
+        Task {
+            do {
+                _ = try await api.uninstallCopilot()
+                await MainActor.run {
+                    copilotInstalled = false
+                    copilotMessage = Loc.shared.t("settings.extensionRemoved", "Copilot CLI")
+                }
+            } catch {
+                await MainActor.run {
+                    copilotMessage = Loc.shared.t("settings.failed", error.localizedDescription)
                 }
             }
         }

@@ -166,6 +166,7 @@ function App() {
           || (bf === 'qclaw' && eventSessionKey2.startsWith('agent:') && evGatewaySource === 'qclaw')
           || (bf === 'claude-code' && eventSessionKey2.startsWith('claude-code:'))
           || (bf === 'gemini-cli' && eventSessionKey2.startsWith('gemini:'))
+          || (bf === 'copilot' && eventSessionKey2.startsWith('copilot:'))
           || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'))
           || (bf === 'opencode' && eventSessionKey2.startsWith('opencode:'));
         // Support merged sessions: if selectedSession is a channel prefix (e.g. agent:main:cron),
@@ -600,6 +601,7 @@ function App() {
                     { key: 'openclaw', label: 'OpenClaw', activeColor: 'bg-blue-600', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('openclaw'); } },
                     { key: 'qclaw', label: 'Qclaw', activeColor: 'bg-orange-500', onClick: () => { setSelectedSession('agent:main:main'); setBackendFilter('qclaw'); } },
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
+                    { key: 'copilot', label: 'Copilot CLI', activeColor: 'bg-sky-600', onClick: () => { setSelectedSession(null); setBackendFilter('copilot'); } },
                     { key: 'opencode', label: 'OpenCode', activeColor: 'bg-teal-600', onClick: () => { setSelectedSession(null); setBackendFilter('opencode'); } },
                   ]
                     .filter(b => backends[b.key])

@@ -161,8 +161,9 @@ const ccLastReadLine = new Map();    // session_id → last line number processe
 // Active CC sub-agents: session_id → { agent_id, agent_type, startTime }
 // When a sub-agent is active, tool calls from that session_id are attributed to it.
 const ccActiveSubagents = new Map();
-// Track when the last CC hook was received (for connection status)
+// Track when the last CC/Copilot hook was received (for connection status)
 let ccLastHookTime = 0;
+let copilotLastHookTime = 0;
 const CC_CONNECTED_TIMEOUT_MS = 600_000; // consider CC disconnected after 10min of no hooks
 // Track PreToolUse 'ask' decisions awaiting PostToolUse feedback (approve/deny inference)
 // Key: `${sessionKey}:${toolName}:${commandHash}` → { toolName, commandStr, displayInput, riskScore, sessionKey, timestamp }
@@ -481,6 +482,10 @@ app.get('/api/status', async (req, res) => {
   const geminiConnected = geminiLastHookTime > 0 && (Date.now() - geminiLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
   backends['gemini-cli'] = { connected: geminiConnected, label: 'Gemini CLI', type: 'http-hook' };
 
+  // Copilot CLI uses extension hooks via HTTP
+  const copilotConnected = copilotLastHookTime > 0 && (Date.now() - copilotLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
+  backends['copilot'] = { connected: copilotConnected, label: 'Copilot CLI', type: 'http-hook' };
+
   // Cursor IDE uses subprocess hooks via HTTP bridge
   const cursorConnected = cursorLastHookTime > 0 && (Date.now() - cursorLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
   backends['cursor'] = { connected: cursorConnected, label: 'Cursor', type: 'http-hook' };
@@ -490,7 +495,7 @@ app.get('/api/status', async (req, res) => {
   backends['opencode'] = { connected: opencodeConnected, label: 'OpenCode', type: 'http-hook' };
 
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || geminiConnected || cursorConnected || opencodeConnected || coworkWatcherActive || activeClients.some(({ client }) => client.getConnectionStats().connected);
+  const anyConnected = ccConnected || copilotConnected || geminiConnected || cursorConnected || opencodeConnected || coworkWatcherActive || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -1230,28 +1235,41 @@ function readSkillFile(skillName, cwd) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
-  ccLastHookTime = Date.now();
+  const { tool_name, session_id } = req.body;
+  // Copilot extension may send tool_input as a JSON string — parse it
+  let tool_input = req.body.tool_input;
+  if (typeof tool_input === 'string') {
+    try { tool_input = JSON.parse(tool_input); } catch { tool_input = {}; }
+  }
+  if (session_id && session_id.startsWith('copilot:')) {
+    copilotLastHookTime = Date.now();
+  } else {
+    ccLastHookTime = Date.now();
+  }
   console.log(`[GuardClaw] 🔔 pre-tool-use received:`, JSON.stringify(req.body).slice(0, 500));
-  const { tool_name, tool_input, session_id } = req.body;
   if (!tool_name) return res.json({});
 
   const gcToolName = mapClaudeCodeTool(tool_name);
   const gcParams = mapClaudeCodeParams(tool_name, tool_input);
+  // Detect if this is a Copilot CLI session (session_id starts with "copilot:")
+  const isCopilot = session_id && session_id.startsWith('copilot:');
   // If a sub-agent is active for this session, attribute tool calls to it
-  const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
-  const sessionKey = session_id
-    ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
-    : 'claude-code:default';
+  const activeSub = !isCopilot && session_id ? ccActiveSubagents.get(session_id) : null;
+  const sessionKey = isCopilot
+    ? session_id  // already prefixed: "copilot:12345"
+    : session_id
+      ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
+      : 'claude-code:default';
 
   // Infer denials for any stale pending asks from this session
   inferPendingDenials(sessionKey);
 
-  // Cache transcript path for text extraction
+  // Cache transcript path for text extraction (CC only)
   const { transcript_path: txPath } = req.body;
-  if (session_id && txPath) ccTranscriptPaths.set(session_id, txPath);
+  if (session_id && txPath && !isCopilot) ccTranscriptPaths.set(session_id, txPath);
 
-  // Capture any assistant text output before this tool call
-  if (session_id) emitIntermediateText(session_id);
+  // Capture any assistant text output before this tool call (CC only)
+  if (session_id && !isCopilot) emitIntermediateText(session_id);
 
   try {
     // Get chain history
@@ -1379,9 +1397,11 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'ask' : 'pass-through') : 'auto-approved';
     const isHighRisk = analysis.riskScore >= 8;
     const eventId = `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const eventType = isCopilot ? 'copilot-tool' : 'claude-code-tool';
+    const eventSource = isCopilot ? 'copilot' : 'claude-code';
     eventStore.addEvent({
       id: eventId,
-      type: 'claude-code-tool',
+      type: eventType,
       tool: gcToolName,
       command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
       description: displayInput,
@@ -1402,7 +1422,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         payload: { params: gcParams },
         safeguard: { riskScore: analysis.riskScore, reasoning: analysis.reasoning, category: analysis.category, verdict },
         taskContext: taskContext || null,
-        source: 'claude-code',
+        source: eventSource,
         timestamp: Date.now(),
       }),
     });
@@ -1687,17 +1707,29 @@ const CONTENT_CREDENTIAL_ALERTS = [
 
 // Post-tool-use: store results for chain analysis + scan Read content
 app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
-  ccLastHookTime = Date.now();
-  const { tool_name, tool_input, tool_output, tool_response, session_id } = req.body;
+  const { tool_name, tool_output, tool_response, session_id } = req.body;
+  // Copilot extension may send tool_input as a JSON string — parse it
+  let tool_input = req.body.tool_input;
+  if (typeof tool_input === 'string') {
+    try { tool_input = JSON.parse(tool_input); } catch { tool_input = {}; }
+  }
+  if (session_id && session_id.startsWith('copilot:')) {
+    copilotLastHookTime = Date.now();
+  } else {
+    ccLastHookTime = Date.now();
+  }
   const output = tool_output || tool_response;
   if (!tool_name) return res.json({});
 
   const gcToolName = mapClaudeCodeTool(tool_name);
   const gcParams = mapClaudeCodeParams(tool_name, tool_input);
-  const activeSub = session_id ? ccActiveSubagents.get(session_id) : null;
-  const sessionKey = session_id
-    ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
-    : 'claude-code:default';
+  const isCopilot = session_id && session_id.startsWith('copilot:');
+  const activeSub = !isCopilot && session_id ? ccActiveSubagents.get(session_id) : null;
+  const sessionKey = isCopilot
+    ? session_id
+    : session_id
+      ? (activeSub ? `claude-code:${session_id}:subagent:${activeSub.agent_id}` : `claude-code:${session_id}`)
+      : 'claude-code:default';
 
   // Check if this tool had a pending 'ask' — PostToolUse means user approved
   const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
@@ -3318,6 +3350,46 @@ app.post('/api/setup/cursor/uninstall', (req, res) => {
     fs.writeFileSync(hooksPath, JSON.stringify(hooksConfig, null, 2) + '\n');
 
     console.log(`[GuardClaw] Cursor hooks removed from ${hooksPath}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Copilot CLI Extension setup ─────────────────────────────────────────────
+
+app.post('/api/setup/copilot', (req, res) => {
+  try {
+    const port = process.env.PORT || 3002;
+    childProcess.execSync(`node "${path.join(__dirname, '..', 'scripts', 'install-copilot.js')}" --port ${port}`, { stdio: 'pipe' });
+    console.log(`[GuardClaw] Copilot CLI extension installed`);
+    res.json({ ok: true, message: 'Copilot CLI extension installed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/copilot/status', (req, res) => {
+  try {
+    const extFile = path.join(os.homedir(), '.copilot', 'extensions', 'guardclaw', 'extension.mjs');
+    if (!fs.existsSync(extFile)) {
+      return res.json({ installed: false });
+    }
+    const content = fs.readFileSync(extFile, 'utf8');
+    const hasGuardClaw = content.includes('GuardClaw') && content.includes('pre-tool-use');
+    res.json({ installed: hasGuardClaw, path: extFile });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/copilot/uninstall', (req, res) => {
+  try {
+    const extDir = path.join(os.homedir(), '.copilot', 'extensions', 'guardclaw');
+    if (fs.existsSync(extDir)) {
+      fs.rmSync(extDir, { recursive: true });
+    }
+    console.log(`[GuardClaw] Copilot CLI extension removed`);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

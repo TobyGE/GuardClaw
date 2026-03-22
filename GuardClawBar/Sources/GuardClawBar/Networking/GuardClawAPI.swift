@@ -84,6 +84,19 @@ actor GuardClawAPI {
         try await post("/api/setup/gemini-cli/uninstall", body: [:] as [String: String])
     }
 
+    // Copilot CLI
+    func setupCopilot() async throws -> SetupResponse {
+        try await post("/api/setup/copilot", body: [:] as [String: String])
+    }
+
+    func copilotStatus() async throws -> CCSetupStatus {
+        try await get("/api/setup/copilot/status")
+    }
+
+    func uninstallCopilot() async throws -> SetupResponse {
+        try await post("/api/setup/copilot/uninstall", body: [:] as [String: String])
+    }
+
     // Cursor
     func setupCursor() async throws -> SetupResponse {
         try await post("/api/setup/cursor", body: [:] as [String: String])
