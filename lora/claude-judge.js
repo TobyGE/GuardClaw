@@ -11,7 +11,7 @@
  *   node lora/claude-judge.js --diff         # show disagreements
  */
 
-import { execFileSync } from 'child_process';
+import { spawn } from 'child_process';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -46,6 +46,11 @@ const SYSTEM_PROMPT = systemPrompts['qwen3-4b'].replace(/^\/no_think\n/, ''); //
 const args = process.argv.slice(2);
 const statsOnly = args.includes('--stats');
 const diffOnly = args.includes('--diff');
+const riskyOnly = args.includes('--risky');
+const warnOnly = args.includes('--warn');
+const suspectSafe = args.includes('--suspect-safe');
+const allSuspect = args.includes('--all-suspect');
+const remainingSafe = args.includes('--remaining-safe');
 const limitIdx = args.indexOf('--limit');
 const limit = limitIdx >= 0 ? parseInt(args[limitIdx + 1]) || 50 : 0;
 
@@ -105,19 +110,86 @@ function showDiff() {
 }
 
 function callClaude(userPrompt) {
-  const result = execFileSync('claude', [
-    '-p', '--model', 'haiku',
-    '--system-prompt', SYSTEM_PROMPT,
-    userPrompt,
-  ], {
-    encoding: 'utf8',
-    timeout: 30_000,
+  return new Promise((resolve, reject) => {
+    const proc = spawn('claude', [
+      '-p', '--model', 'haiku',
+      '--system-prompt', SYSTEM_PROMPT,
+    ], { encoding: 'utf8', timeout: 60_000 });
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => stdout += d);
+    proc.stderr.on('data', d => stderr += d);
+    proc.stdin.write(userPrompt);
+    proc.stdin.end();
+
+    proc.on('close', code => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(`claude exit ${code}: ${stderr.slice(0, 200)}`));
+    });
+    proc.on('error', reject);
+
+    setTimeout(() => { proc.kill(); reject(new Error('timeout')); }, 60_000);
   });
-  return result.trim();
 }
 
-function processRecords() {
-  let query = 'SELECT * FROM judge_calls WHERE claude_verdict IS NULL ORDER BY id ASC';
+const CONCURRENCY = 16;
+const startTime = Date.now();
+
+async function processOne(record, update, stats, total) {
+  try {
+    const content = await callClaude(record.user_prompt);
+
+    let claudeVerdict = null;
+    let claudeReasoning = null;
+    try {
+      const parsed = JSON.parse(content.replace(/```json?\n?/g, '').replace(/```/g, '').trim());
+      claudeVerdict = parsed.verdict?.toUpperCase();
+      claudeReasoning = parsed.reason || parsed.reasoning || null;
+    } catch {
+      const vm = content.match(/"verdict"\s*:\s*"(SAFE|WARNING|BLOCK)"/i);
+      if (vm) claudeVerdict = vm[1].toUpperCase();
+      const rm = content.match(/"reason(?:ing)?"\s*:\s*"([^"]+)"/);
+      if (rm) claudeReasoning = rm[1];
+    }
+
+    const modelBinary = record.verdict === 'BLOCK' ? 'BLOCK' : 'ALLOW';
+    const claudeBinary = claudeVerdict === 'BLOCK' ? 'BLOCK' : 'ALLOW';
+    const match = modelBinary === claudeBinary;
+
+    if (match) stats.agree++;
+    else stats.disagree++;
+
+    update.run(content, claudeVerdict, claudeReasoning, Date.now(), record.id);
+    stats.processed++;
+
+    const marker = match ? '✓' : '✗';
+    const pct = (stats.processed / total * 100).toFixed(0);
+    const bar = '█'.repeat(Math.floor(stats.processed / total * 30)) + '░'.repeat(30 - Math.floor(stats.processed / total * 30));
+    const elapsed = (Date.now() - startTime) / 1000;
+    const perItem = elapsed / stats.processed;
+    const remaining = Math.ceil(perItem * (total - stats.processed));
+    const etaMin = Math.floor(remaining / 60);
+    const etaSec = remaining % 60;
+    const eta = etaMin > 0 ? `${etaMin}m${etaSec}s` : `${etaSec}s`;
+    process.stdout.write(`\r  ${bar} ${pct}% [${stats.processed}/${total}] ETA ${eta} ${marker} ${record.verdict}→${claudeVerdict} ✓${stats.agree} ✗${stats.disagree}  `);
+  } catch (err) {
+    stats.errors++;
+    console.error(`  ERROR #${record.id}: ${err.message}`);
+    if (err.status === 429) {
+      await new Promise(r => setTimeout(r, 30_000));
+    }
+  }
+}
+
+async function processRecords() {
+  let query = 'SELECT * FROM judge_calls WHERE claude_verdict IS NULL';
+  if (warnOnly) query += ` AND verdict = 'WARNING'`;
+  else if (riskyOnly) query += ` AND verdict IN ('WARNING', 'BLOCK')`;
+  else if (suspectSafe) query += ` AND verdict = 'SAFE' AND (risk_score >= 3 OR (tool IN ('exec','write') AND (user_prompt LIKE '%password%' OR user_prompt LIKE '%secret%' OR user_prompt LIKE '%api_key%' OR user_prompt LIKE '%credential%' OR user_prompt LIKE '%/etc/%' OR user_prompt LIKE '%sudo%' OR user_prompt LIKE '%rm -rf%' OR user_prompt LIKE '%chmod%' OR user_prompt LIKE '%.env%' OR user_prompt LIKE '%private_key%' OR user_prompt LIKE '%ssh%' OR user_prompt LIKE '%token%')))`;
+  else if (allSuspect) query += ` AND (verdict IN ('WARNING', 'BLOCK') OR (verdict = 'SAFE' AND (risk_score >= 3 OR (tool IN ('exec','write') AND (user_prompt LIKE '%password%' OR user_prompt LIKE '%secret%' OR user_prompt LIKE '%api_key%' OR user_prompt LIKE '%credential%' OR user_prompt LIKE '%/etc/%' OR user_prompt LIKE '%sudo%' OR user_prompt LIKE '%rm -rf%' OR user_prompt LIKE '%chmod%' OR user_prompt LIKE '%.env%' OR user_prompt LIKE '%private_key%' OR user_prompt LIKE '%ssh%' OR user_prompt LIKE '%token%')))))`;
+  else if (remainingSafe) query += ` AND (verdict IN ('WARNING', 'BLOCK') OR (verdict = 'SAFE' AND tool IN ('exec','write','web_fetch','edit','agent_spawn') AND user_prompt LIKE '%chain_history%' AND user_prompt LIKE '%TASK CONTEXT%'))`;
+  query += ' ORDER BY id ASC';
   if (limit > 0) query += ` LIMIT ${limit}`;
   const records = db.prepare(query).all();
 
@@ -127,7 +199,7 @@ function processRecords() {
     return;
   }
 
-  console.log(`Processing ${records.length} records with Claude CLI...\n`);
+  console.log(`Processing ${records.length} records with Claude API (concurrency=${CONCURRENCY})...\n`);
 
   const update = db.prepare(`
     UPDATE judge_calls
@@ -135,73 +207,30 @@ function processRecords() {
     WHERE id = ?
   `);
 
-  let processed = 0;
-  let agree = 0;
-  let disagree = 0;
-  let errors = 0;
+  const stats = { processed: 0, agree: 0, disagree: 0, errors: 0 };
 
-  for (const record of records) {
-    try {
-      const content = callClaude(record.user_prompt);
-
-      // Parse verdict from Claude's response
-      let claudeVerdict = null;
-      let claudeReasoning = null;
-      try {
-        const parsed = JSON.parse(content.replace(/```json?\n?/g, '').replace(/```/g, '').trim());
-        claudeVerdict = parsed.verdict?.toUpperCase();
-        claudeReasoning = parsed.reason || parsed.reasoning || null;
-      } catch {
-        // Try regex fallback
-        const vm = content.match(/"verdict"\s*:\s*"(SAFE|WARNING|BLOCK)"/i);
-        if (vm) claudeVerdict = vm[1].toUpperCase();
-        const rm = content.match(/"reason(?:ing)?"\s*:\s*"([^"]+)"/);
-        if (rm) claudeReasoning = rm[1];
-      }
-
-      // Normalize: WARNING and SAFE both count as ALLOW for comparison
-      const modelBinary = record.verdict === 'BLOCK' ? 'BLOCK' : 'ALLOW';
-      const claudeBinary = claudeVerdict === 'BLOCK' ? 'BLOCK' : 'ALLOW';
-      const match = modelBinary === claudeBinary;
-
-      if (match) agree++;
-      else disagree++;
-
-      update.run(content, claudeVerdict, claudeReasoning, Date.now(), record.id);
-      processed++;
-
-      const marker = match ? '✓' : '✗';
-      const prompt = (record.user_prompt || '').substring(0, 80).replace(/\n/g, ' ');
-      console.log(`  [${processed}/${records.length}] ${marker} #${record.id} model=${record.verdict} claude=${claudeVerdict}  ${prompt}`);
-
-    } catch (err) {
-      errors++;
-      console.error(`  [${processed + 1}/${records.length}] ERROR #${record.id}: ${err.message}`);
-      if (err.message.includes('rate') || err.message.includes('429')) {
-        console.log('  Rate limited, waiting 30s...');
-        const wait = (ms) => { const end = Date.now() + ms; while (Date.now() < end) {} };
-        wait(30_000);
-      }
-    }
+  // Process in batches of CONCURRENCY
+  for (let i = 0; i < records.length; i += CONCURRENCY) {
+    const batch = records.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(r => processOne(r, update, stats, records.length)));
   }
 
+  console.log();
   console.log(`\n━━━ Done ━━━`);
-  console.log(`Processed: ${processed}, Agree: ${agree}, Disagree: ${disagree}, Errors: ${errors}`);
+  console.log(`Processed: ${stats.processed}, Agree: ${stats.agree}, Disagree: ${stats.disagree}, Errors: ${stats.errors}`);
   showStats();
 }
 
 // Main
 if (statsOnly) {
   showStats();
+  db.close();
 } else if (diffOnly) {
   showDiff();
+  db.close();
 } else {
-  try {
-    processRecords();
-  } catch (err) {
+  processRecords().catch(err => {
     console.error('Fatal:', err);
     process.exit(1);
-  }
+  }).finally(() => db.close());
 }
-
-db.close();

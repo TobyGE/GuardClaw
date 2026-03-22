@@ -5,7 +5,7 @@ set -e
 # Uses mlx-lm on Apple Silicon
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DATA_DIR="$SCRIPT_DIR"
+DATA_DIR="$SCRIPT_DIR/training-data"
 MODEL="mlx-community/Qwen3-4B-Instruct-2507-4bit"
 OUTPUT_DIR="$SCRIPT_DIR/adapters"
 PYTHON="/opt/homebrew/opt/python@3.13/bin/python3.13"
@@ -59,7 +59,29 @@ $PYTHON -m mlx_lm lora \
     --steps-per-report 10 \
     --steps-per-eval 50 \
     --save-every 50 \
-    --max-seq-length 4096
+    --max-seq-length 8192 2>&1 | $PYTHON -u -c "
+import sys, re, time
+
+total = 500
+start = time.time()
+bar_width = 30
+
+for line in sys.stdin:
+    line = line.rstrip()
+    m = re.match(r'Iter (\d+):', line)
+    if m:
+        it = int(m.group(1))
+        pct = it / total
+        filled = int(bar_width * pct)
+        bar = '█' * filled + '░' * (bar_width - filled)
+        elapsed = time.time() - start
+        eta = (elapsed / it * (total - it)) if it > 0 else 0
+        eta_m, eta_s = divmod(int(eta), 60)
+        print(f'\r[{bar}] {it}/{total} ({pct:.0%}) ETA {eta_m}m{eta_s:02d}s │ {line}', flush=True)
+    else:
+        print(line, flush=True)
+print()
+"
 
 echo ""
 echo -e "${GREEN}✅ Training complete!${NC}"

@@ -21,13 +21,13 @@ struct WelcomeStep: View {
                             .frame(width: 120, height: 120)
                             .blur(radius: 24)
                             .scaleEffect(glow ? 1.15 : 1.0)
-                            .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: glow)
+                            .animation(.easeInOut(duration: 2.5).repeatCount(5, autoreverses: true), value: glow)
 
                         Image(nsImage: IconRenderer.render(status: .normal, badgeCount: 0))
                             .resizable()
                             .frame(width: 84, height: 84)
                             .scaleEffect(glow ? 1.03 : 1.0)
-                            .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: glow)
+                            .animation(.easeInOut(duration: 2.5).repeatCount(5, autoreverses: true), value: glow)
                     }
 
                     VStack(spacing: 6) {

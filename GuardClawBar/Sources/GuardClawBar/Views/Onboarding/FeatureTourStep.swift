@@ -152,7 +152,7 @@ struct BlockingIllustration: View {
                     .font(.system(size: 26))
                     .foregroundStyle(.red)
                     .scaleEffect(pulse ? 1.08 : 1.0)
-                    .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: pulse)
+                    .animation(.easeInOut(duration: 1.4).repeatCount(5, autoreverses: true), value: pulse)
             }
 
             Text("BLOCKED")

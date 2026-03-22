@@ -133,10 +133,10 @@ final class AppState {
     func startSSE() {
         sseTask?.cancel()
         sseTask = Task { [weak self] in
-            var backoff: Double = 1
+            var backoff: Double = 3
             while !Task.isCancelled {
                 let connected = await self?.connectSSE() ?? false
-                if connected { backoff = 1 } // Reset on successful connection
+                if connected { backoff = 3 } // Reset to minimum, not 1s
                 do { try await Task.sleep(for: .seconds(backoff)) } catch { break }
                 backoff = min(backoff * 2, 30)
             }

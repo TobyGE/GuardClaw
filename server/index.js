@@ -1688,7 +1688,8 @@ const CONTENT_CREDENTIAL_ALERTS = [
 // Post-tool-use: store results for chain analysis + scan Read content
 app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
   ccLastHookTime = Date.now();
-  const { tool_name, tool_input, tool_output, session_id } = req.body;
+  const { tool_name, tool_input, tool_output, tool_response, session_id } = req.body;
+  const output = tool_output || tool_response;
   if (!tool_name) return res.json({});
 
   const gcToolName = mapClaudeCodeTool(tool_name);
@@ -1726,14 +1727,14 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
   inferPendingDenials(sessionKey, askKey);
 
   // Store in toolHistoryStore for chain analysis
-  const resultSnippet = typeof tool_output === 'string'
-    ? tool_output.slice(0, 500)
-    : JSON.stringify(tool_output || '').slice(0, 500);
+  const resultSnippet = typeof output === 'string'
+    ? output.slice(0, 500)
+    : JSON.stringify(output || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
 
   // Scan Read + Bash output for credentials / secrets
-  if ((gcToolName === 'read' || gcToolName === 'exec') && tool_output) {
-    const content = typeof tool_output === 'string' ? tool_output : JSON.stringify(tool_output);
+  if ((gcToolName === 'read' || gcToolName === 'exec') && output) {
+    const content = typeof output === 'string' ? output : JSON.stringify(output);
     const scanSlice = content.slice(0, 10000); // check first 10KB
     const alerts = [];
     for (const { re, reason } of CONTENT_CREDENTIAL_ALERTS) {

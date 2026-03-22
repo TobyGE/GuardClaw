@@ -7,6 +7,9 @@ final class StatusItemController: NSObject {
     private let popover = NSPopover()
     private let appState: AppState
     private var eventMonitor: Any?
+    private var iconTimer: Timer?
+    private var lastIconStatus: IconStatus?
+    private var lastBadgeCount: Int = -1
 
     init(appState: AppState) {
         self.appState = appState
@@ -50,13 +53,20 @@ final class StatusItemController: NSObject {
     private func observeState() {
         // Observe icon status changes via a timer since @Observable
         // observation doesn't work directly outside SwiftUI views
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let state = appState
+        let item = statusItem
+        iconTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                let button = self.statusItem.button
-                button?.image = IconRenderer.render(
-                    status: self.appState.iconStatus,
-                    badgeCount: self.appState.pendingCount
+                let status = state.iconStatus
+                let count = state.pendingCount
+                // Only re-render when state actually changed
+                guard status != self.lastIconStatus || count != self.lastBadgeCount else { return }
+                self.lastIconStatus = status
+                self.lastBadgeCount = count
+                item.button?.image = IconRenderer.render(
+                    status: status,
+                    badgeCount: count
                 )
             }
         }
@@ -73,6 +83,7 @@ final class StatusItemController: NSObject {
     }
 
     deinit {
+        iconTimer?.invalidate()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
