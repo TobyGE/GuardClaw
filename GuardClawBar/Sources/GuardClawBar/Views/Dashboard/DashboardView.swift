@@ -255,13 +255,13 @@ struct DashboardView: View {
     private var allEvents: [EventItem] { appState.ccEvents + appState.ocEvents }
 
     private var safeCount: Int {
-        allEvents.filter { $0.effectiveRiskScore < 4 }.count
+        appState.serverStatus?.eventCounts?.safe ?? allEvents.filter { $0.effectiveRiskScore < 4 }.count
     }
     private var warningCount: Int {
-        allEvents.filter { $0.effectiveRiskScore >= 4 && $0.effectiveRiskScore < 8 }.count
+        appState.serverStatus?.eventCounts?.warn ?? allEvents.filter { $0.effectiveRiskScore >= 4 && $0.effectiveRiskScore < 8 }.count
     }
     private var blockedCount: Int {
-        allEvents.filter { $0.allowed == 0 }.count
+        appState.serverStatus?.eventCounts?.blocked ?? allEvents.filter { $0.allowed == 0 }.count
     }
     private var recentHighRiskEvents: [EventItem] {
         let filtered = allEvents

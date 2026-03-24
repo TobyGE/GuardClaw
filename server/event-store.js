@@ -100,6 +100,15 @@ export class EventStore {
         SUM(CASE WHEN allowed = 0 THEN 1 ELSE 0 END) as blocked
       FROM events
     `);
+
+    this._stmtCounts = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN riskScore IS NOT NULL AND riskScore < 4 THEN 1 ELSE 0 END) as safe,
+        SUM(CASE WHEN riskScore >= 4 AND riskScore < 8 THEN 1 ELSE 0 END) as warn,
+        SUM(CASE WHEN allowed = 0 THEN 1 ELSE 0 END) as blocked
+      FROM events
+    `);
   }
 
   _migrateFromJSON() {
@@ -308,6 +317,11 @@ export class EventStore {
       blocked: row.blocked,
       safetyRate: row.total > 0 ? ((row.total - row.highRisk) / row.total * 100).toFixed(1) : '100.0'
     };
+  }
+
+  /** Get safe/warn/blocked counts matching Bar UI definitions */
+  getCounts() {
+    return this._stmtCounts.get();
   }
 
   _pruneOldEvents() {

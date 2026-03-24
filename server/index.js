@@ -519,6 +519,7 @@ app.get('/api/status', async (req, res) => {
 
     // Event stats
     eventsCount: eventStore.getEventCount(),
+    eventCounts: eventStore.getCounts(),
     commandsSeen: pollerStats.seenCommands,
 
     // Safeguard status
@@ -5544,9 +5545,9 @@ app.listen(PORT, () => {
 
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 
-process.on('SIGINT', () => {
+async function shutdown(signal) {
   console.log('');
-  console.log('🛑 Shutting down GuardClaw...');
+  console.log(`🛑 Received ${signal}, shutting down GuardClaw...`);
   console.log('');
 
   if (sessionPoller) sessionPoller.stop();
@@ -5555,20 +5556,13 @@ process.on('SIGINT', () => {
     client.disconnect();
   }
 
+  // Kill MLX server subprocess if running
+  try { await llmEngine.unload(); } catch {}
+
   console.log('✅ Shutdown complete');
   console.log('');
   process.exit(0);
-});
+}
 
-process.on('SIGTERM', () => {
-  console.log('');
-  console.log('🛑 Received SIGTERM, shutting down...');
-  console.log('');
-
-  if (sessionPoller) sessionPoller.stop();
-  for (const { client } of activeClients) {
-    client.disconnect();
-  }
-
-  process.exit(0);
-});
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

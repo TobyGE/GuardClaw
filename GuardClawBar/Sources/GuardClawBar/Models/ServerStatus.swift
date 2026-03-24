@@ -4,6 +4,7 @@ struct ServerStatus: Codable, Sendable {
     let connected: Bool?
     let backends: [String: BackendStatus]?
     let eventsCount: Int?
+    let eventCounts: EventCounts?
     let safeguardEnabled: Bool?
     let llmStatus: LLMStatus?
     let blocking: BlockingInfo?
@@ -14,6 +15,13 @@ struct ServerStatus: Codable, Sendable {
     let install: InstallInfo?
     let tokenUsage: TokenUsage?
     let agentTokens: AgentTokensMap?
+}
+
+struct EventCounts: Codable, Sendable {
+    let total: Int?
+    let safe: Int?
+    let warn: Int?
+    let blocked: Int?
 }
 
 struct AgentTokensMap: Codable, Sendable {
