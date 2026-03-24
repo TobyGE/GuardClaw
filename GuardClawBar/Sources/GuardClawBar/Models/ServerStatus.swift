@@ -5,6 +5,7 @@ struct ServerStatus: Codable, Sendable {
     let backends: [String: BackendStatus]?
     let eventsCount: Int?
     let eventCounts: EventCounts?
+    let backendCounts: [String: EventCounts]?
     let safeguardEnabled: Bool?
     let llmStatus: LLMStatus?
     let blocking: BlockingInfo?

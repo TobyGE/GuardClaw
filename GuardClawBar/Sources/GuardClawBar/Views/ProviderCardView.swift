@@ -18,20 +18,21 @@ struct ProviderCardView: View {
         appState.eventsForBackend(provider.backendKey)
     }
 
-    /// Thresholds: safe ≤3, warning 4-7, blocked >7
-    /// Use effectiveRiskScore (falls back to safeguard.riskScore)
+    /// Server-side counts per backend, with client-side fallback
+    private var serverCounts: EventCounts? {
+        appState.serverStatus?.backendCounts?[provider.backendKey]
+    }
+
     private var backendSafeCount: Int {
-        backendEvents.filter { $0.effectiveRiskScore <= 3 }.count
+        serverCounts?.safe ?? backendEvents.filter { $0.effectiveRiskScore <= 3 }.count
     }
 
     private var backendWarnCount: Int {
-        backendEvents.filter {
-            $0.effectiveRiskScore > 3 && $0.effectiveRiskScore <= 7
-        }.count
+        serverCounts?.warn ?? backendEvents.filter { $0.effectiveRiskScore > 3 && $0.effectiveRiskScore <= 7 }.count
     }
 
     private var backendBlockCount: Int {
-        backendEvents.filter { $0.effectiveRiskScore > 7 }.count
+        serverCounts?.blocked ?? backendEvents.filter { $0.effectiveRiskScore > 7 }.count
     }
 
     private var backendHighRiskEvents: [EventItem] {
@@ -49,6 +50,10 @@ struct ProviderCardView: View {
                 result.append(event)
             }
             if result.count >= 10 { break }
+        }
+        // Use cached flagged events if live events haven't loaded yet
+        if result.isEmpty, let cached = appState.cachedBackendFlagged[provider.backendKey], !cached.isEmpty {
+            return Array(cached.prefix(10))
         }
         return result
     }
@@ -129,7 +134,7 @@ struct ProviderCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader(L.t("card.stats"))
 
-            Text(L.t("card.events", backendEvents.count))
+            Text(L.t("card.events", serverCounts?.total ?? backendEvents.count))
                 .font(.subheadline)
 
             // Risk distribution bar

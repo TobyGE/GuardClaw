@@ -45,11 +45,35 @@ final class AppState {
     // Providers
     let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider(), GeminiCLIProvider(), CopilotProvider(), CursorProvider(), OpenCodeProvider()]
 
+    // Cached high-risk events for instant display before full load
+    var cachedFlaggedEvents: [EventItem] = []
+    var cachedBackendFlagged: [String: [EventItem]] = [:]
+
     // Internals
     let api = GuardClawAPI()
     private var pollTask: Task<Void, Never>?
     private var sseTask: Task<Void, Never>?
     private let notificationManager = NotificationManager()
+
+    init() {
+        if let cached = StateCache.load() {
+            self.serverStatus = cached.serverStatus
+            self.cachedFlaggedEvents = cached.recentFlagged
+            self.cachedBackendFlagged = cached.backendFlagged
+            // Restore recent events per backend for instant Activity view
+            for (key, events) in cached.recentEvents {
+                switch key {
+                case "claude-code": self.ccEvents = events
+                case "openclaw": self.ocEvents = events
+                case "gemini-cli": self.geminiEvents = events
+                case "copilot": self.copilotEvents = events
+                case "cursor": self.cursorEvents = events
+                case "opencode": self.opencodeEvents = events
+                default: break
+                }
+            }
+        }
+    }
 
     // MARK: - Stats helpers
 
@@ -151,12 +175,12 @@ final class AppState {
 
         // Load full event history once on first SSE connect
         if !eventsInitialized {
-            async let cc = try? api.eventHistory(limit: 999999, backend: "claude-code")
-            async let oc = try? api.eventHistory(limit: 999999, backend: "openclaw")
-            async let gm = try? api.eventHistory(limit: 999999, backend: "gemini-cli")
-            async let cp = try? api.eventHistory(limit: 999999, backend: "copilot")
-            async let cu = try? api.eventHistory(limit: 999999, backend: "cursor")
-            async let op = try? api.eventHistory(limit: 999999, backend: "opencode")
+            async let cc = try? api.eventHistory(limit: 200, backend: "claude-code")
+            async let oc = try? api.eventHistory(limit: 200, backend: "openclaw")
+            async let gm = try? api.eventHistory(limit: 200, backend: "gemini-cli")
+            async let cp = try? api.eventHistory(limit: 200, backend: "copilot")
+            async let cu = try? api.eventHistory(limit: 200, backend: "cursor")
+            async let op = try? api.eventHistory(limit: 200, backend: "opencode")
             if let ccResult = await cc { ccEvents = ccResult.events }
             if let ocResult = await oc { ocEvents = ocResult.events }
             if let gmResult = await gm { geminiEvents = gmResult.events }
@@ -272,6 +296,30 @@ final class AppState {
 
             isConnected = true
             lastError = nil
+
+            // Cache state to disk for instant launch (only after events are loaded)
+            if eventsInitialized {
+                let allEvts = ccEvents + ocEvents + geminiEvents + copilotEvents + cursorEvents + opencodeEvents
+                let flagged = allEvts.filter { $0.effectiveRiskScore >= 8 }
+                    .sorted { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }
+                let perBackend: [String: [EventItem]] = [
+                    "claude-code": ccEvents.filter { $0.effectiveRiskScore >= 8 },
+                    "openclaw": ocEvents.filter { $0.effectiveRiskScore >= 8 },
+                    "gemini-cli": geminiEvents.filter { $0.effectiveRiskScore >= 8 },
+                    "copilot": copilotEvents.filter { $0.effectiveRiskScore >= 8 },
+                    "cursor": cursorEvents.filter { $0.effectiveRiskScore >= 8 },
+                    "opencode": opencodeEvents.filter { $0.effectiveRiskScore >= 8 },
+                ]
+                let recentEvents: [String: [EventItem]] = [
+                    "claude-code": Array(ccEvents.prefix(200)),
+                    "openclaw": Array(ocEvents.prefix(200)),
+                    "gemini-cli": Array(geminiEvents.prefix(200)),
+                    "copilot": Array(copilotEvents.prefix(200)),
+                    "cursor": Array(cursorEvents.prefix(200)),
+                    "opencode": Array(opencodeEvents.prefix(200)),
+                ]
+                StateCache.save(status: serverStatus, flaggedEvents: flagged, backendFlagged: perBackend, recentEvents: recentEvents)
+            }
 
             // Load cached audit results (non-blocking)
             if auditSummary == nil {

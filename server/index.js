@@ -520,6 +520,7 @@ app.get('/api/status', async (req, res) => {
     // Event stats
     eventsCount: eventStore.getEventCount(),
     eventCounts: eventStore.getCounts(),
+    backendCounts: eventStore.getCountsByBackend(),
     commandsSeen: pollerStats.seenCommands,
 
     // Safeguard status

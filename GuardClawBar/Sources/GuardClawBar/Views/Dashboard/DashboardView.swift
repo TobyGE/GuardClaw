@@ -269,10 +269,12 @@ struct DashboardView: View {
             .sorted { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }
         // Dedup: keep only the most recent per tool+displayText
         var seen = Set<String>()
-        return filtered.filter { event in
+        let live = filtered.filter { event in
             let key = "\(event.tool ?? ""):\(event.displayText)"
             return seen.insert(key).inserted
         }
+        // Use cached flagged events if live events haven't loaded yet
+        return live.isEmpty ? appState.cachedFlaggedEvents : live
     }
 
     private func riskScoreBadge(score: Double) -> some View {

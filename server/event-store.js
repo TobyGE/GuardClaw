@@ -109,6 +109,15 @@ export class EventStore {
         SUM(CASE WHEN allowed = 0 THEN 1 ELSE 0 END) as blocked
       FROM events
     `);
+
+    this._stmtCountsByBackend = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN riskScore IS NOT NULL AND riskScore < 4 THEN 1 ELSE 0 END) as safe,
+        SUM(CASE WHEN riskScore >= 4 AND riskScore < 8 THEN 1 ELSE 0 END) as warn,
+        SUM(CASE WHEN allowed = 0 THEN 1 ELSE 0 END) as blocked
+      FROM events WHERE sessionKey LIKE ?
+    `);
   }
 
   _migrateFromJSON() {
@@ -322,6 +331,23 @@ export class EventStore {
   /** Get safe/warn/blocked counts matching Bar UI definitions */
   getCounts() {
     return this._stmtCounts.get();
+  }
+
+  /** Get safe/warn/blocked counts per backend */
+  getCountsByBackend() {
+    const prefixes = {
+      'claude-code': 'claude-code:%',
+      'openclaw': 'agent:%',
+      'gemini-cli': 'gemini:%',
+      'copilot': 'copilot:%',
+      'cursor': 'cursor:%',
+      'opencode': 'opencode:%',
+    };
+    const result = {};
+    for (const [key, prefix] of Object.entries(prefixes)) {
+      result[key] = this._stmtCountsByBackend.get(prefix);
+    }
+    return result;
   }
 
   _pruneOldEvents() {
