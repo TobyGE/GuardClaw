@@ -26,6 +26,8 @@ canvas/
 lora/adapters/
 lora/adapters-original/
 lora/adapters-best/
+lora/adapters-enc.bak/
+lora/adapters.bak/
 lora/checkpoints/
 lora/train.jsonl
 lora/valid.jsonl
@@ -35,5 +37,10 @@ lora/adapters-enc/
 lora/judge.db
 lora/judge.db-wal
 lora/judge.db-shm
+lora/sft-data.jsonl
+lora/sft-test.jsonl
+lora/datagen/prompts-*.jsonl
+lora/datagen/run-*.py
+lora/datagen/*.txt
 *.safetensors
 *.safetensors.enc
