@@ -11,7 +11,7 @@ import { ClawdbotClient } from './clawdbot-client.js';
 import { QclawClient } from './qclaw-client.js';
 import { SafeguardService } from './safeguard.js';
 import { EventStore } from './event-store.js';
-import { SessionPoller } from './session-poller.js';
+// SessionPoller removed — /api/evaluate now stores events directly (more reliable)
 import { ApprovalHandler } from './approval-handler.js';
 import { logger } from './logger.js';
 import { shouldSkipEvent, shouldAnalyzeEvent, extractAction, classifyNonExecEvent, parseEventDetails, isExecCommand, extractCommand } from './helpers.js';
@@ -256,6 +256,19 @@ function generateId(prefix = 'evt') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Build a human-readable description from toolName + params (for /api/evaluate events). */
+function buildToolDescription(toolName, params) {
+  if (toolName === 'exec') return `exec: ${params.command || 'unknown'}`;
+  if (toolName === 'read') return `read file: ${params.file_path || params.path || 'unknown'}`;
+  if (toolName === 'write') return `write file: ${params.file_path || params.path || 'unknown'}`;
+  if (toolName === 'edit') return `edit file: ${params.file_path || params.path || 'unknown'}`;
+  if (toolName === 'web_fetch') return `fetch URL: ${params.url || 'unknown'}`;
+  if (toolName === 'web_search') return `search: ${params.query || 'unknown'}`;
+  if (toolName === 'browser') return `browser ${params.action || 'unknown'}${params.targetUrl ? ': ' + params.targetUrl : ''}`;
+  if (toolName === 'message') return `send message to: ${params.target || 'unknown'}`;
+  return toolName;
+}
+
 /** Map raw streaming steps to a compact analyzed format for storage/display. */
 function buildAnalyzedSteps(steps) {
   return steps
@@ -355,9 +368,6 @@ if (BACKEND === 'openclaw' || BACKEND === 'auto') {
       maxReconnectDelay: 30000,
       onConnect: () => {
         logger.info('OpenClaw connection established');
-        if (sessionPoller && sessionPoller.polling) {
-          sessionPoller.testPermissions();
-        }
       },
       onDisconnect: () => {
         logger.warn('OpenClaw connection lost');
@@ -384,9 +394,6 @@ if (BACKEND === 'qclaw' || BACKEND === 'auto') {
       maxReconnectDelay: 30000,
       onConnect: () => {
         logger.info('Qclaw connection established');
-        if (sessionPoller && sessionPoller.polling) {
-          sessionPoller.testPermissions();
-        }
       },
       onDisconnect: () => {
         logger.warn('Qclaw connection lost');
@@ -405,9 +412,7 @@ if (BACKEND === 'qclaw' || BACKEND === 'auto') {
 // Session poller and approval handler use first available gateway client (OpenClaw or Qclaw)
 const primaryGatewayClient = openclawClient || qclawClient;
 
-const sessionPoller = primaryGatewayClient
-  ? new SessionPoller(primaryGatewayClient, safeguardService, eventStore)
-  : null;
+// SessionPoller removed — /api/evaluate stores events directly, no polling needed
 
 // Blocking feature (optional)
 // Use `let` so the toggle endpoint can update it at runtime without gateway restart
@@ -462,7 +467,6 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/status', async (req, res) => {
-  const pollerStats = sessionPoller ? sessionPoller.getStats() : { mode: 'disabled', consecutiveErrors: 0, seenCommands: 0, polling: false, hasAdminScope: false };
   const cacheStats = safeguardService.getCacheStats();
   const llmStatus = await safeguardService.testConnection();
   const installStats = installTracker.getStats();
@@ -512,16 +516,10 @@ app.get('/api/status', async (req, res) => {
     connectionStats: primaryGatewayClient ? primaryGatewayClient.getConnectionStats() : {},
     backends,
 
-    // Poller status
-    pollerMode: pollerStats.mode,
-    pollerHasAdminScope: pollerStats.hasAdminScope,
-    pollerActive: pollerStats.polling,
-
     // Event stats
     eventsCount: eventStore.getEventCount(),
     eventCounts: eventStore.getCounts(),
     backendCounts: eventStore.getCountsByBackend(),
-    commandsSeen: pollerStats.seenCommands,
 
     // Safeguard status
     safeguardEnabled: safeguardService.enabled,
@@ -1029,8 +1027,8 @@ app.post('/api/evaluate', async (req, res) => {
           autoApproved: true,
           blockingEnabled,
         };
-        // Cache the auto-approve result so streaming processor reuses it
-        setCachedEvaluation(sessionKey, toolName, params, {
+        // Cache the auto-approve result so streaming processor can skip duplicate storage
+        const autoSafeguard = {
           riskScore: adjustedScore,
           reasoning: autoResult.reason,
           warnings: [],
@@ -1038,7 +1036,24 @@ app.post('/api/evaluate', async (req, res) => {
           memory: memoryHint,
           memoryAdjustment: adjustment,
           originalRiskScore: baseScore,
+        };
+        setCachedEvaluation(sessionKey, toolName, params, autoSafeguard);
+
+        // Store tool-call event directly (plugin is the most reliable data source)
+        const autoDesc = buildToolDescription(toolName, params);
+        eventStore.addEvent({
+          id: generateId('eval-tc'),
+          timestamp: Date.now(),
+          type: 'tool-call',
+          subType: toolName,
+          tool: toolName,
+          command: toolName === 'exec' ? (params.command || null) : null,
+          description: autoDesc,
+          sessionKey: sessionKey || 'agent:main:main',
+          safeguard: autoSafeguard,
+          payload: { toolName, params },
         });
+
         return res.json(autoResult);
       }
     }
@@ -1091,19 +1106,138 @@ app.post('/api/evaluate', async (req, res) => {
       }
     }
 
-    // Cache result so streaming processor reuses it instead of calling LLM again
+    // Cache result so streaming processor can skip duplicate storage
     setCachedEvaluation(sessionKey, toolName, params, analysis);
+
+    // Store tool-call event directly (plugin is the most reliable data source)
+    const evalDesc = buildToolDescription(toolName, params);
+    eventStore.addEvent({
+      id: generateId('eval-tc'),
+      timestamp: Date.now(),
+      type: 'tool-call',
+      subType: toolName,
+      tool: toolName,
+      command: toolName === 'exec' ? (params.command || null) : null,
+      description: evalDesc,
+      sessionKey: sessionKey || 'agent:main:main',
+      safeguard: analysis,
+      payload: { toolName, params },
+    });
 
     // Return evaluation result.
     // In monitor mode (blockingEnabled=false), always return 'allow' so the plugin
     // never intercepts — monitoring and blocking are consistent from the user's POV.
     const shouldBlock = blockingEnabled && analysis.riskScore >= 8;
-    // Occasionally sample WARNING verdicts (score 4-7) for user feedback (~15% chance)
+    // Occasionally sample WARNING verdicts (score 4-7) for user feedback (~5% chance)
     const isWarning = analysis.riskScore >= 4 && analysis.riskScore <= 7;
     const shouldSampleFeedback = blockingEnabled && isWarning && Math.random() < 0.05;
+    const needsApproval = shouldBlock || shouldSampleFeedback;
+
+    if (needsApproval) {
+      // Hold the HTTP response — wait for user approval before responding.
+      // The agent never sees a block; from its POV the evaluate call just takes longer.
+      const approvalId = `oc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const displayInput = (toolName === 'exec' ? (params.command || '') : JSON.stringify(params)).slice(0, 500);
+      console.log(`[GuardClaw] ⏸️  Holding /api/evaluate for approval: ${toolName} (${approvalId}), risk=${analysis.riskScore}`);
+
+      // Inject approval message to user's chat
+      const riskEmoji = analysis.riskScore >= 9 ? '🔴' : '🟠';
+      const chainLine = analysis.chainRisk ? `**⛓️ Chain Risk:** Dangerous sequence detected\n` : '';
+      const memLine = memoryHint
+        ? `**🧠 Memory:** ${memoryHint.approveCount > 0 ? `Approved ${memoryHint.approveCount}×` : ''}${memoryHint.denyCount > 0 ? ` Denied ${memoryHint.denyCount}×` : ''}\n`
+        : '';
+      const approvalMsg = shouldSampleFeedback ? [
+        `⛨ **GuardClaw wants your feedback** (WARNING)`,
+        ``,
+        `**Tool:** \`${toolName}\``,
+        `**Command:** \`${displayInput}\``,
+        `**Why:** ${analysis.reasoning || ''}`,
+        ``,
+        `**Help GuardClaw learn — is this safe?**`,
+        `/gc-approve — yes, this is fine`,
+        `/gc-approve-always — always allow this pattern`,
+        `/gc-deny — no, this is risky`,
+      ].join('\n') : [
+        `⛨ **GuardClaw BLOCK** \`${toolName}\`: \`${displayInput}\``,
+        ``,
+        `**Risk:** ${riskEmoji} **${analysis.riskScore}/10**`,
+        chainLine,
+        memLine,
+        `**Why:** ${analysis.reasoning || ''}`,
+        ``,
+        `**Reply one of these to respond:**`,
+        `/gc-approve — allow this command once`,
+        `/gc-approve-always — always allow this pattern`,
+        `/gc-deny — block and cancel`,
+      ].join('\n');
+
+      const gatewayClient = (openclawClient?.connected && openclawClient) || (qclawClient?.connected && qclawClient) || null;
+      if (gatewayClient) {
+        gatewayClient.request('chat.send', {
+          sessionKey: sessionKey || 'agent:main:main',
+          message: approvalMsg,
+          idempotencyKey: generateId('guardclaw-approval'),
+        }).catch(err => console.error(`[GuardClaw] Failed to inject approval message: ${err.message}`));
+      }
+
+      // Hold response — wait for user decision (timeout 5 min)
+      const decision = await new Promise((resolve) => {
+        pendingApprovals.set(approvalId, {
+          toolName,
+          displayInput,
+          params,
+          riskScore: analysis.riskScore,
+          reason: analysis.reasoning || analysis.category || '',
+          createdAt: Date.now(),
+          sessionKey: sessionKey || 'agent:main:main',
+          backend: 'openclaw',
+          feedbackSample: shouldSampleFeedback || undefined,
+          resolve,
+        });
+
+        eventStore.notifyListeners({
+          type: 'approval-request',
+          data: JSON.stringify({ id: approvalId, toolName, backend: 'openclaw' }),
+        });
+        const entry = pendingApprovals.get(approvalId);
+        if (entry) approvalNotifier.notifyApprovalRequest(entry).catch(() => {});
+
+        setTimeout(() => {
+          if (pendingApprovals.has(approvalId)) {
+            pendingApprovals.delete(approvalId);
+            resolve({ denied: true, reason: 'Timed out waiting for approval' });
+          }
+        }, 300_000);
+      });
+
+      if (decision.denied) {
+        console.log(`[GuardClaw] ❌ DENIED: ${toolName} (${approvalId})`);
+        return res.json({
+          action: 'block',
+          risk: analysis.riskScore,
+          reason: decision.reason || 'Denied by user',
+          backend: analysis.backend,
+          blockingEnabled,
+        });
+      }
+
+      console.log(`[GuardClaw] ✅ APPROVED: ${toolName} (${approvalId})`);
+      // Record approval in memory
+      if (decision.alwaysApprove && memoryStore) {
+        memoryStore.record(toolName, displayInput, analysis.riskScore, 'approve');
+      }
+      return res.json({
+        action: 'allow',
+        risk: analysis.riskScore,
+        reason: 'Approved by user',
+        backend: analysis.backend,
+        blockingEnabled,
+      });
+    }
+
     res.json({
-      action: shouldBlock ? 'ask' : (shouldSampleFeedback ? 'ask' : 'allow'),
-      feedbackSample: shouldSampleFeedback || undefined,
+      action: 'allow',
+      feedbackSample: undefined,
       risk: analysis.riskScore,
       originalRisk: analysis.originalRiskScore || analysis.riskScore,
       memoryAdjustment: analysis.memoryAdjustment || 0,
@@ -2408,6 +2542,70 @@ app.post('/api/approvals/resolve', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// ─── Plugin approval endpoints (singular /api/approval/) ─────────────────────
+// Used by the OpenClaw plugin's gc-approve/gc-deny/pending commands
+
+app.post('/api/approval/resolve-latest', (req, res) => {
+  const { action, alwaysApprove, backend } = req.body;
+  const filterBackend = backend || 'openclaw';
+
+  // Find the latest pending approval matching the backend
+  let latestId = null;
+  let latestEntry = null;
+  for (const [id, entry] of pendingApprovals) {
+    if ((entry.backend || 'claude-code') === filterBackend) {
+      if (!latestEntry || entry.createdAt > latestEntry.createdAt) {
+        latestId = id;
+        latestEntry = entry;
+      }
+    }
+  }
+
+  if (!latestId || !latestEntry) {
+    return res.json({ message: 'No pending approvals found.' });
+  }
+
+  pendingApprovals.delete(latestId);
+
+  if (action === 'approve') {
+    latestEntry.resolve({ denied: false, alwaysApprove: !!alwaysApprove });
+    if (alwaysApprove && memoryStore) {
+      const result = memoryStore.recordDecision(latestEntry.toolName, latestEntry.displayInput, latestEntry.riskScore, 'approve', latestEntry.sessionKey);
+      if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
+    }
+    eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: latestId, decision: 'approve' }) });
+    approvalNotifier.notifyApprovalResolved(latestId, 'approve').catch(() => {});
+    console.log(`[GuardClaw] ✅ Plugin approved: ${latestEntry.toolName} (#${latestId})`);
+    res.json({ message: `✅ Approved: ${latestEntry.toolName}` });
+  } else {
+    latestEntry.resolve({ denied: true, reason: 'Denied by user via plugin command' });
+    eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: latestId, decision: 'deny' }) });
+    approvalNotifier.notifyApprovalResolved(latestId, 'deny').catch(() => {});
+    console.log(`[GuardClaw] ❌ Plugin denied: ${latestEntry.toolName} (#${latestId})`);
+    res.json({ message: `❌ Denied: ${latestEntry.toolName}` });
+  }
+});
+
+app.get('/api/approval/pending', (req, res) => {
+  const filterBackend = req.query.backend || null;
+  const approvals = [];
+  for (const [id, entry] of pendingApprovals) {
+    const entryBackend = entry.backend || 'claude-code';
+    if (filterBackend && entryBackend !== filterBackend) continue;
+    approvals.push({
+      id,
+      toolName: entry.toolName,
+      displayInput: entry.displayInput,
+      riskScore: entry.riskScore,
+      reason: entry.reason,
+      createdAt: entry.createdAt,
+      elapsed: Math.round((Date.now() - entry.createdAt) / 1000),
+      backend: entryBackend,
+    });
+  }
+  res.json({ approvals, count: approvals.length });
 });
 
 // ─── Memory APIs ─────────────────────────────────────────────────────────────
@@ -4815,9 +5013,15 @@ async function handleAgentEvent(event, gatewaySource = 'openclaw') {
       : null;
 
     if (streamingAnalysis) {
-      storedEvent.safeguard = streamingAnalysis;
-      console.log(`[GuardClaw] ♻️  Reusing streaming analysis for ${eventDetails.tool} (score=${streamingAnalysis.riskScore})`);
-      eventStore.addEvent(storedEvent);
+      // Check if /api/evaluate already stored this event (plugin path is primary)
+      const pluginAlreadyStored = !!getCachedEvaluation(sessionKey, eventDetails.tool, event.payload?.data?.args || event.payload?.data?.input || {});
+      if (pluginAlreadyStored) {
+        console.log(`[GuardClaw] ♻️  Skipping streaming storage for ${eventDetails.tool} — plugin already stored event`);
+      } else {
+        storedEvent.safeguard = streamingAnalysis;
+        console.log(`[GuardClaw] ♻️  Storing streaming analysis for ${eventDetails.tool} (score=${streamingAnalysis.riskScore})`);
+        eventStore.addEvent(storedEvent);
+      }
     } else {
       // Immediately push event with pending safeguard, then analyze async
       storedEvent.safeguard = { riskScore: null, category: 'pending', reasoning: 'Analyzing...', pending: true };
@@ -5444,12 +5648,6 @@ app.listen(PORT, () => {
         }
       }
 
-      // Start session poller (OpenClaw or Qclaw)
-      if (sessionPoller && connectedGateway) {
-        const pollInterval = parseInt(process.env.POLL_INTERVAL) || 30000;
-        sessionPoller.start(pollInterval);
-      }
-
       console.log('');
       console.log('🎯 GuardClaw is now monitoring your agents!');
       console.log('');
@@ -5551,7 +5749,7 @@ async function shutdown(signal) {
   console.log(`🛑 Received ${signal}, shutting down GuardClaw...`);
   console.log('');
 
-  if (sessionPoller) sessionPoller.stop();
+
   memoryStore.shutdown();
   for (const { client } of activeClients) {
     client.disconnect();

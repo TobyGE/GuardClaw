@@ -44,7 +44,7 @@ The entire codebase uses ESM (`"type": "module"`). Node >= 18 required.
 ### Backend (`server/`)
 Node.js Express server on port 3002.
 
-- **`server/index.js`** — Main entry point. Wires all services, registers all Express routes, handles Claude Code HTTP hook endpoints (`/api/cc/pre-tool`, `/api/cc/post-tool`, `/api/cc/prompt`, `/api/cc/stop`), and manages the SSE push endpoint (`GET /api/events`) for the dashboard. Owns the evaluation cache (60s TTL, keyed by `sessionKey:toolName:stableParamsJson`) to deduplicate LLM calls between OpenClaw plugin and streaming event processor. Loads `blocking-config.json` from the data dir on startup.
+- **`server/index.js`** — Main entry point. Wires all services, registers all Express routes, handles Claude Code HTTP hook endpoints (`/api/cc/pre-tool`, `/api/cc/post-tool`, `/api/cc/prompt`, `/api/cc/stop`), and manages the SSE push endpoint (`GET /api/events`) for the dashboard. The `/api/evaluate` endpoint (called by the OpenClaw plugin) is the **primary path** for storing tool-call events — it evaluates risk AND persists the event in one step. The evaluation cache (60s TTL) prevents the WebSocket streaming path from creating duplicate events. Loads `blocking-config.json` from the data dir on startup.
 
 - **`server/safeguard.js`** — Core LLM risk scoring engine. Three fast paths before LLM: `HIGH_RISK_PATTERNS` (regex → instant score 9), safe fast-path (skip LLM, score 1), and sensitive read paths (`.ssh`, `.aws`, `.gnupg`, etc. → score 7–8). Supports backends: `lmstudio`, `ollama`, `anthropic`, `built-in`, `fallback` (deterministic rules only). `analyzeAction()` dispatches to `analyzeCommand()` for exec tools and `analyzeToolAction()` for all others (read, write, edit, web_fetch, glob, grep, agent_spawn, skill, worktree, etc.).
 
@@ -78,7 +78,7 @@ Node.js Express server on port 3002.
 
 - **`server/routes/models.js`** — REST endpoints for built-in model management: list, download, cancel, delete, load, unload, setup (download+load). SSE endpoint at `GET /api/models/progress` streams download progress.
 
-- **`server/session-poller.js`** — Polls OpenClaw for active sessions and permissions.
+
 
 ### Frontend (`client/`)
 React + Vite + Tailwind CSS. Built output served statically from `client/dist/`. In dev mode, Vite dev server at `:5173` proxies all `/api` requests to `:3002`.
@@ -102,7 +102,7 @@ Copy `.env.example` to `.env`. Key variables:
 - `LMSTUDIO_URL` — default `http://localhost:1234/v1`
 - `LMSTUDIO_MODEL` — `auto` (recommended: `qwen/qwen3-4b-2507`)
 - `OLLAMA_URL` / `OLLAMA_MODEL` — default `http://localhost:11434` / `llama3`
-- `BACKEND` — `auto` | `openclaw` | `nanobot` (controls which WebSocket clients activate)
+- `BACKEND` — `auto` | `openclaw` | `qclaw` | `nanobot` (controls which WebSocket clients activate)
 - `PORT` — default `3002`
 - `GUARDCLAW_APPROVAL_MODE` — `auto` | `prompt` | `monitor-only`
 - `GUARDCLAW_AUTO_ALLOW_THRESHOLD` — default `6` (≤ this: auto-allow)
@@ -119,3 +119,24 @@ When adding new detection rules, understand the evaluation order:
 5. LLM backend call (lmstudio / ollama / anthropic / built-in / fallback rules)
 
 Chain history from `streaming-tracker` is injected into LLM prompts when a session has prior tool calls, enabling multi-step attack detection.
+
+## OpenClaw vs Qclaw
+
+Both are gateway-based AI agent frameworks. GuardClaw connects to either (or both) via WebSocket to monitor tool calls.
+
+| | OpenClaw | Qclaw |
+|---|---|---|
+| **Gateway port** | `18789` | `28789` |
+| **Config file** | `~/.openclaw/openclaw.json` | `~/.qclaw/openclaw.json` |
+| **GuardClaw client** | `server/clawdbot-client.js` (`ClawdbotClient`) | `server/qclaw-client.js` (`QclawClient`) |
+| **Plugin location** | `~/.openclaw/plugins/guardclaw-interceptor/` | `~/.qclaw/plugins/guardclaw-interceptor/` |
+| **Pre-execution blocking** | Yes (via `plugin/guardclaw-interceptor/`) | No |
+| **WebSocket monitoring** | Yes | Yes |
+
+**OpenClaw** has two integration paths:
+1. **Plugin** (`plugin/guardclaw-interceptor/index.js`): hooks `before_tool_call`, calls `POST /api/evaluate`, can **block** tool execution before it happens. This is the primary event-storage path.
+2. **WebSocket stream** (`ClawdbotClient`): receives events from the gateway, used for monitoring and chain analysis.
+
+**Qclaw** has only the WebSocket stream path — monitoring only, cannot block pre-execution.
+
+Both share the same ED25519 device identity (`~/.guardclaw/identity/device.json`) and identical event protocol. The 60s evaluation cache in `server/index.js` prevents the WebSocket stream from creating duplicate events when the plugin already called `/api/evaluate`.
