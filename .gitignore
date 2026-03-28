@@ -20,6 +20,7 @@ memory/
 MEMORY.md
 canvas/
 .guardclaw/
+blocking-config.json
 .node-cache/
 
 # LoRA artifacts (keep scripts, exclude model weights and training data)

@@ -1,6 +1,0 @@
-{
-  "whitelist": [
-    "edit:~/guardclaw/*/*"
-  ],
-  "blacklist": []
-}
