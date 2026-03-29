@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import llmEngine from './llm-engine.js';
 import { judgeStore } from './judge-store.js';
+import { cloudJudge } from './cloud-judge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPTS = JSON.parse(readFileSync(path.join(__dirname, 'system-prompts.json'), 'utf8'));
@@ -771,6 +772,19 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
         case 'lmstudio': result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
         case 'ollama':   result = await this.analyzeWithOllamaPrompt(prompt); break;
         default:         result = this.fallbackToolAnalysis(action);
+      }
+    }
+
+    // Stage 2: cloud judge for WARNING/BLOCK (optional, PII-masked)
+    if (result.riskScore >= 4 && cloudJudge.isConfigured) {
+      const cloudResult = await cloudJudge.analyze(prompt, action);
+      if (cloudResult) {
+        // Cloud verdict overrides local — merge metadata
+        result = {
+          ...cloudResult,
+          localRiskScore: result.riskScore,
+          localReasoning: result.reasoning,
+        };
       }
     }
 

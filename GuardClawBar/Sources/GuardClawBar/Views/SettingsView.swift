@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var llmConnected: Bool? = nil
     @State private var gatewayToken: String = ""
     @State private var tokenMessage: String? = nil
+    @State private var cloudJudgeConfig: CloudJudgeConfig? = nil
     private var L: Loc { Loc.shared }
 
     private let api = GuardClawAPI()
@@ -266,6 +267,11 @@ struct SettingsView: View {
 
                 Divider()
 
+                // -- Cloud Judge --
+                CloudJudgeSection(config: $cloudJudgeConfig, api: api)
+
+                Divider()
+
                 // -- Gateway Token --
                 GatewayTokenSection(
                     token: $gatewayToken,
@@ -303,14 +309,22 @@ struct SettingsView: View {
             }
             .padding(16)
         }
-        .frame(width: 300, height: 620)
-        .onAppear { fetchModels(); checkCCStatus() }
+        .frame(width: 300, height: 720)
+        .onAppear { fetchModels(); checkCCStatus(); fetchCloudJudge() }
         .onReceive(timer) { _ in fetchModels(); checkCCStatus() }
     }
 
     private func save() {
         SettingsStore.shared.serverURL = serverURL
         SettingsStore.shared.pollInterval = pollInterval
+    }
+
+    private func fetchCloudJudge() {
+        Task {
+            if let cfg = try? await api.cloudJudgeConfig() {
+                await MainActor.run { cloudJudgeConfig = cfg }
+            }
+        }
     }
 
     private func fetchModels() {
@@ -653,6 +667,122 @@ private struct GatewayTokenSection: View {
             } catch {
                 await MainActor.run { message = Loc.shared.t("settings.notFound") }
             }
+        }
+    }
+}
+
+// MARK: - Cloud Judge Section
+
+private struct CloudJudgeSection: View {
+    @Binding var config: CloudJudgeConfig?
+    let api: GuardClawAPI
+    @State private var connecting: String? = nil
+    @State private var message: String? = nil
+    @State private var apiKey: String = ""
+    @State private var enabled: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Cloud Judge")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { config?.enabled ?? enabled },
+                    set: { val in
+                        enabled = val
+                        Task { _ = try? await api.updateCloudJudge(enabled: val) }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+
+            Text("Re-analyze WARNING/BLOCK with cloud LLM. PII masked before sending.")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+
+            // Provider rows — only Claude supports OAuth
+            ForEach(config?.providers ?? [], id: \.id) { provider in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(provider.connected ? Color.green : Color.gray)
+                        .frame(width: 5, height: 5)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(provider.displayName)
+                            .font(.system(size: 10))
+                        if provider.oauthSupported != true {
+                            Text("API key")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Spacer()
+                    if provider.oauthSupported == true {
+                        if provider.connected {
+                            Text("✓")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green)
+                            Button("Disconnect") {
+                                Task {
+                                    try? await api.cloudJudgeOAuthDisconnect(provider: provider.id)
+                                    await refreshConfig()
+                                }
+                            }
+                            .font(.system(size: 9))
+                            .controlSize(.mini)
+                        } else {
+                            Button(connecting == provider.id ? "Waiting…" : "Sign in") {
+                                guard connecting == nil else { return }
+                                connecting = provider.id
+                                Task {
+                                    do {
+                                        _ = try await api.cloudJudgeOAuthConnect(provider: provider.id)
+                                        await refreshConfig()
+                                        await MainActor.run { message = "✓ \(provider.displayName) connected" }
+                                    } catch {
+                                        await MainActor.run { message = error.localizedDescription }
+                                    }
+                                    await MainActor.run { connecting = nil }
+                                }
+                            }
+                            .font(.system(size: 9))
+                            .controlSize(.mini)
+                            .disabled(connecting != nil)
+                        }
+                    }
+                }
+            }
+
+            // API key for Gemini / OpenAI
+            HStack(spacing: 4) {
+                SecureField("API key (Gemini / OpenAI)", text: $apiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                Button("Save") {
+                    Task {
+                        _ = try? await api.updateCloudJudge(enabled: true, apiKey: apiKey)
+                        await MainActor.run { message = "✓ API key saved" }
+                    }
+                }
+                .font(.system(size: 9))
+                .controlSize(.mini)
+                .disabled(apiKey.isEmpty)
+            }
+
+            if let msg = message {
+                Text(msg)
+                    .font(.system(size: 9))
+                    .foregroundStyle(msg.hasPrefix("✓") ? .green : .red)
+            }
+        }
+        .onAppear { enabled = config?.enabled ?? false }
+    }
+
+    private func refreshConfig() async {
+        if let cfg = try? await api.cloudJudgeConfig() {
+            await MainActor.run { config = cfg }
         }
     }
 }

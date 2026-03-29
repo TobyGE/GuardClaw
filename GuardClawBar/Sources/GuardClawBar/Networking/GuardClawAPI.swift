@@ -188,6 +188,37 @@ actor GuardClawAPI {
         try await post("/api/config/fail-closed", body: ["enabled": enabled])
     }
 
+    // MARK: - Cloud Judge
+
+    func cloudJudgeConfig() async throws -> CloudJudgeConfig {
+        try await get("/api/config/cloud-judge")
+    }
+
+    func updateCloudJudge(enabled: Bool? = nil, provider: String? = nil, apiKey: String? = nil, model: String? = nil) async throws -> GenericResponse {
+        var body: [String: String] = [:]
+        if let enabled { body["enabled"] = enabled ? "true" : "false" }
+        if let provider { body["provider"] = provider }
+        if let apiKey { body["apiKey"] = apiKey }
+        if let model { body["model"] = model }
+        return try await post("/api/config/cloud-judge", body: body)
+    }
+
+    func cloudJudgeOAuthConnect(provider: String) async throws -> GenericResponse {
+        try await post("/api/config/cloud-judge/oauth/\(provider)", body: [:] as [String: String])
+    }
+
+    func cloudJudgeOAuthDisconnect(provider: String) async throws {
+        let url = baseURL.appendingPathComponent("api/config/cloud-judge/oauth/\(provider)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        let (_, response) = try await session.data(for: request)
+        try validateResponse(response)
+    }
+
+    func cloudJudgeTest() async throws -> CloudJudgeTestResponse {
+        try await post("/api/config/cloud-judge/test", body: [:] as [String: String])
+    }
+
     // MARK: - Events
 
     func eventHistory(limit: Int = 30, backend: String? = nil, since: Int? = nil) async throws -> EventHistoryResponse {

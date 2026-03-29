@@ -100,6 +100,12 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
   const [loadingModels, setLoadingModels] = useState(false);
   const [showCustomInput, setShowCustomInput] = useState(false);
 
+  // Cloud Judge state
+  const [cloudConfig, setCloudConfig] = useState(null);
+  const [cloudConnecting, setCloudConnecting] = useState(null); // provider id being connected
+  const [cloudApiKey, setCloudApiKey] = useState('');
+  const [cloudEnabled, setCloudEnabled] = useState(false);
+
   // Built-in model management
   const [builtinModels, setBuiltinModels] = useState([]);
 
@@ -118,6 +124,19 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
       return () => clearInterval(interval);
     }
   }, [isOpen, llmBackend]);
+
+  const fetchCloudConfig = async () => {
+    try {
+      const resp = await fetch('/api/config/cloud-judge');
+      const data = await resp.json();
+      setCloudConfig(data);
+      setCloudEnabled(data.enabled ?? false);
+    } catch { }
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'cloud') fetchCloudConfig();
+  }, [isOpen, activeTab]);
 
   // One-click setup: download (if needed) + load
   const handleSetupModel = async (modelId) => {
@@ -290,6 +309,7 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
 
   const tabs = [
     { id: 'llm', icon: <BrainIcon size={18} />, label: t('settings.llmJudge') },
+    { id: 'cloud', icon: '☁️', label: 'Cloud Judge' },
     { id: 'gateway', icon: <LinkIcon size={18} />, label: t('settings.gateway') },
   ];
 
@@ -694,6 +714,152 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                     )}
                   </Card>
                 </>
+              )}
+            </>
+          )}
+
+          {/* ─── Cloud Judge Tab ─── */}
+          {activeTab === 'cloud' && (
+            <>
+              {/* Enable toggle */}
+              <Card>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-gc-text">Cloud Judge</div>
+                    <div className="text-xs text-gc-text-dim mt-0.5">
+                      When local model returns WARNING or BLOCK, re-analyze with a cloud LLM. PII is masked before sending.
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const next = !cloudEnabled;
+                      setCloudEnabled(next);
+                      await fetch('/api/config/cloud-judge', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: next }),
+                      });
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${cloudEnabled ? 'bg-blue-500' : 'bg-gc-border'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${cloudEnabled ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+              </Card>
+
+              {/* Provider cards */}
+              <Card>
+                <Label>Providers</Label>
+                <div className="space-y-3 mt-2">
+                  {(cloudConfig?.providers ?? [
+                    { id: 'claude', displayName: 'Anthropic Claude', defaultModel: 'claude-haiku-4-5-20251001', connected: false, oauthSupported: true },
+                    { id: 'gemini', displayName: 'Google Gemini', defaultModel: 'gemini-2.0-flash', connected: false, oauthSupported: false },
+                    { id: 'openai', displayName: 'OpenAI', defaultModel: 'gpt-4o-mini', connected: false, oauthSupported: false },
+                  ]).map(p => (
+                    <div key={p.id} className="flex items-center justify-between px-4 py-3 rounded-lg border border-gc-border bg-gc-bg">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${p.connected ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                        <div>
+                          <div className="text-sm font-medium text-gc-text">{p.displayName}</div>
+                          <div className="text-xs text-gc-text-dim">{p.oauthSupported ? p.defaultModel : 'API key required'}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {p.oauthSupported ? (
+                          p.connected ? (
+                            <>
+                              <span className="text-xs text-emerald-500 font-medium">Connected</span>
+                              <Btn
+                                variant="ghost"
+                                className="text-xs px-2 py-1 text-red-400 hover:text-red-500"
+                                onClick={async () => {
+                                  await fetch(`/api/config/cloud-judge/oauth/${p.id}`, { method: 'DELETE' });
+                                  fetchCloudConfig();
+                                }}
+                              >
+                                Disconnect
+                              </Btn>
+                            </>
+                          ) : (
+                            <Btn
+                              variant="secondary"
+                              className="text-xs px-3 py-1.5"
+                              disabled={cloudConnecting === p.id}
+                              onClick={async () => {
+                                setCloudConnecting(p.id);
+                                setMessage(null);
+                                try {
+                                  await fetch(`/api/config/cloud-judge/oauth/${p.id}`, { method: 'POST' });
+                                  await fetchCloudConfig();
+                                  setMessage({ type: 'success', text: `${p.displayName} connected` });
+                                } catch (err) {
+                                  setMessage({ type: 'error', text: err.message });
+                                } finally {
+                                  setCloudConnecting(null);
+                                }
+                              }}
+                            >
+                              {cloudConnecting === p.id ? 'Waiting...' : 'Connect with OAuth'}
+                            </Btn>
+                          )
+                        ) : (
+                          <span className="text-xs text-gc-text-dim">Use API key below</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* API key for Gemini / OpenAI */}
+              <Card>
+                <Label hint="for Gemini / OpenAI">API Key</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    value={cloudApiKey}
+                    onChange={e => setCloudApiKey(e.target.value)}
+                    placeholder="sk-... / AIza... / API key"
+                  />
+                  <Btn
+                    variant="primary"
+                    disabled={!cloudApiKey}
+                    onClick={async () => {
+                      await fetch('/api/config/cloud-judge', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ apiKey: cloudApiKey, enabled: true }),
+                      });
+                      setCloudEnabled(true);
+                      setMessage({ type: 'success', text: 'API key saved' });
+                    }}
+                  >
+                    Save
+                  </Btn>
+                </div>
+              </Card>
+
+              {/* Test */}
+              {(cloudConfig?.isConfigured || cloudEnabled) && (
+                <div className="flex justify-end">
+                  <Btn
+                    variant="secondary"
+                    onClick={async () => {
+                      setSaving(true);
+                      try {
+                        const r = await fetch('/api/config/cloud-judge/test', { method: 'POST' });
+                        const d = await r.json();
+                        if (d.success) setMessage({ type: 'success', text: `Test OK — verdict: ${d.result?.verdict}` });
+                        else setMessage({ type: 'error', text: d.error });
+                      } catch (err) {
+                        setMessage({ type: 'error', text: err.message });
+                      } finally { setSaving(false); }
+                    }}
+                    disabled={saving}
+                  >
+                    {saving ? '...' : '🧪 Test Connection'}
+                  </Btn>
+                </div>
               )}
             </>
           )}

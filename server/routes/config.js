@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { SafeguardService } from '../safeguard.js';
 import { getDataDir } from '../data-dir.js';
+import { cloudJudge } from '../cloud-judge.js';
 
 export function configRoutes(deps) {
   const router = Router();
@@ -177,6 +178,50 @@ export function configRoutes(deps) {
     deps.setFailClosed(enabled);
     console.log(`[GuardClaw] Fail-closed mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
     res.json({ success: true, failClosed: enabled });
+  });
+
+  // ─── Cloud Judge ─────────────────────────────────────────────────────────────
+
+  router.get('/api/config/cloud-judge', (_req, res) => {
+    const { CloudJudge } = cloudJudge.constructor === Object ? {} : { CloudJudge: cloudJudge.constructor };
+    res.json({
+      ...cloudJudge.getConfig(),
+      providers: cloudJudge.constructor.getProviders?.() ?? [],
+    });
+  });
+
+  router.post('/api/config/cloud-judge', (req, res) => {
+    const { enabled, provider, apiKey, model, baseURL } = req.body;
+    cloudJudge.updateConfig({ enabled, provider, apiKey, model, baseURL });
+    res.json({ success: true, ...cloudJudge.getConfig() });
+  });
+
+  // Start OAuth flow — opens browser, returns when done
+  router.post('/api/config/cloud-judge/oauth/:provider', async (req, res) => {
+    const { provider } = req.params;
+    try {
+      const result = await cloudJudge.startOAuth(provider);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Disconnect a provider
+  router.delete('/api/config/cloud-judge/oauth/:provider', (req, res) => {
+    cloudJudge.disconnect(req.params.provider);
+    res.json({ success: true });
+  });
+
+  router.post('/api/config/cloud-judge/test', async (req, res) => {
+    const testPrompt = 'Analyze this test action: bash command "ls -la /tmp"';
+    try {
+      const result = await cloudJudge.analyze(testPrompt, { tool: 'exec', summary: 'ls -la /tmp' });
+      if (!result) return res.status(400).json({ success: false, error: 'Cloud judge not configured or call failed' });
+      res.json({ success: true, result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   return router;

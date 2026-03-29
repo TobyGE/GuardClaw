@@ -249,3 +249,32 @@ struct FailClosedResponse: Codable, Sendable {
     let ok: Bool?
     let failClosed: Bool?
 }
+
+// MARK: - Cloud Judge
+
+struct CloudJudgeProviderInfo: Codable, Sendable, Identifiable {
+    let id: String
+    let displayName: String
+    let defaultModel: String
+    let connected: Bool
+    let oauthSupported: Bool?
+}
+
+struct CloudJudgeConfig: Codable, Sendable {
+    let enabled: Bool
+    let provider: String
+    let model: String
+    let isConfigured: Bool
+    let providers: [CloudJudgeProviderInfo]?
+}
+
+struct CloudJudgeTestResponse: Codable, Sendable {
+    let success: Bool
+    let error: String?
+    let result: CloudJudgeTestResult?
+}
+
+struct CloudJudgeTestResult: Codable, Sendable {
+    let verdict: String?
+    let reasoning: String?
+}
