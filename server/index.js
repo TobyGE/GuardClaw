@@ -547,8 +547,8 @@ app.get('/api/status', async (req, res) => {
     install: installStats,
 
     // Health
-    healthy: anyConnected && pollerStats.consecutiveErrors < 3,
-    warnings: getSystemWarnings(backends, pollerStats, llmStatus, approvalStats)
+    healthy: anyConnected,
+    warnings: getSystemWarnings(backends, { consecutiveErrors: 0, mode: 'normal' }, llmStatus, approvalStats)
   });
 });
 

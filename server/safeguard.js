@@ -403,6 +403,14 @@ export class SafeguardService {
       }
     }
 
+    // Stage 2: cloud judge for WARNING/BLOCK (optional, PII-masked)
+    if (result.riskScore >= 4 && cloudJudge.isConfigured) {
+      const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
+      if (cloudResult) {
+        result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
+      }
+    }
+
     // Don't cache chain-aware results
     if (!chainHistory) {
       this.addToCache(command, result);
