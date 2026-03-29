@@ -49,6 +49,23 @@ const PROVIDERS = {
   },
 };
 
+// ─── Config persistence ───────────────────────────────────────────────────────
+
+const CONFIG_FILE = path.join(os.homedir(), '.guardclaw', 'cloud-judge-config.json');
+
+function loadPersistedConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function savePersistedConfig(cfg) {
+  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+}
+
 // ─── Token storage ───────────────────────────────────────────────────────────
 
 const TOKEN_FILE = path.join(os.homedir(), '.guardclaw', 'oauth-tokens.json');
@@ -205,12 +222,12 @@ Output ONLY valid JSON: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences"
 
 export class CloudJudge {
   constructor(config = {}) {
-    this.enabled = config.enabled ?? (process.env.CLOUD_JUDGE_ENABLED === 'true');
-    this.provider = config.provider ?? process.env.CLOUD_JUDGE_PROVIDER ?? 'gemini';
-    // API key fallback (no OAuth)
-    this.apiKey = config.apiKey ?? process.env.CLOUD_JUDGE_API_KEY ?? '';
-    this.model = config.model ?? process.env.CLOUD_JUDGE_MODEL ?? '';
-    this.baseURL = config.baseURL ?? process.env.CLOUD_JUDGE_BASE_URL ?? '';
+    const persisted = loadPersistedConfig();
+    this.enabled = config.enabled ?? persisted.enabled ?? (process.env.CLOUD_JUDGE_ENABLED === 'true');
+    this.provider = config.provider ?? persisted.provider ?? process.env.CLOUD_JUDGE_PROVIDER ?? 'claude';
+    this.apiKey = config.apiKey ?? persisted.apiKey ?? process.env.CLOUD_JUDGE_API_KEY ?? '';
+    this.model = config.model ?? persisted.model ?? process.env.CLOUD_JUDGE_MODEL ?? '';
+    this.baseURL = config.baseURL ?? persisted.baseURL ?? process.env.CLOUD_JUDGE_BASE_URL ?? '';
 
     const defaults = PROVIDERS[this.provider] ?? {};
     if (!this.model) this.model = defaults.defaultModel ?? 'default';
@@ -549,6 +566,14 @@ export class CloudJudge {
     if (updates.apiKey !== undefined) this.apiKey = updates.apiKey;
     if (updates.model) this.model = updates.model;
     if (updates.baseURL) this.baseURL = updates.baseURL;
+
+    // Persist to disk
+    savePersistedConfig({
+      enabled: this.enabled,
+      provider: this.provider,
+      model: this.model,
+      apiKey: this.apiKey,
+    });
   }
 
   /**

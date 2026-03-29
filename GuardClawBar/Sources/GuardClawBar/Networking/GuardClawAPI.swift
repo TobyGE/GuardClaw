@@ -204,7 +204,20 @@ actor GuardClawAPI {
     }
 
     func cloudJudgeOAuthConnect(provider: String) async throws -> GenericResponse {
-        try await post("/api/config/cloud-judge/oauth/\(provider)", body: [:] as [String: String])
+        // OAuth flow blocks until user authorizes in browser — needs long timeout (3 min)
+        let url = baseURL.appendingPathComponent("api/config/cloud-judge/oauth/\(provider)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode([:] as [String: String])
+        request.timeoutInterval = 180
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 180
+        config.timeoutIntervalForResource = 180
+        let longSession = URLSession(configuration: config)
+        let (data, response) = try await longSession.data(for: request)
+        try validateResponse(response)
+        return try JSONDecoder().decode(GenericResponse.self, from: data)
     }
 
     func cloudJudgeOAuthDisconnect(provider: String) async throws {
