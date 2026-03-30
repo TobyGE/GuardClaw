@@ -26,35 +26,6 @@ const DANGER_PATTERNS = [
 ];
 
 // ---------------------------------------------------------------------------
-// High-risk rule-based patterns — score=9, skip LLM entirely.
-// These are high-confidence dangerous patterns that don't need LLM judgment.
-// ---------------------------------------------------------------------------
-const HIGH_RISK_PATTERNS = [
-  // Reverse shell via nc/ncat -e
-  { re: /\bnc(?:at)?\s+.*-e\b/,                         score: 9, reason: 'nc/ncat reverse shell (-e flag)' },
-  // Data exfiltration via nc to non-localhost
-  { re: /\|[\s&]*nc(?:at)?\s+(?!localhost|127\.0\.0\.1)/, score: 9, reason: 'Piping data to nc (potential exfiltration)' },
-  // base64 decode piped to shell
-  { re: /base64\s+(-d|--decode).*\|[\s&]*(bash|sh|zsh|fish)/, score: 9, reason: 'base64 decode piped to shell (obfuscated code execution)' },
-  // curl/wget piped to shell (with or without spaces around pipe)
-  { re: /\bcurl\b.*\|[\s&]*(bash|sh|zsh|fish|sudo)\b/, score: 9, reason: 'curl output piped to shell (remote code execution)' },
-  { re: /\bwget\b.*\|[\s&]*(bash|sh|zsh|fish|sudo)\b/, score: 9, reason: 'wget output piped to shell (remote code execution)' },
-  // curl/wget via process substitution or here-string
-  { re: /\bcurl\b.*>\s*>\s*\(\s*(bash|sh)\b/,          score: 9, reason: 'curl via process substitution (RCE)' },
-  { re: /(bash|sh)\s*<<<.*\$\(\s*curl/,                 score: 9, reason: 'curl via here-string (RCE)' },
-  // Python/perl one-liner exec from stdin
-  { re: /python[23]?\s+-c\s+['"].*exec\s*\(/,          score: 9, reason: 'Python exec() one-liner (code injection)' },
-  // GuardClaw self-protection — killing the safety monitor by name.
-  // Use [^;&|\n]* instead of .* to avoid false positives across command separators
-  // e.g. `kill -9 <pid>; cd ~/guardclaw && guardclaw start` should NOT trigger this.
-  { re: /pkill[^;&|\n]*guardclaw/i,                     score: 9, reason: 'Killing GuardClaw safety monitor process' },
-  { re: /kill(?:all)?[^;&|\n]*guardclaw/i,              score: 9, reason: 'Killing GuardClaw safety monitor process' },
-  { re: /kill\s.*\$\(.*pgrep/,                          score: 9, reason: 'Dynamic PID kill via pgrep (potential self-protection bypass)' },
-  { re: /kill\s.*`.*pgrep/,                             score: 9, reason: 'Dynamic PID kill via pgrep (potential self-protection bypass)' },
-  { re: /pgrep.*\|\s*xargs\s+kill/,                     score: 9, reason: 'Dynamic PID kill via pgrep|xargs (potential self-protection bypass)' },
-];
-
-// ---------------------------------------------------------------------------
 // Sensitive paths for the Read tool — files that should NOT be auto-safe.
 // Read of these paths scores 7 (warning) instead of 1 (safe).
 // ---------------------------------------------------------------------------
