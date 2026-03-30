@@ -30,7 +30,11 @@ struct JudgeSettingsView: View {
                 case .cloud:
                     CloudProvidersSection(config: $cloudJudgeConfig, api: api)
                 case .mode:
-                    JudgeModeSection(config: $cloudJudgeConfig, api: api)
+                    JudgeModeSection(
+                        config: $cloudJudgeConfig,
+                        api: api,
+                        localModelReady: appState.serverStatus?.llmStatus?.connected == true
+                    )
                 }
             }
             .padding(24)
@@ -363,11 +367,34 @@ private struct CloudProvidersSection: View {
 private struct JudgeModeSection: View {
     @Binding var config: CloudJudgeConfig?
     let api: GuardClawAPI
+    let localModelReady: Bool
     @State private var message: String? = nil
 
     private var currentMode: String { config?.judgeMode ?? "mixed" }
     private var hasCloudProvider: Bool {
         (config?.providers ?? []).contains { $0.connected }
+    }
+    private var modeWarnings: [String] {
+        var warnings: [String] = []
+        switch currentMode {
+        case "local-only":
+            if !localModelReady {
+                warnings.append("No local model is loaded. Go to the Local tab to load one — otherwise requests fall back to rule-based scoring.")
+            }
+        case "mixed":
+            if !localModelReady {
+                warnings.append("No local model is loaded. The first stage of Mix mode will fall back to rule-based scoring.")
+            }
+            if !hasCloudProvider {
+                warnings.append("No cloud provider connected. Mix mode won't escalate to a second opinion — go to the Cloud tab to connect one.")
+            }
+        case "cloud-only":
+            if !hasCloudProvider {
+                warnings.append("No cloud provider connected. All External mode cannot judge any requests — go to the Cloud tab to connect one.")
+            }
+        default: break
+        }
+        return warnings
     }
 
     var body: some View {
@@ -394,12 +421,11 @@ private struct JudgeModeSection: View {
 
             Divider()
 
-            // Cloud provider requirement notice
-            if !hasCloudProvider {
+            // Mode-specific warnings
+            ForEach(modeWarnings, id: \.self) { warning in
                 HStack(spacing: 8) {
-                    Image(systemName: "info.circle").foregroundStyle(.orange)
-                    Text("No cloud provider connected. Go to the Cloud tab to connect one — until then, only All Local is available.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(warning).font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(12)
                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
