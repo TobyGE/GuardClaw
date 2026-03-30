@@ -228,6 +228,8 @@ export class CloudJudge {
     this.apiKey = config.apiKey ?? persisted.apiKey ?? process.env.CLOUD_JUDGE_API_KEY ?? '';
     this.model = config.model ?? persisted.model ?? process.env.CLOUD_JUDGE_MODEL ?? '';
     this.baseURL = config.baseURL ?? persisted.baseURL ?? process.env.CLOUD_JUDGE_BASE_URL ?? '';
+    // Judge mode: 'mixed' | 'local-only' | 'cloud-only'
+    this.judgeMode = config.judgeMode ?? persisted.judgeMode ?? 'mixed';
 
     const defaults = PROVIDERS[this.provider] ?? {};
     if (!this.model) this.model = defaults.defaultModel ?? 'default';
@@ -551,6 +553,7 @@ export class CloudJudge {
       model: this.model,
       baseURL: this.baseURL,
       isConfigured: this.isConfigured,
+      judgeMode: this.judgeMode,
       connections,
     };
   }
@@ -566,6 +569,9 @@ export class CloudJudge {
     if (updates.apiKey !== undefined) this.apiKey = updates.apiKey;
     if (updates.model) this.model = updates.model;
     if (updates.baseURL) this.baseURL = updates.baseURL;
+    if (updates.judgeMode && ['mixed', 'local-only', 'cloud-only'].includes(updates.judgeMode)) {
+      this.judgeMode = updates.judgeMode;
+    }
 
     // Persist to disk
     savePersistedConfig({
@@ -573,6 +579,7 @@ export class CloudJudge {
       provider: this.provider,
       model: this.model,
       apiKey: this.apiKey,
+      judgeMode: this.judgeMode,
     });
   }
 

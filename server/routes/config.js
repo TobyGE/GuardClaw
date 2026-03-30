@@ -191,8 +191,8 @@ export function configRoutes(deps) {
   });
 
   router.post('/api/config/cloud-judge', (req, res) => {
-    const { enabled, provider, apiKey, model, baseURL } = req.body;
-    cloudJudge.updateConfig({ enabled, provider, apiKey, model, baseURL });
+    const { enabled, provider, apiKey, model, baseURL, judgeMode } = req.body;
+    cloudJudge.updateConfig({ enabled, provider, apiKey, model, baseURL, judgeMode });
     res.json({ success: true, ...cloudJudge.getConfig() });
   });
 

@@ -194,12 +194,13 @@ actor GuardClawAPI {
         try await get("/api/config/cloud-judge")
     }
 
-    func updateCloudJudge(enabled: Bool? = nil, provider: String? = nil, apiKey: String? = nil, model: String? = nil) async throws -> GenericResponse {
+    func updateCloudJudge(enabled: Bool? = nil, provider: String? = nil, apiKey: String? = nil, model: String? = nil, judgeMode: String? = nil) async throws -> GenericResponse {
         var body: [String: String] = [:]
         if let enabled { body["enabled"] = enabled ? "true" : "false" }
         if let provider { body["provider"] = provider }
         if let apiKey { body["apiKey"] = apiKey }
         if let model { body["model"] = model }
+        if let judgeMode { body["judgeMode"] = judgeMode }
         return try await post("/api/config/cloud-judge", body: body)
     }
 

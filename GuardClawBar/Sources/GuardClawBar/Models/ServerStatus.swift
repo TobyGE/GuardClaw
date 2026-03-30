@@ -265,6 +265,7 @@ struct CloudJudgeConfig: Codable, Sendable {
     let provider: String
     let model: String
     let isConfigured: Bool
+    let judgeMode: String?
     let providers: [CloudJudgeProviderInfo]?
 }
 

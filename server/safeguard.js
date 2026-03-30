@@ -350,6 +350,14 @@ export class SafeguardService {
   async analyzeCommand(command, chainHistory = null, memoryContext = null, taskContext = null, judgeMeta = null) {
     this._currentJudgeMeta = judgeMeta;
 
+    const judgeMode = cloudJudge.judgeMode ?? 'mixed';
+
+    // cloud-only: skip local LLM, go straight to cloud judge
+    if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
+      const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
+      if (cloudResult) return cloudResult;
+    }
+
     // Safe fast-path: obviously safe commands skip LLM entirely
     // (bypass fast-path if chain history exists — a "safe" command can be dangerous in context)
     if (isClearlySafe(command) && !chainHistory) {
@@ -368,13 +376,21 @@ export class SafeguardService {
     const cached = this.getFromCache(command);
     if (cached) {
       this.cacheStats.hits++;
-      return { ...cached, cached: true };
+      let result = { ...cached, cached: true };
+      // In mixed mode, escalate to cloud judge if cached result is local and score >= 4
+      if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured && !result.backend?.startsWith('cloud:')) {
+        const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
+        if (cloudResult) {
+          result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
+        }
+      }
+      return result;
     }
     this.cacheStats.misses++;
 
     this.cacheStats.aiCalls++;
     let result;
-    
+
     if (!this.enabled) {
       result = this.fallbackAnalysis(command);
     } else {
@@ -403,8 +419,8 @@ export class SafeguardService {
       }
     }
 
-    // Stage 2: cloud judge for WARNING/BLOCK (optional, PII-masked)
-    if (result.riskScore >= 4 && cloudJudge.isConfigured) {
+    // Stage 2: cloud judge escalation (mixed mode only)
+    if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
       if (cloudResult) {
         result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
@@ -764,9 +780,27 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
 
   // Run LLM with a prompt, routing to the configured backend.
   async runLLMPrompt(prompt, action, judgeMeta = null) {
+    const judgeMode = cloudJudge.judgeMode ?? 'mixed';
     const cacheKey = prompt.substring(0, 300);
+
+    // cloud-only: skip local LLM, go straight to cloud judge
+    if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
+      const cloudResult = await cloudJudge.analyze(prompt, action);
+      if (cloudResult) return cloudResult;
+    }
+
     const cached = this.getFromCache(cacheKey);
-    if (cached) { this.cacheStats.hits++; return { ...cached, cached: true }; }
+    if (cached) {
+      this.cacheStats.hits++;
+      let result = { ...cached, cached: true };
+      if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured && !result.backend?.startsWith('cloud:')) {
+        const cloudResult = await cloudJudge.analyze(prompt, action);
+        if (cloudResult) {
+          result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
+        }
+      }
+      return result;
+    }
     this.cacheStats.misses++;
     this.cacheStats.aiCalls++;
 
@@ -783,11 +817,10 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
       }
     }
 
-    // Stage 2: cloud judge for WARNING/BLOCK (optional, PII-masked)
-    if (result.riskScore >= 4 && cloudJudge.isConfigured) {
+    // Stage 2: cloud judge escalation (mixed mode only)
+    if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(prompt, action);
       if (cloudResult) {
-        // Cloud verdict overrides local — merge metadata
         result = {
           ...cloudResult,
           localRiskScore: result.riskScore,
