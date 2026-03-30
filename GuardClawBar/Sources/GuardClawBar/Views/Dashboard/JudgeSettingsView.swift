@@ -264,12 +264,28 @@ private struct LocalJudgeSection: View {
 
 // MARK: - Cloud Tab
 
+private struct ClaudeModel: Identifiable {
+    let id: String
+    let label: String
+}
+
+private let CLAUDE_MODELS: [ClaudeModel] = [
+    ClaudeModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5  —  Fast & cheap"),
+    ClaudeModel(id: "claude-sonnet-4-6",         label: "Sonnet 4.6  —  Balanced"),
+    ClaudeModel(id: "claude-opus-4-6",            label: "Opus 4.6  —  Most capable"),
+]
+
 private struct CloudProvidersSection: View {
     @Binding var config: CloudJudgeConfig?
     let api: GuardClawAPI
     @State private var connecting: String? = nil
     @State private var apiKey: String = ""
     @State private var message: String? = nil
+    @State private var selectedModel: String = "claude-haiku-4-5-20251001"
+
+    private var claudeConnected: Bool {
+        config?.providers?.first(where: { $0.id == "claude" })?.connected == true
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -279,6 +295,28 @@ private struct CloudProvidersSection: View {
             VStack(spacing: 8) {
                 ForEach(config?.providers ?? [], id: \.id) { provider in
                     providerRow(provider)
+                }
+            }
+
+            // Claude model picker — only when connected
+            if claudeConnected {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Claude Model")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Picker("", selection: $selectedModel) {
+                        ForEach(CLAUDE_MODELS) { m in
+                            Text(m.label).tag(m.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .onChange(of: selectedModel) { _, newModel in
+                        Task {
+                            _ = try? await api.updateCloudJudge(model: newModel)
+                            await refreshConfig()
+                        }
+                    }
                 }
             }
 
@@ -357,7 +395,13 @@ private struct CloudProvidersSection: View {
 
     private func refreshConfig() async {
         if let cfg = try? await api.cloudJudgeConfig() {
-            await MainActor.run { config = cfg }
+            await MainActor.run {
+                config = cfg
+                // Sync picker to persisted model, defaulting to haiku if unknown
+                if CLAUDE_MODELS.contains(where: { $0.id == cfg.model }) {
+                    selectedModel = cfg.model
+                }
+            }
         }
     }
 }
