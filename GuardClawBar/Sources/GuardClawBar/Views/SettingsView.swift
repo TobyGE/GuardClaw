@@ -1,10 +1,6 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var serverURL: String = SettingsStore.shared.serverURL
-    @State private var pollInterval: Double = SettingsStore.shared.pollInterval
-    @State private var models: [BuiltinModel] = []
-    @State private var isLoadingModels = true
     @State private var ccHooksInstalled: Bool? = nil
     @State private var ccSetupMessage: String? = nil
     @State private var ocConnected = false
@@ -18,11 +14,6 @@ struct SettingsView: View {
     @State private var cursorMessage: String? = nil
     @State private var blockingEnabled = false
     @State private var failClosedEnabled = false
-    @State private var llmBackend: String? = nil
-    @State private var isChangingBackend = false
-    @State private var llmConnected: Bool? = nil
-    @State private var gatewayToken: String = ""
-    @State private var tokenMessage: String? = nil
     @State private var cloudJudgeConfig: CloudJudgeConfig? = nil
     private var L: Loc { Loc.shared }
 
@@ -35,11 +26,10 @@ struct SettingsView: View {
                 Text(L.t("settings.title"))
                     .font(.headline)
 
-                // -- Language toggle --
+                // -- Language --
                 HStack {
                     Text(L.t("settings.language"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Picker("", selection: Binding(
                         get: { Loc.shared.lang },
@@ -52,271 +42,74 @@ struct SettingsView: View {
                     .frame(width: 100)
                 }
 
-                // -- Judge --
-                VStack(alignment: .leading, spacing: 6) {
-                    // Backend picker row
-                    HStack {
-                        Circle()
-                            .fill(llmConnected == true ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text(L.t("settings.judge"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Picker("", selection: Binding(
-                            get: { llmBackend ?? "built-in" },
-                            set: { newVal in
-                                llmBackend = newVal
-                                isChangingBackend = true
-                                Task {
-                                    _ = try? await api.switchLLMBackend(backend: newVal)
-                                    await MainActor.run { isChangingBackend = false }
-                                }
-                            }
-                        )) {
-                            Text(L.t("settings.builtIn")).tag("built-in")
-                            Text(L.t("settings.lmStudio")).tag("lmstudio")
-                            Text(L.t("settings.ollama")).tag("ollama")
-                        }
-                        .pickerStyle(.menu)
-                        .controlSize(.mini)
-                        .frame(width: 110)
-                    }
-
-                    // Built-in model row (only when built-in selected)
-                    if llmBackend == "built-in" || llmBackend == nil {
-                        if isLoadingModels && models.isEmpty {
-                            HStack {
-                                ProgressView().controlSize(.small)
-                                Text(L.t("common.loading"))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .frame(height: 50)
-                        }
-
-                        ForEach(models) { m in
-                            ModelRowView(model: m, api: api, onRefresh: { fetchModels() })
-                        }
-                    }
-                }
-
                 Divider()
 
                 // -- Connections --
                 VStack(alignment: .leading, spacing: 8) {
                     Text(L.t("settings.connections"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary)
 
-                    // Claude Code
-                    HStack {
-                        Circle()
-                            .fill(ccHooksInstalled == true ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text("Claude Code")
-                            .font(.caption)
-                        Spacer()
-                        if ccHooksInstalled == true {
-                            Text("\u{2713}")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green)
-                            Button(L.t("common.uninstall")) { uninstallClaudeCode() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        } else {
-                            Button(L.t("common.install")) { setupClaudeCode() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        }
-                    }
+                    connectionRow("Claude Code", installed: ccHooksInstalled, connected: ccHooksInstalled == true,
+                                  onInstall: setupClaudeCode, onUninstall: uninstallClaudeCode)
+                    if let msg = ccSetupMessage { statusText(msg) }
 
-                    // OpenClaw
-                    HStack {
-                        Circle()
-                            .fill(ocConnected ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text("OpenClaw")
-                            .font(.caption)
-                        Spacer()
-                        if ocPluginInstalled == true {
-                            Text("\u{2713}")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green)
-                            Button(L.t("common.uninstall")) { uninstallOpenClaw() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        } else {
-                            Button(L.t("common.install")) { setupOpenClaw() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        }
-                    }
+                    connectionRow("OpenClaw", installed: ocPluginInstalled, connected: ocConnected,
+                                  onInstall: setupOpenClaw, onUninstall: uninstallOpenClaw)
+                    if let msg = ocSetupMessage { statusText(msg) }
 
-                    if let msg = ccSetupMessage {
-                        Text(msg)
-                            .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
-                    }
+                    connectionRow("Gemini CLI", installed: geminiInstalled, connected: geminiInstalled == true,
+                                  onInstall: setupGeminiCLI, onUninstall: uninstallGeminiCLI)
+                    if let msg = geminiMessage { statusText(msg) }
 
-                    // Gemini CLI
-                    HStack {
-                        Circle()
-                            .fill(geminiInstalled == true ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text("Gemini CLI")
-                            .font(.caption)
-                        Spacer()
-                        if geminiInstalled == true {
-                            Text("\u{2713}")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green)
-                            Button(L.t("common.uninstall")) { uninstallGeminiCLI() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        } else {
-                            Button(L.t("common.install")) { setupGeminiCLI() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        }
-                    }
+                    connectionRow("Copilot CLI", installed: copilotInstalled, connected: copilotInstalled == true,
+                                  onInstall: setupCopilot, onUninstall: uninstallCopilot)
+                    if let msg = copilotMessage { statusText(msg) }
 
-                    // Copilot CLI
-                    HStack {
-                        Circle()
-                            .fill(copilotInstalled == true ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text("Copilot CLI")
-                            .font(.caption)
-                        Spacer()
-                        if copilotInstalled == true {
-                            Text("\u{2713}")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green)
-                            Button(L.t("common.uninstall")) { uninstallCopilot() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        } else {
-                            Button(L.t("common.install")) { setupCopilot() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        }
-                    }
-
-                    // Cursor
-                    HStack {
-                        Circle()
-                            .fill(cursorInstalled == true ? Color.green : Color.gray)
-                            .frame(width: 6, height: 6)
-                        Text("Cursor")
-                            .font(.caption)
-                        Spacer()
-                        if cursorInstalled == true {
-                            Text("\u{2713}")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green)
-                            Button(L.t("common.uninstall")) { uninstallCursor() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        } else {
-                            Button(L.t("common.install")) { setupCursor() }
-                                .font(.system(size: 9))
-                                .controlSize(.mini)
-                        }
-                    }
-
-                    if let msg = ccSetupMessage {
-                        Text(msg)
-                            .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
-                    }
-
-                    if let msg = ocSetupMessage {
-                        Text(msg)
-                            .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
-                    }
-
-                    if let msg = geminiMessage {
-                        Text(msg)
-                            .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
-                    }
-
-                    if let msg = copilotMessage {
-                        Text(msg)
-                            .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
-                    }
-
-                    if let msg = cursorMessage {
-                        Text(msg)
-                            .font(.system(size: 9))
-                            .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
-                    }
+                    connectionRow("Cursor", installed: cursorInstalled, connected: cursorInstalled == true,
+                                  onInstall: setupCursor, onUninstall: uninstallCursor)
+                    if let msg = cursorMessage { statusText(msg) }
                 }
 
                 Divider()
 
                 // -- Protection --
-                ProtectionSection(
-                    blockingEnabled: $blockingEnabled,
-                    failClosedEnabled: $failClosedEnabled,
-                    api: api
-                )
+                ProtectionSection(blockingEnabled: $blockingEnabled, failClosedEnabled: $failClosedEnabled, api: api)
 
                 Divider()
 
-                // -- Cloud Judge --
+                // -- Judge Mode --
                 CloudJudgeSection(config: $cloudJudgeConfig, api: api)
 
-                Divider()
-
-                // -- Gateway Token --
-                GatewayTokenSection(
-                    token: $gatewayToken,
-                    message: $tokenMessage,
-                    api: api
-                )
-
-                Divider()
-
-                // -- Server URL --
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L.t("settings.serverURL"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("http://localhost:3002", text: $serverURL)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.caption)
-                        .onSubmit { save() }
-                }
-
-                // -- Poll Interval --
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L.t("settings.pollInterval", String(format: "%.0f", pollInterval)))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Slider(value: $pollInterval, in: 1...30, step: 1)
-                        .onChange(of: pollInterval) { _, _ in save() }
-                }
-
-                HStack {
-                    Spacer()
-                    Button(L.t("common.save")) { save() }
-                        .controlSize(.small)
-                }
             }
             .padding(16)
         }
-        .frame(width: 300, height: 720)
-        .onAppear { fetchModels(); checkCCStatus(); fetchCloudJudge() }
-        .onReceive(timer) { _ in fetchModels(); checkCCStatus() }
+        .frame(width: 300, height: 580)
+        .onAppear { checkStatus(); fetchCloudJudge() }
+        .onReceive(timer) { _ in checkStatus() }
     }
 
-    private func save() {
-        SettingsStore.shared.serverURL = serverURL
-        SettingsStore.shared.pollInterval = pollInterval
+    // MARK: - Helpers
+
+    private func connectionRow(_ name: String, installed: Bool?, connected: Bool,
+                                onInstall: @escaping () -> Void, onUninstall: @escaping () -> Void) -> some View {
+        HStack {
+            Circle().fill(connected ? Color.green : Color.gray).frame(width: 6, height: 6)
+            Text(name).font(.caption)
+            Spacer()
+            if installed == true {
+                Text("✓").font(.system(size: 9)).foregroundStyle(.green)
+                Button(L.t("common.uninstall"), action: onUninstall)
+                    .font(.system(size: 9)).controlSize(.mini)
+            } else {
+                Button(L.t("common.install"), action: onInstall)
+                    .font(.system(size: 9)).controlSize(.mini)
+            }
+        }
+    }
+
+    private func statusText(_ msg: String) -> some View {
+        Text(msg).font(.system(size: 9))
+            .foregroundStyle(msg.contains("✓") ? .green : .red)
     }
 
     private func fetchCloudJudge() {
@@ -327,80 +120,38 @@ struct SettingsView: View {
         }
     }
 
-    private func fetchModels() {
+    private func checkStatus() {
         Task {
-            do {
-                let resp = try await api.listModels()
+            async let cc = api.claudeCodeStatus()
+            async let oc = api.openClawPluginStatus()
+            async let gem = api.geminiCLIStatus()
+            async let cop = api.copilotStatus()
+            async let cur = api.cursorStatus()
+            async let srv = api.status()
+
+            if let s = try? await cc { await MainActor.run { ccHooksInstalled = s.installed } }
+            if let s = try? await oc { await MainActor.run { ocPluginInstalled = s.installed } }
+            if let s = try? await gem { await MainActor.run { geminiInstalled = s.installed } }
+            if let s = try? await cop { await MainActor.run { copilotInstalled = s.installed } }
+            if let s = try? await cur { await MainActor.run { cursorInstalled = s.installed } }
+            if let s = try? await srv {
                 await MainActor.run {
-                    models = resp.models
-                    isLoadingModels = false
+                    ocConnected = s.backends?["openclaw"]?.connected == true
+                    blockingEnabled = s.blocking?.active ?? s.blocking?.enabled ?? false
+                    failClosedEnabled = s.failClosed == true
                 }
-            } catch {
-                await MainActor.run { isLoadingModels = false }
             }
         }
     }
 
-    private func checkCCStatus() {
-        Task {
-            if let status = try? await api.claudeCodeStatus() {
-                await MainActor.run { ccHooksInstalled = status.installed }
-            }
-            if let status = try? await api.openClawPluginStatus() {
-                await MainActor.run { ocPluginInstalled = status.installed }
-            }
-            if let status = try? await api.geminiCLIStatus() {
-                await MainActor.run { geminiInstalled = status.installed }
-            }
-            if let status = try? await api.copilotStatus() {
-                await MainActor.run { copilotInstalled = status.installed }
-            }
-            if let status = try? await api.cursorStatus() {
-                await MainActor.run { cursorInstalled = status.installed }
-            }
-            if let serverStatus = try? await api.status() {
-                await MainActor.run {
-                    ocConnected = serverStatus.backends?["openclaw"]?.connected == true
-                    blockingEnabled = serverStatus.blocking?.active ?? serverStatus.blocking?.enabled ?? false
-                    failClosedEnabled = serverStatus.failClosed == true
-                    if !isChangingBackend {
-                        llmBackend = serverStatus.llmStatus?.backend
-                    }
-                    llmConnected = serverStatus.llmStatus?.connected
-                }
-            }
-        }
-    }
+    // MARK: - Connection Actions
 
     private func setupClaudeCode() {
         Task {
             do {
                 _ = try await api.setupClaudeCode()
-                await MainActor.run {
-                    ccHooksInstalled = true
-                    ccSetupMessage = "\u{2713} " + Loc.shared.t("settings.hooksInstalled", "Claude Code")
-                }
-            } catch {
-                await MainActor.run {
-                    ccSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    private func setupOpenClaw() {
-        Task {
-            do {
-                _ = try await api.setupOpenClaw()
-                await MainActor.run {
-                    ocPluginInstalled = true
-                    ocSetupMessage = "\u{2713} " + Loc.shared.t("settings.pluginInstalled", "OpenClaw")
-                }
-            } catch {
-                await MainActor.run {
-                    ocSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { ccHooksInstalled = true; ccSetupMessage = "✓ " + L.t("settings.hooksInstalled", "Claude Code") }
+            } catch { await MainActor.run { ccSetupMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -408,15 +159,17 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.uninstallClaudeCode()
-                await MainActor.run {
-                    ccHooksInstalled = false
-                    ccSetupMessage = Loc.shared.t("settings.hooksRemoved", "Claude Code")
-                }
-            } catch {
-                await MainActor.run {
-                    ccSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { ccHooksInstalled = false; ccSetupMessage = L.t("settings.hooksRemoved", "Claude Code") }
+            } catch { await MainActor.run { ccSetupMessage = L.t("settings.failed", error.localizedDescription) } }
+        }
+    }
+
+    private func setupOpenClaw() {
+        Task {
+            do {
+                _ = try await api.setupOpenClaw()
+                await MainActor.run { ocPluginInstalled = true; ocSetupMessage = "✓ " + L.t("settings.pluginInstalled", "OpenClaw") }
+            } catch { await MainActor.run { ocSetupMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -424,15 +177,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.uninstallOpenClaw()
-                await MainActor.run {
-                    ocPluginInstalled = false
-                    ocSetupMessage = Loc.shared.t("settings.pluginRemoved", "OpenClaw")
-                }
-            } catch {
-                await MainActor.run {
-                    ocSetupMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { ocPluginInstalled = false; ocSetupMessage = L.t("settings.pluginRemoved", "OpenClaw") }
+            } catch { await MainActor.run { ocSetupMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -440,15 +186,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.setupGeminiCLI()
-                await MainActor.run {
-                    geminiInstalled = true
-                    geminiMessage = "\u{2713} " + Loc.shared.t("settings.hooksInstalled", "Gemini CLI")
-                }
-            } catch {
-                await MainActor.run {
-                    geminiMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { geminiInstalled = true; geminiMessage = "✓ " + L.t("settings.hooksInstalled", "Gemini CLI") }
+            } catch { await MainActor.run { geminiMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -456,15 +195,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.uninstallGeminiCLI()
-                await MainActor.run {
-                    geminiInstalled = false
-                    geminiMessage = Loc.shared.t("settings.hooksRemoved", "Gemini CLI")
-                }
-            } catch {
-                await MainActor.run {
-                    geminiMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { geminiInstalled = false; geminiMessage = L.t("settings.hooksRemoved", "Gemini CLI") }
+            } catch { await MainActor.run { geminiMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -472,15 +204,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.setupCopilot()
-                await MainActor.run {
-                    copilotInstalled = true
-                    copilotMessage = "\u{2713} " + Loc.shared.t("settings.extensionInstalled", "Copilot CLI")
-                }
-            } catch {
-                await MainActor.run {
-                    copilotMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { copilotInstalled = true; copilotMessage = "✓ " + L.t("settings.extensionInstalled", "Copilot CLI") }
+            } catch { await MainActor.run { copilotMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -488,15 +213,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.uninstallCopilot()
-                await MainActor.run {
-                    copilotInstalled = false
-                    copilotMessage = Loc.shared.t("settings.extensionRemoved", "Copilot CLI")
-                }
-            } catch {
-                await MainActor.run {
-                    copilotMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { copilotInstalled = false; copilotMessage = L.t("settings.extensionRemoved", "Copilot CLI") }
+            } catch { await MainActor.run { copilotMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -504,15 +222,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.setupCursor()
-                await MainActor.run {
-                    cursorInstalled = true
-                    cursorMessage = "\u{2713} " + Loc.shared.t("settings.hooksInstalled", "Cursor")
-                }
-            } catch {
-                await MainActor.run {
-                    cursorMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { cursorInstalled = true; cursorMessage = "✓ " + L.t("settings.hooksInstalled", "Cursor") }
+            } catch { await MainActor.run { cursorMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 
@@ -520,15 +231,8 @@ struct SettingsView: View {
         Task {
             do {
                 _ = try await api.uninstallCursor()
-                await MainActor.run {
-                    cursorInstalled = false
-                    cursorMessage = Loc.shared.t("settings.hooksRemoved", "Cursor")
-                }
-            } catch {
-                await MainActor.run {
-                    cursorMessage = Loc.shared.t("settings.failed", error.localizedDescription)
-                }
-            }
+                await MainActor.run { cursorInstalled = false; cursorMessage = L.t("settings.hooksRemoved", "Cursor") }
+            } catch { await MainActor.run { cursorMessage = L.t("settings.failed", error.localizedDescription) } }
         }
     }
 }
@@ -541,241 +245,86 @@ private struct ProtectionSection: View {
     let api: GuardClawAPI
     private var L: Loc { Loc.shared }
 
-    private var failClosedSummary: String {
-        failClosedEnabled
-            ? L.t("settings.failClosedOn")
-            : L.t("settings.failClosedOff")
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L.t("settings.protection"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(.secondary)
 
             HStack {
                 Toggle(isOn: Binding(
                     get: { blockingEnabled },
-                    set: { newVal in
-                        let previousVal = blockingEnabled
-                        blockingEnabled = newVal
-                        Task {
-                            do {
-                                _ = try await api.toggleBlocking(enabled: newVal)
-                            } catch {
-                                blockingEnabled = previousVal
-                            }
-                        }
+                    set: { val in
+                        let prev = blockingEnabled; blockingEnabled = val
+                        Task { do { _ = try await api.toggleBlocking(enabled: val) } catch { blockingEnabled = prev } }
                     }
                 )) {
-                    Text(L.t("settings.activeBlocking"))
-                        .font(.caption)
+                    Text(L.t("settings.activeBlocking")).font(.caption)
                 }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+                .toggleStyle(.switch).controlSize(.mini)
             }
-
             Text(blockingEnabled ? L.t("settings.blockingOn") : L.t("settings.blockingOff"))
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 9)).foregroundStyle(.secondary)
 
             HStack {
                 Toggle(isOn: Binding(
                     get: { failClosedEnabled },
-                    set: { newVal in
-                        Task {
-                            _ = try? await api.toggleFailClosed(enabled: newVal)
-                            failClosedEnabled = newVal
-                        }
-                    }
+                    set: { val in Task { _ = try? await api.toggleFailClosed(enabled: val); failClosedEnabled = val } }
                 )) {
-                    Text(L.t("settings.failClosed"))
-                        .font(.caption)
+                    Text(L.t("settings.failClosed")).font(.caption)
                 }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+                .toggleStyle(.switch).controlSize(.mini)
             }
-
-            Text(failClosedSummary)
+            Text(failClosedEnabled ? L.t("settings.failClosedOn") : L.t("settings.failClosedOff"))
                 .font(.system(size: 9))
                 .foregroundStyle(failClosedEnabled ? Color.secondary : Color.orange)
         }
     }
 }
 
-// MARK: - Gateway Token Section
-
-private struct GatewayTokenSection: View {
-    @Binding var token: String
-    @Binding var message: String?
-    let api: GuardClawAPI
-    private var L: Loc { Loc.shared }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(L.t("settings.gatewayToken"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 4) {
-                SecureField(L.t("settings.tokenPlaceholder"), text: $token)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                    .onSubmit { saveToken() }
-
-                Button(L.t("common.save")) { saveToken() }
-                    .font(.system(size: 9))
-                    .controlSize(.mini)
-
-                Button(L.t("common.detect")) { detectToken() }
-                    .font(.system(size: 9))
-                    .controlSize(.mini)
-            }
-
-            if let msg = message {
-                Text(msg)
-                    .font(.system(size: 9))
-                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .secondary)
-            }
-        }
-    }
-
-    private func saveToken() {
-        guard !token.isEmpty else { return }
-        Task {
-            do {
-                _ = try await api.saveToken(token: token)
-                await MainActor.run { message = "\u{2713} " + Loc.shared.t("settings.tokenSaved") }
-            } catch {
-                await MainActor.run { message = Loc.shared.t("settings.failed", error.localizedDescription) }
-            }
-        }
-    }
-
-    private func detectToken() {
-        Task {
-            do {
-                let resp = try await api.detectToken()
-                await MainActor.run {
-                    if let t = resp.token {
-                        token = t
-                        message = "\u{2713} " + Loc.shared.t("settings.autoDetected")
-                    } else {
-                        message = Loc.shared.t("settings.noTokenFound")
-                    }
-                }
-            } catch {
-                await MainActor.run { message = Loc.shared.t("settings.notFound") }
-            }
-        }
-    }
-}
-
-// MARK: - Cloud Judge Section
+// MARK: - Cloud Judge Section (Bar — mode only, no provider setup)
 
 private struct CloudJudgeSection: View {
     @Binding var config: CloudJudgeConfig?
     let api: GuardClawAPI
-    @State private var connecting: String? = nil
-    @State private var message: String? = nil
-    @State private var apiKey: String = ""
     @State private var enabled: Bool = false
+
+    private var L: Loc { Loc.shared }
+    private var currentMode: String { config?.judgeMode ?? "mixed" }
+    private var modeDescription: String {
+        switch currentMode {
+        case "local-only": return L.t("judge.modeLocalDesc")
+        case "cloud-only": return L.t("judge.modeCloudDesc")
+        default: return L.t("judge.modeHybridDesc")
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Cloud Judge")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { config?.enabled ?? enabled },
-                    set: { val in
-                        enabled = val
-                        Task { _ = try? await api.updateCloudJudge(enabled: val) }
-                    }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-            }
+            Text("Judge Mode")
+                .font(.caption).foregroundStyle(.secondary)
 
-            Text("Re-analyze WARNING/BLOCK with cloud LLM. PII masked before sending.")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-
-            // Provider rows — only Claude supports OAuth
-            ForEach(config?.providers ?? [], id: \.id) { provider in
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(provider.connected ? Color.green : Color.gray)
-                        .frame(width: 5, height: 5)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(provider.displayName)
-                            .font(.system(size: 10))
-                        if provider.oauthSupported != true {
-                            Text("API key")
-                                .font(.system(size: 8))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    Spacer()
-                    if provider.oauthSupported == true {
-                        if provider.connected {
-                            Text("✓")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green)
-                            Button("Disconnect") {
-                                Task {
-                                    try? await api.cloudJudgeOAuthDisconnect(provider: provider.id)
-                                    await refreshConfig()
-                                }
-                            }
-                            .font(.system(size: 9))
-                            .controlSize(.mini)
-                        } else {
-                            Button(connecting == provider.id ? "Waiting…" : "Sign in") {
-                                guard connecting == nil else { return }
-                                connecting = provider.id
-                                Task {
-                                    do {
-                                        _ = try await api.cloudJudgeOAuthConnect(provider: provider.id)
-                                        await refreshConfig()
-                                        await MainActor.run { message = "✓ \(provider.displayName) connected" }
-                                    } catch {
-                                        await MainActor.run { message = error.localizedDescription }
-                                    }
-                                    await MainActor.run { connecting = nil }
-                                }
-                            }
-                            .font(.system(size: 9))
-                            .controlSize(.mini)
-                            .disabled(connecting != nil)
-                        }
-                    }
-                }
-            }
-
-            // API key for Gemini / OpenAI
-            HStack(spacing: 4) {
-                SecureField("API key (Gemini / OpenAI)", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                Button("Save") {
+            Picker("", selection: Binding(
+                get: { currentMode },
+                set: { mode in
                     Task {
-                        _ = try? await api.updateCloudJudge(enabled: true, apiKey: apiKey)
-                        await MainActor.run { message = "✓ API key saved" }
+                        _ = try? await api.updateCloudJudge(judgeMode: mode)
+                        await refreshConfig()
                     }
                 }
-                .font(.system(size: 9))
-                .controlSize(.mini)
-                .disabled(apiKey.isEmpty)
+            )) {
+                Text(L.t("judge.modeLocal")).tag("local-only")
+                Text(L.t("judge.modeHybrid")).tag("mixed")
+                Text(L.t("judge.modeCloud")).tag("cloud-only")
             }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let msg = message {
-                Text(msg)
-                    .font(.system(size: 9))
-                    .foregroundStyle(msg.hasPrefix("✓") ? .green : .red)
-            }
+            Text(modeDescription)
+                .font(.system(size: 9)).foregroundStyle(.secondary)
+
+            Text("Configure providers in Dashboard → Judge → Cloud")
+                .font(.system(size: 9)).foregroundStyle(.tertiary)
         }
         .onAppear { enabled = config?.enabled ?? false }
     }
@@ -784,138 +333,5 @@ private struct CloudJudgeSection: View {
         if let cfg = try? await api.cloudJudgeConfig() {
             await MainActor.run { config = cfg }
         }
-    }
-}
-
-// MARK: - Model Row
-
-private struct ModelRowView: View {
-    let model: BuiltinModel
-    let api: GuardClawAPI
-    let onRefresh: () -> Void
-    private var L: Loc { Loc.shared }
-
-    private var isBusy: Bool { model.downloading || model.loading }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            headerRow
-            if isBusy { progressSection }
-            errorSection
-        }
-        .padding(8)
-        .background(backgroundFill)
-        .overlay(borderOverlay)
-    }
-
-    private var headerRow: some View {
-        HStack(spacing: 6) {
-            Text(model.name)
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(model.loaded ? .green : .primary)
-
-            if model.recommended == true {
-                Text(L.t("settings.rec"))
-                    .font(.system(size: 8, weight: .bold))
-                    .textCase(.uppercase)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(.orange.opacity(0.2))
-                    .foregroundStyle(.orange)
-                    .clipShape(Capsule())
-            }
-
-            Text(model.size)
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
-
-            Spacer()
-
-            actionArea
-        }
-    }
-
-    @ViewBuilder
-    private var actionArea: some View {
-        if model.loaded {
-            loadedActions
-        } else if isBusy {
-            busyActions
-        } else if model.downloaded {
-            Button(L.t("common.run")) { setup() }
-                .font(.system(size: 9))
-                .controlSize(.mini)
-        } else {
-            Button(L.t("settings.setupRun")) { setup() }
-                .font(.system(size: 9))
-                .controlSize(.mini)
-        }
-    }
-
-    private var loadedActions: some View {
-        HStack(spacing: 4) {
-            Circle().fill(.green).frame(width: 6, height: 6)
-            Text(L.t("common.active"))
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.green)
-            Button(L.t("common.stop")) { Task { _ = try? await api.unloadModel(); onRefresh() } }
-                .font(.system(size: 9))
-                .controlSize(.mini)
-        }
-    }
-
-    private var busyActions: some View {
-        Group {
-            if model.downloading {
-                Button(L.t("common.cancel")) { Task { _ = try? await api.cancelDownload(id: model.id); onRefresh() } }
-                    .font(.system(size: 9))
-                    .controlSize(.mini)
-            }
-        }
-    }
-
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ProgressView(value: model.downloading ? max(Double(model.progress), 2) / 100.0 : 1.0)
-                .tint(.blue)
-
-            Text(model.statusMessage ?? (model.downloading ? L.t("settings.downloading", model.progress) : L.t("settings.loadingModel")))
-                .font(.system(size: 9))
-                .foregroundStyle(.blue)
-        }
-    }
-
-    @ViewBuilder
-    private var errorSection: some View {
-        if let error = model.setupError, !isBusy {
-            HStack(alignment: .top, spacing: 4) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.red)
-                Text(error)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-            }
-        }
-    }
-
-    private var backgroundFill: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(model.loaded ? Color.green.opacity(0.08) :
-                  isBusy ? Color.blue.opacity(0.06) :
-                  Color.clear)
-    }
-
-    private var borderOverlay: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .stroke(model.loaded ? Color.green.opacity(0.3) :
-                    isBusy ? Color.blue.opacity(0.2) :
-                    Color.gray.opacity(0.2), lineWidth: 1)
-    }
-
-    private func setup() {
-        Task { _ = try? await api.setupModel(id: model.id); onRefresh() }
     }
 }

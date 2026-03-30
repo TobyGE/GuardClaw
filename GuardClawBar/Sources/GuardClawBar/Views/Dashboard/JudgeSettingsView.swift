@@ -445,7 +445,7 @@ private struct JudgeModeSection: View {
                 )
                 ModeCard(
                     mode: "mixed",
-                    title: "Mix & Economic",
+                    title: "Hybrid",
                     description: "Local model runs first. If score ≥ 4 (WARNING/BLOCK), a cloud model re-analyzes for a second opinion. Recommended.",
                     icon: "arrow.triangle.branch",
                     currentMode: currentMode,

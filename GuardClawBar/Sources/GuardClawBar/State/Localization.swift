@@ -310,6 +310,12 @@ final class Loc: @unchecked Sendable {
         "judge.testConnected": "Connected",
         "judge.testFailed": "Connection failed",
         "judge.recommended": "RECOMMENDED",
+        "judge.modeLocal": "All Local",
+        "judge.modeHybrid": "Hybrid",
+        "judge.modeCloud": "All External",
+        "judge.modeLocalDesc": "Only local model. No cloud calls.",
+        "judge.modeHybridDesc": "Local first; cloud re-checks WARNING/BLOCK. PII masked.",
+        "judge.modeCloudDesc": "All requests go to cloud provider. PII masked.",
 
         // ConnectionsView
         "connections.title": "Connections",
@@ -735,6 +741,12 @@ final class Loc: @unchecked Sendable {
         "judge.testConnected": "已连接",
         "judge.testFailed": "连接失败",
         "judge.recommended": "推荐",
+        "judge.modeLocal": "纯本地",
+        "judge.modeHybrid": "混合",
+        "judge.modeCloud": "纯云端",
+        "judge.modeLocalDesc": "仅使用本地模型，不调用云端。",
+        "judge.modeHybridDesc": "本地优先，高风险时云端复核。PII 已脱敏。",
+        "judge.modeCloudDesc": "所有请求发送至云端服务商。PII 已脱敏。",
 
         // ConnectionsView
         "connections.title": "连接",
