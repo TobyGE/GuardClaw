@@ -215,6 +215,8 @@ export class EventStore {
       sql += " AND sessionKey LIKE 'opencode:%'";
     } else if (backend === 'copilot') {
       sql += " AND sessionKey LIKE 'copilot:%'";
+    } else if (backend === 'codex') {
+      sql += " AND sessionKey LIKE 'codex:%'";
     } else if (backend === 'cowork') {
       sql += " AND sessionKey LIKE 'cowork:%'";
     }
