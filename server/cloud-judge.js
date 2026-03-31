@@ -405,7 +405,7 @@ export class CloudJudge {
 
     if (!resp.ok) {
       const err = await resp.text();
-      throw new Error(`Claude Bearer ${resp.status}: ${err.substring(0, 200)}`);
+      throw new Error(`Claude Bearer ${resp.status}: ${err.substring(0, 500)}`);
     }
 
     const data = await resp.json();

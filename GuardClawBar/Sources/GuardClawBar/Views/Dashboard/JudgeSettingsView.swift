@@ -270,9 +270,10 @@ private struct ClaudeModel: Identifiable {
 }
 
 private let CLAUDE_MODELS: [ClaudeModel] = [
-    ClaudeModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5  —  Fast & cheap"),
-    ClaudeModel(id: "claude-sonnet-4-6",         label: "Sonnet 4.6  —  Balanced"),
-    ClaudeModel(id: "claude-opus-4-6",            label: "Opus 4.6  —  Most capable"),
+    ClaudeModel(id: "claude-haiku-4-5-20251001",  label: "Haiku 4.5  —  Fast & cheap"),
+    ClaudeModel(id: "claude-sonnet-4-5-20251029", label: "Sonnet 4.5  —  Balanced"),
+    ClaudeModel(id: "claude-sonnet-4-6",          label: "Sonnet 4.6  —  Balanced (latest)"),
+    ClaudeModel(id: "claude-opus-4-5",            label: "Opus 4.5  —  Most capable"),
 ]
 
 private struct CloudProvidersSection: View {

@@ -327,6 +327,16 @@ export class SafeguardService {
     if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
       if (cloudResult) return cloudResult;
+      // Cloud call failed — do NOT fall back to local LLM in cloud-only mode
+      return {
+        riskScore: 9,
+        category: 'dangerous',
+        reasoning: 'Cloud judge unavailable (cloud-only mode). Blocking to stay safe.',
+        allowed: false,
+        warnings: ['Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'],
+        backend: 'cloud-only-error',
+        verdict: 'BLOCK',
+      };
     }
 
     // Safe fast-path: obviously safe commands skip LLM entirely
@@ -758,6 +768,16 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
     if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(prompt, action);
       if (cloudResult) return cloudResult;
+      // Cloud call failed — do NOT fall back to local LLM in cloud-only mode
+      return {
+        riskScore: 9,
+        category: 'dangerous',
+        reasoning: 'Cloud judge unavailable (cloud-only mode). Blocking to stay safe.',
+        allowed: false,
+        warnings: ['Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'],
+        backend: 'cloud-only-error',
+        verdict: 'BLOCK',
+      };
     }
 
     const cached = this.getFromCache(cacheKey);
