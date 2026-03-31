@@ -577,7 +577,7 @@ function getSystemWarnings(backends, pollerStats, llmStatus, approvalStats) {
     });
   }
 
-  if (pollerStats.mode === 'event-only') {
+  if (pollerStats && pollerStats.mode === 'event-only') {
     warnings.push({
       level: 'info',
       message: 'Running in event-only mode (no session history polling)',
@@ -585,7 +585,7 @@ function getSystemWarnings(backends, pollerStats, llmStatus, approvalStats) {
     });
   }
 
-  if (pollerStats.consecutiveErrors >= 2) {
+  if (pollerStats && pollerStats.consecutiveErrors >= 2) {
     warnings.push({
       level: 'warning',
       message: `Session poller experiencing errors (${pollerStats.consecutiveErrors} consecutive)`,
