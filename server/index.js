@@ -20,6 +20,7 @@ import { benchmarkRoutes } from './routes/benchmark.js';
 import modelsRouter, { setBackendSwitcher } from './routes/models.js';
 import llmEngine from './llm-engine.js';
 import { judgeStore } from './judge-store.js';
+import { cloudJudge } from './cloud-judge.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
 import { MemoryStore } from './memory.js';
