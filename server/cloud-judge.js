@@ -332,6 +332,10 @@ export class CloudJudge {
       result.backend = `cloud:${this.provider}`;
       result.piiDetected = detected;
       result.cloudModel = this.model;
+      result._rawResponse = text;
+      result._userPrompt = masked;
+      result._model = this.model;
+      result._systemPrompt = SYSTEM_PROMPT;
       return result;
     } catch (err) {
       // On 401, try token refresh once
@@ -346,6 +350,10 @@ export class CloudJudge {
           result.backend = `cloud:${this.provider}`;
           result.piiDetected = detected;
           result.cloudModel = this.model;
+          result._rawResponse = text;
+          result._userPrompt = masked;
+          result._model = this.model;
+          result._systemPrompt = SYSTEM_PROMPT;
           return result;
         } catch (refreshErr) {
           console.error(`[CloudJudge] Token refresh failed:`, refreshErr.message);

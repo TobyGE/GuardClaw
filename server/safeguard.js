@@ -326,7 +326,7 @@ export class SafeguardService {
     // cloud-only: skip local LLM, go straight to cloud judge
     if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
-      if (cloudResult) return cloudResult;
+      if (cloudResult) { this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command }); return cloudResult; }
       // Cloud call failed — do NOT fall back to local LLM in cloud-only mode
       return {
         riskScore: 9,
@@ -362,6 +362,7 @@ export class SafeguardService {
       if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured && !result.backend?.startsWith('cloud:')) {
         const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
         if (cloudResult) {
+          this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command });
           result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
         }
       }
@@ -404,6 +405,7 @@ export class SafeguardService {
     if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
       if (cloudResult) {
+        this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command });
         result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
       }
     }
@@ -767,7 +769,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
     // cloud-only: skip local LLM, go straight to cloud judge
     if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(prompt, action);
-      if (cloudResult) return cloudResult;
+      if (cloudResult) { this._recordJudgeCall(cloudResult, action); return cloudResult; }
       // Cloud call failed — do NOT fall back to local LLM in cloud-only mode
       return {
         riskScore: 9,
@@ -787,6 +789,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
       if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured && !result.backend?.startsWith('cloud:')) {
         const cloudResult = await cloudJudge.analyze(prompt, action);
         if (cloudResult) {
+          this._recordJudgeCall(cloudResult, action);
           result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
         }
       }
@@ -812,6 +815,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
     if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured) {
       const cloudResult = await cloudJudge.analyze(prompt, action);
       if (cloudResult) {
+        this._recordJudgeCall(cloudResult, action);
         result = {
           ...cloudResult,
           localRiskScore: result.riskScore,
@@ -1357,12 +1361,12 @@ ACTION: ${action.summary}${detailSection}`;
   // ────────────────────────────────────────────────────────────────────────────
 
   // Record every LLM judge call to judge.db for training data collection.
-  // Called from analyzeWithBuiltIn and analyzeWithLMStudioPrompt.
+  // Called from analyzeWithBuiltIn, analyzeWithLMStudioPrompt, and cloud judge paths.
   _recordJudgeCall(result, action) {
     if (!result._rawResponse) return;
     const meta = this._currentJudgeMeta;
     judgeStore.record({
-      backend: this.backend,
+      backend: result.backend || this.backend,
       model: result._model,
       tool: action?.tool || 'exec',
       systemPrompt: result._systemPrompt,
