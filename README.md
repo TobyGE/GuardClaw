@@ -4,10 +4,10 @@
     GuardClaw
   </h1>
   <p align="center">
-    <strong>Smart permission layer for AI agents, powered by local LLMs</strong>
+    <strong>Smart permission layer for AI agents</strong>
   </p>
   <p align="center">
-    100% local. Zero cloud. Real-time risk judgment for agent tool calls.
+    Real-time risk judgment for agent tool calls. Runs local or cloud.
   </p>
 </p>
 
@@ -30,7 +30,7 @@ AI agents usually fail in one of two ways:
 - **Too loose:** dangerous operations run with little control
 - **Too strict:** safe operations keep interrupting the user
 
-GuardClaw sits between the agent and tools, scores each action with a local LLM, and makes a practical decision:
+GuardClaw sits between the agent and tools, scores each action with a local or cloud judge, and makes a practical decision:
 
 - safe actions continue without friction
 - suspicious actions are surfaced for approval
@@ -65,13 +65,15 @@ Restart the target agent after installing hooks/plugin.
 
 ### Judge backends
 
-| Backend | Description |
-| ------- | ----------- |
-| **Built-in (MLX)** | Bundled engine using Apple Silicon MLX. Downloads and runs the model locally — no external server needed. |
-| **LM Studio** | Connect to [LM Studio](https://lmstudio.ai) running locally. Recommended model: `qwen/qwen3-4b-2507` |
-| **Ollama** | Connect to [Ollama](https://ollama.ai) running locally |
-| **Anthropic** | Use Anthropic API (requires API key) |
-| **Fallback** | Deterministic rule-based scoring only, no LLM |
+GuardClaw supports three judge modes: **local-only**, **cloud-only**, and **mixed** (default — local judge first, cloud as fallback or for high-risk confirmation).
+
+| Backend | Mode | Description |
+| ------- | ---- | ----------- |
+| **Built-in (MLX)** | local | Bundled engine using Apple Silicon MLX. Downloads and runs the model locally — no external server needed. |
+| **LM Studio** | local | Connect to [LM Studio](https://lmstudio.ai) running locally. Recommended model: `qwen/qwen3-4b-2507` |
+| **Ollama** | local | Connect to [Ollama](https://ollama.ai) running locally |
+| **Claude (Anthropic)** | cloud | Uses Claude Haiku via Anthropic API or Claude Code OAuth — no API key required if Claude Code is installed |
+| **Fallback** | local | Deterministic rule-based scoring only, no LLM |
 
 ## Supported Agents
 
@@ -83,7 +85,7 @@ Restart the target agent after installing hooks/plugin.
 | [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
 | [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
 | [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
-| [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) | Extension | ❌ | ❌ | Not functional — waiting on stable extension SDK |
+| [GitHub Copilot CLI](https://github.com/github/copilot-sdk) | Extension | ❌ | ❌ | Not functional — waiting on stable extension SDK |
 
 ## How It Works
 
