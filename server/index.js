@@ -2136,6 +2136,120 @@ app.post('/api/hooks/gemini/post-tool-use', rateLimit(60_000, 120), (req, res) =
   res.json({ decision: 'allow' });
 });
 
+// ─── Codex CLI hooks ─────────────────────────────────────────────────────────
+
+let codexLastHookTime = 0;
+
+app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+  codexLastHookTime = Date.now();
+  const toolName = req.body.tool_name;
+  const toolInput = req.body.tool_input || {};
+  const sessionId = req.body.session_id;
+  const model = req.body.model;
+  console.log(`[GuardClaw] Codex pre-tool-use:`, JSON.stringify(req.body).slice(0, 300));
+  if (!toolName) return res.json({ decision: 'allow' });
+
+  const gcToolName = mapGeminiTool(toolName);
+  const gcParams = mapGeminiParams(toolName, toolInput);
+  const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
+
+  try {
+    const chainHistory = getChainHistory(sessionKey, gcToolName);
+    const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+
+    const mem = memoryStore.lookup(gcToolName, commandStr);
+    let memoryHint = null;
+    if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
+      memoryHint = { pattern: mem.pattern, approveCount: mem.approveCount, denyCount: mem.denyCount, confidence: mem.confidence, suggestedAction: mem.suggestedAction };
+    }
+    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, 5);
+      if (Math.max(1, Math.min(10, 5 + adj)) < 9) return res.json({ decision: 'allow' });
+    }
+
+    const userPrompt = lastOCPromptText.get(sessionKey);
+    const taskContext = (userPrompt || req.body.cwd)
+      ? { userPrompt: userPrompt || null, cwd: req.body.cwd || null, recentTools: null }
+      : null;
+
+    const jm = { sessionKey, source: 'codex', model };
+    let analysis;
+    if (gcToolName === 'exec') {
+      analysis = await safeguardService.analyzeCommand(gcParams.command || '', chainHistory, null, taskContext, jm);
+    } else {
+      analysis = await safeguardService.analyzeToolAction({ tool: gcToolName, summary: JSON.stringify(gcParams), ...gcParams }, chainHistory, null, taskContext, jm);
+    }
+
+    if (memoryHint) {
+      const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, analysis.riskScore);
+      if (adj !== 0) { analysis.originalRiskScore = analysis.riskScore; analysis.riskScore = Math.max(1, Math.min(10, analysis.riskScore + adj)); }
+    }
+
+    const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
+    const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
+    eventStore.addEvent({
+      type: 'codex-tool', tool: gcToolName,
+      command: gcToolName === 'exec' ? (gcParams.command || '') : undefined,
+      description: displayInput.slice(0, 500), sessionKey,
+      riskScore: analysis.riskScore,
+      category: analysis.riskScore >= 8 ? 'high-risk' : analysis.riskScore >= 4 ? 'warning' : 'safe',
+      allowed: analysis.riskScore < 8 ? 1 : 0,
+      safeguard: { riskScore: analysis.riskScore, reasoning: analysis.reasoning, category: analysis.category, verdict, allowed: analysis.riskScore < 8, backend: 'codex' },
+      timestamp: Date.now(),
+    });
+
+    if (analysis.riskScore >= 8 && blockingEnabled) {
+      const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
+      console.log(`[GuardClaw] Codex BLOCK: ${gcToolName} — ${blockReason}`);
+      return res.json({ decision: 'block', reason: blockReason, message: `⛨ GuardClaw BLOCK ${gcToolName}: ${displayInput.slice(0, 80)} (score ${analysis.riskScore})` });
+    }
+
+    const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+    console.log(`[GuardClaw] Codex ALLOW: ${compactInput} score=${analysis.riskScore}`);
+    return res.json({ decision: 'allow', message: `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}` });
+
+  } catch (error) {
+    console.error('[GuardClaw] Codex hook error:', error.message);
+    return res.json({ decision: 'allow' });
+  }
+});
+
+app.post('/api/hooks/codex/post-tool-use', rateLimit(60_000, 120), (req, res) => {
+  codexLastHookTime = Date.now();
+  const toolName = req.body.tool_name;
+  const toolInput = req.body.tool_input || {};
+  const toolOutput = req.body.tool_output;
+  const sessionId = req.body.session_id;
+  if (!toolName) return res.json({ decision: 'allow' });
+
+  const gcToolName = mapGeminiTool(toolName);
+  const gcParams = mapGeminiParams(toolName, toolInput);
+  const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
+
+  const resultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
+  addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
+  res.json({ decision: 'allow' });
+});
+
+app.post('/api/hooks/codex/user-prompt', rateLimit(60_000, 30), (req, res) => {
+  codexLastHookTime = Date.now();
+  const sessionId = req.body.session_id;
+  const prompt = req.body.prompt || '';
+  const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
+  if (prompt) lastOCPromptText.set(sessionKey, prompt);
+  console.log(`[GuardClaw] Codex UserPromptSubmit: "${prompt.slice(0, 100)}"`);
+  res.json({ decision: 'allow' });
+});
+
+app.post('/api/hooks/codex/stop', rateLimit(60_000, 30), (req, res) => {
+  const sessionId = req.body.session_id;
+  const lastMsg = req.body.last_assistant_message || '';
+  const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
+  // Codex provides last_assistant_message directly — no transcript parsing needed
+  if (lastMsg) lastOCPromptText.set(`${sessionKey}:reply`, lastMsg.slice(0, 2000));
+  res.json({});
+});
+
 // ─── Claude Code conversation hooks ──────────────────────────────────────────
 
 // Prompt injection detection patterns
