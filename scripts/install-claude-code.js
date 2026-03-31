@@ -38,10 +38,33 @@ const GUARDCLAW_HOOKS = {
       timeout: 10,
     }],
   }],
+  Stop: [{
+    matcher: '',
+    hooks: [{
+      type: 'http',
+      url: `http://127.0.0.1:${port}/api/hooks/stop`,
+      timeout: 10,
+    }],
+  }],
+  UserPromptSubmit: [{
+    matcher: '',
+    hooks: [{
+      type: 'http',
+      url: `http://127.0.0.1:${port}/api/hooks/user-prompt`,
+      timeout: 5,
+    }],
+  }],
 };
 
+const GUARDCLAW_HOOK_URLS = [
+  '/api/hooks/pre-tool-use',
+  '/api/hooks/post-tool-use',
+  '/api/hooks/stop',
+  '/api/hooks/user-prompt',
+];
+
 function isGuardClawHook(hookGroup) {
-  return hookGroup?.hooks?.some(h => h.url?.includes('/api/hooks/pre-tool-use') || h.url?.includes('/api/hooks/post-tool-use'));
+  return hookGroup?.hooks?.some(h => GUARDCLAW_HOOK_URLS.some(u => h.url?.includes(u)));
 }
 
 try {
@@ -60,7 +83,7 @@ try {
 
   if (uninstall) {
     // Remove GuardClaw hooks
-    for (const event of ['PreToolUse', 'PostToolUse']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'UserPromptSubmit']) {
       if (Array.isArray(settings.hooks[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => !isGuardClawHook(g));
         if (settings.hooks[event].length === 0) delete settings.hooks[event];
@@ -75,7 +98,7 @@ try {
     console.log('');
   } else {
     // Remove any existing GuardClaw hooks first (clean reinstall)
-    for (const event of ['PreToolUse', 'PostToolUse']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'UserPromptSubmit']) {
       if (Array.isArray(settings.hooks[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => !isGuardClawHook(g));
       }
