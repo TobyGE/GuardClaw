@@ -5714,7 +5714,8 @@ app.listen(PORT, () => {
       }
 
       // Auto-load built-in model on startup if backend is built-in and a model is downloaded
-      if (safeguardService.backend === 'built-in' && !llmStatus.connected) {
+      // Skip if cloud-only mode — no need to load local model
+      if (safeguardService.backend === 'built-in' && !llmStatus.connected && cloudJudge.judgeMode !== 'cloud-only') {
         try {
           const models = llmEngine.listModels();
           const downloaded = models.find(m => m.downloaded && !m.incomplete);
