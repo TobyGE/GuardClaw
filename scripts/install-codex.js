@@ -30,13 +30,11 @@ const hookEntry = (event) => ({
     type: 'command',
     command: hookScript,
     timeout: event === 'PreToolUse' ? 310 : 10,
-    ...(event === 'PreToolUse' ? { statusMessage: '⏳ GuardClaw evaluating...' } : {}),
   }],
 });
 
 const GUARDCLAW_HOOKS = {
   PreToolUse:       [hookEntry('PreToolUse')],
-  PostToolUse:      [hookEntry('PostToolUse')],
   UserPromptSubmit: [hookEntry('UserPromptSubmit')],
   Stop:             [hookEntry('Stop')],
 };
