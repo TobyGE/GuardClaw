@@ -53,9 +53,8 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${GUARDCLAW_URL}/api/hooks/codex
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
-# GuardClaw unreachable — fail-open
+# GuardClaw unreachable — fail-open (output nothing = allow)
 if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"},"systemMessage":"⛨ GuardClaw: server unreachable, fail-open"}'
   exit 0
 fi
 
@@ -64,12 +63,10 @@ import sys, json
 try:
     d = json.load(sys.stdin)
 except:
-    print(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow'}}))
     sys.exit(0)
 
 decision = d.get('decision', 'allow')
 reason   = d.get('reason', '')
-message  = d.get('message', '')
 
 if decision == 'block':
     out = {
@@ -82,12 +79,5 @@ if decision == 'block':
     print(json.dumps(out))
     sys.exit(2)
 
-out = {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow'}}
-if message:
-    out['systemMessage'] = message
-print(json.dumps(out))
+# allow: output nothing, Codex proceeds
 " 2>/dev/null
-
-if [ $? -ne 0 ] && [ $? -ne 2 ]; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
-fi
