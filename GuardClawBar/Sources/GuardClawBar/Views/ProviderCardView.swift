@@ -86,6 +86,7 @@ struct ProviderCardView: View {
         switch provider.backendKey {
         case "openclaw": return tokens?.openclaw
         case "claude-code": return tokens?.claudeCode
+        case "codex": return tokens?.codex
         default: return nil
         }
     }

@@ -14,6 +14,8 @@ struct ConnectionsView: View {
     @State private var cursorMessage: String? = nil
     @State private var opencodeInstalled: Bool? = nil
     @State private var opencodeMessage: String? = nil
+    @State private var codexInstalled: Bool? = nil
+    @State private var codexMessage: String? = nil
     @State private var gatewayToken = ""
     @State private var tokenMessage: String? = nil
     @State private var isSavingToken = false
@@ -55,6 +57,11 @@ struct ConnectionsView: View {
 
                 // OpenCode
                 openCodeSection
+
+                Divider()
+
+                // Codex CLI
+                codexSection
             }
             .padding(24)
         }
@@ -66,6 +73,7 @@ struct ConnectionsView: View {
             await checkCopilotStatus()
             await checkCursorStatus()
             await checkOpenCodeStatus()
+            await checkCodexStatus()
         }
     }
 
@@ -572,6 +580,86 @@ struct ConnectionsView: View {
             opencodeMessage = L.t("connections.pluginRemovedRestart", "OpenCode")
         } catch {
             opencodeMessage = L.t("settings.failed", error.localizedDescription)
+        }
+    }
+
+    // MARK: - Codex CLI
+
+    private var codexConnected: Bool {
+        appState.serverStatus?.backends?["codex"]?.connected == true
+    }
+
+    private var codexSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(codexConnected ? Color.green : Color.gray)
+                    .frame(width: 10, height: 10)
+                Text("Codex CLI")
+                    .font(.headline)
+                Spacer()
+                Text(codexConnected ? L.t("common.connected") : L.t("common.notConnected"))
+                    .font(.caption)
+                    .foregroundStyle(codexConnected ? .green : .secondary)
+            }
+
+            Text(L.t("connections.codexDesc"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if codexInstalled == true {
+                HStack {
+                    Label(L.t("connections.hooksActive"), systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button(L.t("common.uninstall")) {
+                        Task { await uninstallCodex() }
+                    }
+                    .controlSize(.small)
+                }
+            } else {
+                Button {
+                    Task { await setupCodex() }
+                } label: {
+                    Label(L.t("connections.installHooks"), systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let msg = codexMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.contains("\u{2713}") ? .green : .red)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func checkCodexStatus() async {
+        if let status = try? await api.codexStatus() {
+            codexInstalled = status.installed
+        }
+    }
+
+    private func setupCodex() async {
+        do {
+            _ = try await api.setupCodex()
+            codexInstalled = true
+            codexMessage = "\u{2713} " + L.t("connections.hooksInstalledRestart", "Codex CLI")
+        } catch {
+            codexMessage = L.t("settings.failed", error.localizedDescription)
+        }
+    }
+
+    private func uninstallCodex() async {
+        do {
+            _ = try await api.uninstallCodex()
+            codexInstalled = false
+            codexMessage = L.t("connections.hooksRemovedRestart", "Codex CLI")
+        } catch {
+            codexMessage = L.t("settings.failed", error.localizedDescription)
         }
     }
 

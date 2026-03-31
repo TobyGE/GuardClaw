@@ -18,6 +18,7 @@ struct BrandIcon: View {
         case "copilot": return "copilot-logo"
         case "cursor": return "cursor-logo"
         case "opencode": return "opencode-logo"
+        case "codex": return "openai-logo"
         default: return ""
         }
     }

@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  guardclaw:
+    build: .
+    image: ghcr.io/tobyge/guardclaw:latest
+    container_name: guardclaw
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - GUARDCLAW_DATA_DIR=/app
+      # Optional: configure external LLM API keys or URLs here
+      # - ANTHROPIC_API_KEY=your_key_here
+      # - LMSTUDIO_URL=http://host.docker.internal:1234
+      # - OLLAMA_URL=http://host.docker.internal:11434
+    volumes:
+      # Persist databases and state
+      - guardclaw-data:/app/.guardclaw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    # Use extra_hosts to allow connection to LMStudio/Ollama running on host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  guardclaw-data:
+    name: guardclaw-data

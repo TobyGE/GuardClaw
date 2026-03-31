@@ -168,7 +168,8 @@ function App() {
           || (bf === 'gemini-cli' && eventSessionKey2.startsWith('gemini:'))
           || (bf === 'copilot' && eventSessionKey2.startsWith('copilot:'))
           || (bf === 'cursor' && eventSessionKey2.startsWith('cursor:'))
-          || (bf === 'opencode' && eventSessionKey2.startsWith('opencode:'));
+          || (bf === 'opencode' && eventSessionKey2.startsWith('opencode:'))
+          || (bf === 'codex' && eventSessionKey2.startsWith('codex:'));
         // Support merged sessions: if selectedSession is a channel prefix (e.g. agent:main:cron),
         // match all sessionKeys that start with it — but exclude subagent events from non-CC parent sessions
         const matchesSession = !ss
@@ -603,6 +604,7 @@ function App() {
                     { key: 'claude-code', label: 'Claude Code', activeColor: 'bg-purple-600', onClick: () => { setSelectedSession(null); setBackendFilter('claude-code'); } },
                     { key: 'copilot', label: 'Copilot CLI', activeColor: 'bg-sky-600', onClick: () => { setSelectedSession(null); setBackendFilter('copilot'); } },
                     { key: 'opencode', label: 'OpenCode', activeColor: 'bg-teal-600', onClick: () => { setSelectedSession(null); setBackendFilter('opencode'); } },
+                    { key: 'codex', label: 'Codex CLI', activeColor: 'bg-gray-700', onClick: () => { setSelectedSession(null); setBackendFilter('codex'); } },
                   ]
                     .filter(b => backends[b.key])
                     .sort((a, b) => (backends[b.key]?.connected ? 1 : 0) - (backends[a.key]?.connected ? 1 : 0))
@@ -633,7 +635,7 @@ function App() {
                     {t('events.realtime')}
                     {backendFilter !== 'all' && (
                       <span className="ml-2 text-sm text-gc-text-dim">
-                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'qclaw' ? t('backend.qclaw') : backendFilter === 'opencode' ? t('backend.opencode') : t('backend.claudeCode')})
+                        ({backendFilter === 'openclaw' ? t('backend.openclaw') : backendFilter === 'qclaw' ? t('backend.qclaw') : backendFilter === 'opencode' ? t('backend.opencode') : backendFilter === 'codex' ? 'Codex CLI' : t('backend.claudeCode')})
                       </span>
                     )}
                     {backendFilter === 'all' && (

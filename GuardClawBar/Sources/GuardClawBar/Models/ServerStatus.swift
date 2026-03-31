@@ -28,10 +28,12 @@ struct EventCounts: Codable, Sendable {
 struct AgentTokensMap: Codable, Sendable {
     let openclaw: AgentTokenPair?
     let claudeCode: AgentTokenPair?
+    let codex: AgentTokenPair?
 
     enum CodingKeys: String, CodingKey {
         case openclaw
         case claudeCode = "claude-code"
+        case codex
     }
 }
 

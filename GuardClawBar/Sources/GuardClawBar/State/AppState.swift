@@ -15,6 +15,7 @@ final class AppState {
     var copilotEvents: [EventItem] = []
     var cursorEvents: [EventItem] = []
     var opencodeEvents: [EventItem] = []
+    var codexEvents: [EventItem] = []
 
     // Approvals
     var pendingApprovals: [ApprovalItem] = []
@@ -43,7 +44,7 @@ final class AppState {
     var lastError: String?
 
     // Providers
-    let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider(), GeminiCLIProvider(), CopilotProvider(), CursorProvider(), OpenCodeProvider()]
+    let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider(), GeminiCLIProvider(), CopilotProvider(), CursorProvider(), OpenCodeProvider(), CodexProvider()]
 
     // Cached high-risk events for instant display before full load
     var cachedFlaggedEvents: [EventItem] = []
@@ -69,6 +70,7 @@ final class AppState {
                 case "copilot": self.copilotEvents = events
                 case "cursor": self.cursorEvents = events
                 case "opencode": self.opencodeEvents = events
+                case "codex": self.codexEvents = events
                 default: break
                 }
             }
@@ -95,6 +97,7 @@ final class AppState {
         case "copilot": return copilotEvents
         case "cursor": return cursorEvents
         case "opencode": return opencodeEvents
+        case "codex": return codexEvents
         default: return []
         }
     }

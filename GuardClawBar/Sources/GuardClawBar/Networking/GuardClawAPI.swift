@@ -127,6 +127,19 @@ actor GuardClawAPI {
         try await post("/api/setup/opencode/uninstall", body: [:] as [String: String])
     }
 
+    // Codex CLI
+    func setupCodex() async throws -> SetupResponse {
+        try await post("/api/setup/codex", body: [:] as [String: String])
+    }
+
+    func codexStatus() async throws -> CCSetupStatus {
+        try await get("/api/setup/codex/status")
+    }
+
+    func uninstallCodex() async throws -> SetupResponse {
+        try await post("/api/setup/codex/uninstall", body: [:] as [String: String])
+    }
+
     // MARK: - Models
 
     func listModels() async throws -> ModelsResponse {

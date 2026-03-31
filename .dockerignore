@@ -1,0 +1,15 @@
+node_modules
+client/node_modules
+.git
+.env
+.github
+.guardclaw
+.node-cache
+docs
+GuardClawBar
+lora
+benchmarks
+memory
+canvas
+scripts
+mcp-server

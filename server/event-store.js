@@ -342,6 +342,7 @@ export class EventStore {
       'copilot': 'copilot:%',
       'cursor': 'cursor:%',
       'opencode': 'opencode:%',
+      'codex': 'codex:%',
     };
     const result = {};
     for (const [key, prefix] of Object.entries(prefixes)) {
@@ -459,6 +460,7 @@ export class EventStore {
     return {
       openclaw: this.getAgentTokens('openclaw'),
       'claude-code': this.getAgentTokens('claude-code'),
+      codex: this.getAgentTokens('codex'),
     };
   }
 

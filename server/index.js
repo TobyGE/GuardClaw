@@ -499,8 +499,12 @@ app.get('/api/status', async (req, res) => {
   const opencodeConnected = opencodeLastHookTime > 0 && (Date.now() - opencodeLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
   backends['opencode'] = { connected: opencodeConnected, label: 'OpenCode', type: 'http-hook' };
 
+  // Codex CLI uses command-based hooks via shell bridge script
+  const codexConnected = codexLastHookTime > 0 && (Date.now() - codexLastHookTime) < CC_CONNECTED_TIMEOUT_MS;
+  backends['codex'] = { connected: codexConnected, label: 'Codex CLI', type: 'http-hook' };
+
   // Connected if ANY backend is connected
-  const anyConnected = ccConnected || copilotConnected || geminiConnected || cursorConnected || opencodeConnected || coworkWatcherActive || activeClients.some(({ client }) => client.getConnectionStats().connected);
+  const anyConnected = ccConnected || copilotConnected || geminiConnected || cursorConnected || opencodeConnected || codexConnected || coworkWatcherActive || activeClients.some(({ client }) => client.getConnectionStats().connected);
 
   // LLM config for settings UI
   const llmConfig = {
@@ -4003,6 +4007,96 @@ app.post('/api/setup/opencode/uninstall', (req, res) => {
       fs.unlinkSync(pluginPath);
       console.log(`[GuardClaw] OpenCode plugin removed from ${pluginPath}`);
     }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Codex CLI setup API
+app.post('/api/setup/codex', (req, res) => {
+  try {
+    const codexDir = path.join(os.homedir(), '.codex');
+    const hooksPath = path.join(codexDir, 'hooks.json');
+    const configPath = path.join(codexDir, 'config.toml');
+    const port = process.env.PORT || '3002';
+
+    // Find hook script
+    let hookScript = null;
+    const candidates = [
+      path.join(path.dirname(process.argv[1] || ''), 'scripts', 'codex-hook.sh'),
+      path.join(import.meta.dirname, '..', 'scripts', 'codex-hook.sh'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { hookScript = c; break; }
+    }
+    if (!hookScript) return res.status(404).json({ error: 'Hook script not found in app bundle' });
+    try { fs.chmodSync(hookScript, 0o755); } catch {}
+
+    if (!fs.existsSync(codexDir)) fs.mkdirSync(codexDir, { recursive: true });
+
+    // Write hooks.json
+    let config = {};
+    if (fs.existsSync(hooksPath)) {
+      try { config = JSON.parse(fs.readFileSync(hooksPath, 'utf8')); } catch {}
+    }
+    if (!config.hooks) config.hooks = {};
+    const isGCHook = (g) => g?.hooks?.some(h => h.command?.includes('codex-hook.sh'));
+    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop']) {
+      if (Array.isArray(config.hooks[event])) {
+        config.hooks[event] = config.hooks[event].filter(g => !isGCHook(g));
+        if (config.hooks[event].length === 0) delete config.hooks[event];
+      }
+    }
+    const hookEntry = (timeout) => ({ matcher: '', hooks: [{ type: 'command', command: hookScript, timeout }] });
+    config.hooks.PreToolUse = [...(config.hooks.PreToolUse || []), hookEntry(310)];
+    config.hooks.UserPromptSubmit = [...(config.hooks.UserPromptSubmit || []), hookEntry(10)];
+    config.hooks.Stop = [...(config.hooks.Stop || []), hookEntry(10)];
+    fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2) + '\n');
+
+    // Enable codex_hooks feature in config.toml
+    let toml = '';
+    if (fs.existsSync(configPath)) toml = fs.readFileSync(configPath, 'utf8');
+    if (!toml.includes('codex_hooks')) {
+      toml = toml.trimEnd() + '\n\n[features]\ncodex_hooks = true\n';
+      fs.writeFileSync(configPath, toml);
+    }
+
+    console.log(`[GuardClaw] Codex CLI hooks installed at ${hooksPath}`);
+    res.json({ ok: true, path: hooksPath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/setup/codex/status', (req, res) => {
+  try {
+    const hooksPath = path.join(os.homedir(), '.codex', 'hooks.json');
+    if (!fs.existsSync(hooksPath)) return res.json({ installed: false });
+    const config = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    const isGCHook = (g) => g?.hooks?.some(h => h.command?.includes('codex-hook.sh'));
+    const hasHooks = config.hooks?.PreToolUse?.some(isGCHook);
+    res.json({ installed: !!hasHooks, path: hooksPath });
+  } catch {
+    res.json({ installed: false });
+  }
+});
+
+app.post('/api/setup/codex/uninstall', (req, res) => {
+  try {
+    const hooksPath = path.join(os.homedir(), '.codex', 'hooks.json');
+    if (!fs.existsSync(hooksPath)) return res.json({ ok: true });
+    const config = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+    const isGCHook = (g) => g?.hooks?.some(h => h.command?.includes('codex-hook.sh'));
+    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop']) {
+      if (Array.isArray(config.hooks?.[event])) {
+        config.hooks[event] = config.hooks[event].filter(g => !isGCHook(g));
+        if (config.hooks[event].length === 0) delete config.hooks[event];
+      }
+    }
+    if (config.hooks && Object.keys(config.hooks).length === 0) delete config.hooks;
+    fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2) + '\n');
+    console.log(`[GuardClaw] Codex CLI hooks removed from ${hooksPath}`);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
