@@ -67,6 +67,7 @@ except:
 
 decision = d.get('decision', 'allow')
 reason   = d.get('reason', '')
+message  = d.get('message', '')
 
 if decision == 'block':
     out = {
@@ -79,5 +80,7 @@ if decision == 'block':
     print(json.dumps(out))
     sys.exit(2)
 
-# allow: output nothing, Codex proceeds
+# allow: show score/reason as systemMessage only (no permissionDecision)
+if message:
+    print(json.dumps({'systemMessage': message}))
 " 2>/dev/null
