@@ -184,12 +184,14 @@ final class AppState {
             async let cp = try? api.eventHistory(limit: 200, backend: "copilot")
             async let cu = try? api.eventHistory(limit: 200, backend: "cursor")
             async let op = try? api.eventHistory(limit: 200, backend: "opencode")
+            async let cdx = try? api.eventHistory(limit: 200, backend: "codex")
             if let ccResult = await cc { ccEvents = ccResult.events }
             if let ocResult = await oc { ocEvents = ocResult.events }
             if let gmResult = await gm { geminiEvents = gmResult.events }
             if let cpResult = await cp { copilotEvents = cpResult.events }
             if let cuResult = await cu { cursorEvents = cuResult.events }
             if let opResult = await op { opencodeEvents = opResult.events }
+            if let cdxResult = await cdx { codexEvents = cdxResult.events }
             eventsInitialized = true
         }
 
@@ -219,6 +221,7 @@ final class AppState {
                     : sk.hasPrefix("copilot:") ? "copilot"
                     : sk.hasPrefix("cursor:") ? "cursor"
                     : sk.hasPrefix("opencode:") ? "opencode"
+                    : sk.hasPrefix("codex:") ? "codex"
                     : sk.hasPrefix("claude-code:") ? "claude-code"
                     : (eventData.safeguard?.backend ?? "claude-code")
                 var isNew = false
@@ -245,6 +248,11 @@ final class AppState {
                 } else if backend == "opencode" || eventData.sessionKey?.hasPrefix("opencode:") == true {
                     if !opencodeEvents.contains(where: { $0.id == eventData.id }) {
                         opencodeEvents.insert(eventData, at: 0)
+                        isNew = true
+                    }
+                } else if backend == "codex" || eventData.sessionKey?.hasPrefix("codex:") == true {
+                    if !codexEvents.contains(where: { $0.id == eventData.id }) {
+                        codexEvents.insert(eventData, at: 0)
                         isNew = true
                     }
                 } else {
@@ -302,7 +310,7 @@ final class AppState {
 
             // Cache state to disk for instant launch (only after events are loaded)
             if eventsInitialized {
-                let allEvts = ccEvents + ocEvents + geminiEvents + copilotEvents + cursorEvents + opencodeEvents
+                let allEvts = ccEvents + ocEvents + geminiEvents + copilotEvents + cursorEvents + opencodeEvents + codexEvents
                 let flagged = allEvts.filter { $0.effectiveRiskScore >= 8 }
                     .sorted { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }
                 let perBackend: [String: [EventItem]] = [
@@ -312,6 +320,7 @@ final class AppState {
                     "copilot": copilotEvents.filter { $0.effectiveRiskScore >= 8 },
                     "cursor": cursorEvents.filter { $0.effectiveRiskScore >= 8 },
                     "opencode": opencodeEvents.filter { $0.effectiveRiskScore >= 8 },
+                    "codex": codexEvents.filter { $0.effectiveRiskScore >= 8 },
                 ]
                 let recentEvents: [String: [EventItem]] = [
                     "claude-code": Array(ccEvents.prefix(200)),
@@ -320,6 +329,7 @@ final class AppState {
                     "copilot": Array(copilotEvents.prefix(200)),
                     "cursor": Array(cursorEvents.prefix(200)),
                     "opencode": Array(opencodeEvents.prefix(200)),
+                    "codex": Array(codexEvents.prefix(200)),
                 ]
                 StateCache.save(status: serverStatus, flaggedEvents: flagged, backendFlagged: perBackend, recentEvents: recentEvents)
             }
