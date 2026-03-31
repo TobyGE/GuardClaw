@@ -1941,6 +1941,7 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
 
 function mapGeminiTool(toolName) {
   const map = {
+    // Gemini CLI tools
     run_shell_command: 'exec',
     write_file: 'write',
     replace: 'edit',
@@ -1956,6 +1957,9 @@ function mapGeminiTool(toolName) {
     codebase_investigator: 'agent_spawn',
     grep_search: 'grep',
     generalist: 'agent_spawn',
+    // Codex CLI tools
+    Bash: 'exec',
+    shell: 'exec',
   };
   return map[toolName] || toolName;
 }
@@ -1963,7 +1967,9 @@ function mapGeminiTool(toolName) {
 function mapGeminiParams(toolName, toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return {};
   switch (toolName) {
-    case 'run_shell_command': return { command: toolInput.command || toolInput.cmd || '' };
+    case 'run_shell_command':
+    case 'Bash':
+    case 'shell': return { command: toolInput.command || toolInput.cmd || '' };
     case 'write_file': return { file_path: toolInput.path || toolInput.file_path, content: toolInput.content };
     case 'replace': return { file_path: toolInput.path || toolInput.file_path, old_string: toolInput.old || toolInput.old_string, new_string: toolInput.new || toolInput.new_string };
     case 'read_file': return { file_path: toolInput.path || toolInput.file_path };
