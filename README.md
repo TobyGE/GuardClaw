@@ -40,9 +40,7 @@ GuardClaw sits between the agent and tools, scores each action with a local LLM,
 ### Prerequisites
 
 - Node.js >= 18
-- One of: [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
-  [OpenClaw](https://github.com/openclaw/openclaw), or
-  [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+- One or more supported agents (see [Supported Agents](#supported-agents) below)
 
 ### 1) Install and start
 
@@ -74,6 +72,18 @@ Restart the target agent after installing hooks/plugin.
 | **Ollama** | Connect to [Ollama](https://ollama.ai) running locally |
 | **Anthropic** | Use Anthropic API (requires API key) |
 | **Fallback** | Deterministic rule-based scoring only, no LLM |
+
+## Supported Agents
+
+| Agent | Integration | Pre-tool blocking | Approval flow | Notes |
+|-------|------------|:-----------------:|:-------------:|-------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | HTTP hooks | ✅ | ✅ | Full support |
+| [Codex CLI](https://github.com/openai/codex) | Command hooks | ✅ | ✅ | Full support |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | HTTP hooks | ✅ | ✅ | Full support |
+| [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
+| [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
+| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
+| [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) | Extension | ❌ | ❌ | Not functional — waiting on stable extension SDK |
 
 ## How It Works
 

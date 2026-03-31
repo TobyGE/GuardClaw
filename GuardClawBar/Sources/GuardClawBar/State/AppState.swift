@@ -44,7 +44,7 @@ final class AppState {
     var lastError: String?
 
     // Providers
-    let providers: [any BackendProvider] = [ClaudeCodeProvider(), OpenClawProvider(), GeminiCLIProvider(), CopilotProvider(), CursorProvider(), OpenCodeProvider(), CodexProvider()]
+    let providers: [any BackendProvider] = [ClaudeCodeProvider(), CodexProvider(), GeminiCLIProvider(), OpenCodeProvider(), OpenClawProvider(), CopilotProvider(), CursorProvider()]
 
     // Cached high-risk events for instant display before full load
     var cachedFlaggedEvents: [EventItem] = []

@@ -8,24 +8,41 @@ struct ActivityView: View {
 
     private let backends = [
         ("claude-code", "Claude Code"),
-        ("openclaw", "OpenClaw"),
+        ("codex", "Codex CLI"),
         ("gemini-cli", "Gemini CLI"),
+        ("opencode", "OpenCode"),
+        ("openclaw", "OpenClaw"),
         ("copilot", "Copilot CLI"),
         ("cursor", "Cursor"),
-        ("opencode", "OpenCode"),
     ]
 
     var body: some View {
         VStack(spacing: 0) {
-            // Backend picker
-            Picker(L.t("activity.backend"), selection: $selectedBackend) {
-                ForEach(backends, id: \.0) { key, label in
-                    Text(label).tag(key)
+            // Scrollable backend tab bar
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(backends, id: \.0) { key, label in
+                        Button {
+                            selectedBackend = key
+                        } label: {
+                            Text(label)
+                                .font(.system(size: 12, weight: selectedBackend == key ? .semibold : .regular))
+                                .foregroundStyle(selectedBackend == key ? .primary : .secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    selectedBackend == key
+                                        ? Color.accentColor.opacity(0.15)
+                                        : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 12)
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
 
             Divider()
 
