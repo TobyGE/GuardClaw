@@ -8,7 +8,7 @@ import { cloudJudge } from '../cloud-judge.js';
 
 export function configRoutes(deps) {
   const router = Router();
-  const { getOpenclawClient, getQclawClient, getSafeguardService, setSafeguardService } = deps;
+  const { getOpenclawClient, getQclawClient, getSafeguardService, setSafeguardService, getLLMEngine } = deps;
 
   router.post('/api/config/token', async (req, res) => {
     const { token } = req.body;
@@ -190,9 +190,19 @@ export function configRoutes(deps) {
     });
   });
 
-  router.post('/api/config/cloud-judge', (req, res) => {
+  router.post('/api/config/cloud-judge', async (req, res) => {
     const { enabled, provider, apiKey, model, baseURL, judgeMode } = req.body;
     cloudJudge.updateConfig({ enabled, provider, apiKey, model, baseURL, judgeMode });
+
+    // Auto-offload built-in model when switching to cloud-only — it won't be used
+    if (judgeMode === 'cloud-only') {
+      const engine = getLLMEngine?.();
+      if (engine?._loadedModelId) {
+        console.log('[Config] cloud-only mode — auto-offloading built-in model');
+        engine.unload().catch(() => {});
+      }
+    }
+
     res.json({ success: true, ...cloudJudge.getConfig() });
   });
 
