@@ -27,6 +27,8 @@ import { MemoryStore } from './memory.js';
 import { BenchmarkStore } from './benchmark-store.js';
 import { getDataDir, getGuardClawDir } from './data-dir.js';
 import { ApprovalNotifier } from './channels/notifier.js';
+import { dtraceWatcher } from './dtrace-watcher.js';
+import { SyscallJudge } from './syscall-judge.js';
 
 dotenv.config();
 
@@ -113,9 +115,52 @@ const safeguardService = new SafeguardService(
   }
 );
 
+const syscallJudge = new SyscallJudge(safeguardService);
+
 const eventStore = new EventStore();
 const memoryStore = new MemoryStore();
 const benchmarkStore = new BenchmarkStore();
+
+// ─── DTrace Watcher: alert handler ─────────────────────────────────────────
+// Immediate alerts from dtrace heuristics (sensitive file read, network connect, suspicious exec)
+dtraceWatcher.on('alert', async (alert) => {
+  console.log(`[DtraceWatcher] 🚨 ${alert.type}: ${alert.detail}`);
+
+  // Run syscall judge for richer analysis if LLM is available
+  const mcpLog = dtraceWatcher.getSyscallLog(alert.mcpName, alert.timestamp - 5000);
+  let judgeResult = { verdict: 'WARNING', reason: alert.detail, riskScore: 7 };
+  if (mcpLog && mcpLog.logs.length > 0) {
+    try {
+      judgeResult = await syscallJudge.analyze({
+        mcpName: alert.mcpName,
+        mcpCommand: mcpLog.command || '',
+        parentApp: alert.parentApp,
+        toolName: 'unknown (dtrace immediate alert)',
+        toolInput: {},
+        syscalls: mcpLog.logs,
+      });
+    } catch {}
+  }
+
+  // Emit as a GuardClaw event for dashboard + SSE
+  eventStore.addEvent({
+    type: 'dtrace-alert',
+    tool: `mcp:${alert.mcpName}`,
+    subType: alert.type,
+    description: `🚨 ${alert.detail}`,
+    sessionKey: `dtrace:${alert.parentApp}`,
+    riskScore: judgeResult.riskScore,
+    safeguard: {
+      riskScore: judgeResult.riskScore,
+      category: 'syscall-anomaly',
+      reasoning: judgeResult.reason,
+      verdict: judgeResult.verdict,
+      allowed: judgeResult.verdict !== 'BLOCK',
+      backend: 'dtrace+llm',
+    },
+    timestamp: Date.now(),
+  });
+});
 
 // Pending approvals for all backends (Claude Code, Gemini, Cursor hold HTTP connections)
 const pendingApprovals = new Map(); // id → { toolName, params, riskScore, reason, resolve, createdAt }
@@ -547,6 +592,9 @@ app.get('/api/status', async (req, res) => {
 
     // Fail-closed status
     failClosed: failClosedEnabled,
+
+    // DTrace syscall monitor
+    dtrace: dtraceWatcher.getStatus(),
 
     // Install tracking
     install: installStats,
@@ -1934,6 +1982,54 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
           backend: 'rules',
         },
         timestamp: Date.now(),
+      });
+    }
+  }
+
+  // ─── DTrace syscall analysis for MCP tool calls ──────────────────────────
+  // Run asynchronously — don't block the post-hook response
+  if (dtraceWatcher.mode !== 'off' && tool_name && tool_name.startsWith('mcp__')) {
+    // Extract MCP server name from tool_name (e.g. "mcp__notion__search" → "notion")
+    const mcpParts = tool_name.split('__');
+    const mcpServerHint = mcpParts[1] || '';
+
+    // Find matching watched MCP server
+    const allLogs = dtraceWatcher.getAllSyscallLogs(Date.now() - 10_000); // last 10 seconds
+    const matchingLog = allLogs.find(l =>
+      l.mcpName.toLowerCase().includes(mcpServerHint.toLowerCase())
+    ) || allLogs[0]; // fallback to first if only one
+
+    if (matchingLog && matchingLog.logCount > 0) {
+      syscallJudge.analyze({
+        mcpName: matchingLog.mcpName,
+        mcpCommand: matchingLog.command,
+        parentApp: matchingLog.parentApp,
+        toolName: tool_name,
+        toolInput: tool_input,
+        syscalls: matchingLog.logs,
+      }).then(result => {
+        if (result.verdict !== 'SAFE') {
+          console.log(`[SyscallJudge] ${result.verdict} for ${tool_name}: ${result.reason}`);
+          eventStore.addEvent({
+            type: 'dtrace-alert',
+            tool: tool_name,
+            subType: 'post-hook-syscall-check',
+            description: `🔬 Syscall analysis: ${result.reason}`,
+            sessionKey,
+            riskScore: result.riskScore,
+            safeguard: {
+              riskScore: result.riskScore,
+              category: 'syscall-anomaly',
+              reasoning: result.reason,
+              verdict: result.verdict,
+              allowed: result.verdict !== 'BLOCK',
+              backend: 'dtrace+llm',
+            },
+            timestamp: Date.now(),
+          });
+        }
+      }).catch(err => {
+        console.error('[SyscallJudge] Post-hook analysis error:', err.message);
       });
     }
   }
@@ -4170,6 +4266,12 @@ function deepScanDirectory(dirPath, category, maxFiles = 50) {
   return findings;
 }
 
+// ─── DTrace syscall monitor setup ───────────────────────────────────────────
+
+app.get('/api/setup/dtrace/status', (_req, res) => {
+  res.json(dtraceWatcher.getStatus());
+});
+
 app.post('/api/setup/security-scan', async (_req, res) => {
   const findings = [];
   const scannedItems = { mcpServers: 0, skills: 0, hooks: 0, ocComponents: 0, geminiComponents: 0, cursorComponents: 0 };
@@ -5830,6 +5932,20 @@ app.listen(PORT, () => {
         }
       }
 
+      // Initialize dtrace watcher for MCP server syscall monitoring
+      console.log('');
+      console.log('🔍 Initializing dtrace MCP monitor...');
+      await dtraceWatcher.init();
+      const dtraceStatus = dtraceWatcher.getStatus();
+      if (dtraceStatus.available) {
+        console.log(`✅ DTrace: monitoring ${dtraceStatus.watchedCount} MCP server(s)`);
+        for (const s of dtraceStatus.mcpServers) {
+          console.log(`   📡 ${s.name} (PID ${s.pid}, via ${s.parentApp})`);
+        }
+      } else {
+        console.log('⚠️  DTrace: unavailable (syscall monitoring disabled)');
+      }
+
       // Fetch gateway info if connected (OpenClaw or Qclaw)
       const connectedGateway = (openclawClient?.connected && openclawClient) || (qclawClient?.connected && qclawClient) || null;
       const connectedGatewayLabel = openclawClient?.connected ? 'OpenClaw' : qclawClient?.connected ? 'Qclaw' : null;
@@ -5974,6 +6090,9 @@ async function shutdown(signal) {
 
   // Kill MLX server subprocess if running
   try { await llmEngine.unload(); } catch {}
+
+  // Stop dtrace watchers
+  dtraceWatcher.shutdown();
 
   console.log('✅ Shutdown complete');
   console.log('');

@@ -8,6 +8,7 @@ import BlockingModal from './components/BlockingModal';
 import BenchmarkModal from './components/BenchmarkModal';
 import GuardClawLogo from './components/GuardClawLogo';
 import ApprovalBanner from './components/ApprovalBanner';
+import DtraceCard from './components/DtraceCard';
 import { LockIcon, UnlockIcon, MonitorIcon, BenchmarkIcon, SettingsIcon, SunIcon, MoonIcon, BotIcon, GitBranchIcon, CheckIcon } from './components/icons';
 import { useI18n } from './i18n/I18nContext.jsx';
 
@@ -45,6 +46,7 @@ function App() {
   const [currentToken, setCurrentToken] = useState('');
   const [llmConfig, setLlmConfig] = useState(null);
   const [blockingStatus, setBlockingStatus] = useState(null);
+  const [dtraceStatus, setDtraceStatus] = useState(null);
   const [failClosed, setFailClosed] = useState(true);
   const [showFailClosedModal, setShowFailClosedModal] = useState(false);
   const [systemWarnings, setSystemWarnings] = useState([]);
@@ -94,6 +96,7 @@ function App() {
           setDaysSinceInstall(data.install?.daysSinceInstall || 0);
           setLlmConfig(data.llmConfig || null);
           setBlockingStatus(data.blocking || null);
+          setDtraceStatus(data.dtrace || null);
           if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
           setSystemWarnings(data.warnings || []);
           fetchEvents(null, backendFilterRef.current);
@@ -592,6 +595,9 @@ function App() {
                 active={eventFilter === 'blocked'}
               />
             </div>
+
+            {/* DTrace Syscall Monitor */}
+            <DtraceCard status={dtraceStatus} />
 
             {/* Backend Selector */}
             <div className="mb-6 bg-gc-card rounded-lg border border-gc-border p-4">
