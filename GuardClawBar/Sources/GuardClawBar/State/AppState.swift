@@ -50,6 +50,9 @@ final class AppState {
     var cachedFlaggedEvents: [EventItem] = []
     var cachedBackendFlagged: [String: [EventItem]] = [:]
 
+    // Updater
+    let updateChecker = UpdateChecker()
+
     // Internals
     let api = GuardClawAPI()
     private var pollTask: Task<Void, Never>?
@@ -118,6 +121,10 @@ final class AppState {
         guard !isPolling else { return }
         isPolling = true
         notificationManager.requestPermission()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            await self?.updateChecker.checkForUpdates()
+        }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.poll()

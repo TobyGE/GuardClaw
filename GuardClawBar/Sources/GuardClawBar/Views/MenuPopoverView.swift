@@ -7,12 +7,72 @@ struct MenuPopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerView
-            Divider()
+            let checker = appState.updateChecker
+            if checker.updateAvailable || checker.isWorking {
+                updateBanner(checker: checker)
+                Divider()
+            }
             ProviderTabView(appState: appState)
             Divider()
             FooterView(appState: appState)
         }
         .frame(width: 360, height: 520)
+    }
+
+    // MARK: - Update Banner
+
+    @ViewBuilder
+    private func updateBanner(checker: UpdateChecker) -> some View {
+        HStack(spacing: 8) {
+            switch checker.phase {
+            case .available(let version, _):
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(.blue)
+                Text("Update available: \(version)")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Spacer()
+                Button("Install") {
+                    Task { await checker.downloadAndInstall() }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                Button {
+                    checker.dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+
+            case .downloading(let progress):
+                Image(systemName: "arrow.down.circle")
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Downloading update…")
+                        .font(.caption)
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .frame(width: 140)
+                }
+                Spacer()
+
+            case .installing:
+                ProgressView()
+                    .controlSize(.small)
+                Text("Installing… app will restart")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+
+            default:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.08))
     }
 
     // MARK: - Header
