@@ -257,7 +257,7 @@ const KNOWN_MODELS = {
 };
 
 /** Fetch available models for a backend. Returns [] on failure. */
-async function fetchModels(backend, baseUrl) {
+async function fetchModels(backend, baseUrl, apiKey) {
   try {
     if (backend === 'lmstudio') {
       const url = (baseUrl || 'http://localhost:1234/v1').replace(/\/$/, '');
@@ -276,9 +276,44 @@ async function fetchModels(backend, baseUrl) {
       const data = await res.json();
       return (data.models || []).filter(m => m.downloaded || m.loaded).map(m => m.id);
     }
-    if (KNOWN_MODELS[backend]) return KNOWN_MODELS[backend];
+    if (backend === 'anthropic' && apiKey) {
+      const res = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.data || []).map(m => m.id).filter(id => id.startsWith('claude-'));
+      }
+    }
+    if (backend === 'openai' && apiKey) {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.data || [])
+          .map(m => m.id)
+          .filter(id => /^(gpt|o\d|chatgpt)/.test(id))
+          .sort();
+      }
+    }
+    if (backend === 'gemini' && apiKey) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+        { signal: AbortSignal.timeout(6000) }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        return (data.models || [])
+          .map(m => m.name.replace('models/', ''))
+          .filter(id => id.startsWith('gemini-'));
+      }
+    }
   } catch {}
-  return [];
+  // fallback to known list
+  return KNOWN_MODELS[backend] || [];
 }
 
 /**
@@ -331,10 +366,12 @@ async function runOnboarding() {
     const key = await ask(rl, 'Anthropic API key: ');
     if (key) env = setEnvVar(env, 'ANTHROPIC_API_KEY', key);
     else console.log('  (skipped — set later: guardclaw config set ANTHROPIC_API_KEY <key>)');
-    const models = KNOWN_MODELS.anthropic;
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('anthropic', null, key || getEnvVar(env, 'ANTHROPIC_API_KEY'));
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (using defaults)\n');
     console.log('  Available models:');
-    const model = await pickModel(rl, models, null, models[0]);
-    if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model); // reuse as hint; server uses ANTHROPIC_API_KEY
+    const model = await pickModel(rl, models.length ? models : KNOWN_MODELS.anthropic, null, KNOWN_MODELS.anthropic[0]);
+    if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
   } else if (backend === 'lmstudio') {
     const url = await ask(rl, 'LM Studio URL [http://localhost:1234/v1]: ');
     const resolvedUrl = url || 'http://localhost:1234/v1';
@@ -437,10 +474,13 @@ async function configLLM() {
   if (backend === 'anthropic') {
     const existing = getEnvVar(env, 'ANTHROPIC_API_KEY');
     const key = await ask(rl, `  API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    const resolvedKey = key || existing;
     if (key) env = setEnvVar(env, 'ANTHROPIC_API_KEY', key);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('anthropic', null, resolvedKey);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (using defaults)\n');
     const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
-    console.log('  Available models:');
-    const model = await pickModel(rl, KNOWN_MODELS.anthropic, currentModel, KNOWN_MODELS.anthropic[0]);
+    const model = await pickModel(rl, models.length ? models : KNOWN_MODELS.anthropic, currentModel, KNOWN_MODELS.anthropic[0]);
     if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
   } else if (backend === 'lmstudio') {
     const existingUrl = getEnvVar(env, 'LMSTUDIO_URL') || 'http://localhost:1234/v1';
@@ -475,12 +515,18 @@ async function configLLM() {
       if (m) env = setEnvVar(env, 'OLLAMA_MODEL', m);
     }
   } else if (backend === 'openai' || backend === 'gemini') {
-    // Cloud Judge backends — show known model list
-    const knownList = KNOWN_MODELS[backend] || [];
-    if (knownList.length) {
-      console.log('  Available models:');
-      const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
-      const model = await pickModel(rl, knownList, currentModel, knownList[0]);
+    const keyName = backend === 'openai' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY';
+    const existing = getEnvVar(env, keyName);
+    const key = await ask(rl, `  API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    const resolvedKey = key || existing;
+    if (key) env = setEnvVar(env, keyName, key);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels(backend, null, resolvedKey);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (using defaults)\n');
+    const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
+    const list = models.length ? models : (KNOWN_MODELS[backend] || []);
+    if (list.length) {
+      const model = await pickModel(rl, list, currentModel, list[0]);
       if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
     }
   }
