@@ -39,7 +39,8 @@ GuardClaw sits between the agent and tools, scores each action with a local or c
 
 ### Prerequisites
 
-- Node.js >= 18
+- Node.js 22.x (LTS)
+- `nvm` recommended (or install Node 22.21.1 manually)
 - One or more supported agents (see [Supported Agents](#supported-agents) below)
 
 ### 1) Install and start
@@ -47,7 +48,11 @@ GuardClaw sits between the agent and tools, scores each action with a local or c
 ```bash
 git clone https://github.com/TobyGE/GuardClaw.git
 cd GuardClaw
-npm install && npm install --prefix client && npm run build
+nvm use || nvm install
+npm ci
+npm ci --prefix client
+npm run verify:native
+npm run build
 npm link
 guardclaw start
 ```

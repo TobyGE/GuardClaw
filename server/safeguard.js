@@ -227,7 +227,10 @@ export class SafeguardService {
       lmstudioUrl: this.normalizeLMStudioUrl(config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://127.0.0.1:1234/v1'),
       lmstudioModel: config.lmstudioModel || process.env.LMSTUDIO_MODEL || 'qwen/qwen3-4b-2507',
       ollamaUrl: config.ollamaUrl || process.env.OLLAMA_URL || 'http://localhost:11434',
-      ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3'
+      ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3',
+      openrouterUrl: 'https://openrouter.ai/api/v1',
+      openrouterModel: config.openrouterModel || process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
+      openrouterApiKey: config.openrouterApiKey || process.env.OPENROUTER_API_KEY || '',
     };
 
     // Analysis cache (command -> result, 1 hour TTL)
@@ -242,6 +245,8 @@ export class SafeguardService {
       this.enabled = true;
     } else if (this.backend === 'lmstudio' || this.backend === 'ollama') {
       this.enabled = true;
+    } else if (this.backend === 'openrouter') {
+      this.enabled = !!this.config.openrouterApiKey;
     } else {
       this.enabled = false;
     }
@@ -323,17 +328,22 @@ export class SafeguardService {
 
     const judgeMode = cloudJudge.judgeMode ?? 'mixed';
 
-    // cloud-only: skip local LLM, go straight to cloud judge
-    if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
-      const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
+    // cloud-only: skip local LLM entirely; cloud judge must succeed or we block
+    if (judgeMode === 'cloud-only') {
+      const cloudResult = cloudJudge.isConfigured
+        ? await cloudJudge.analyze(command, { tool: 'exec', summary: command })
+        : null;
       if (cloudResult) { this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command }); return cloudResult; }
-      // Cloud call failed — do NOT fall back to local LLM in cloud-only mode
+      const warning = cloudJudge.isConfigured
+        ? 'Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'
+        : 'Cloud judge is not configured — connect a provider in Dashboard → Judge → Cloud';
+      // Cloud unavailable or not configured — do NOT fall back to local LLM in cloud-only mode
       return {
         riskScore: 9,
         category: 'dangerous',
         reasoning: 'Cloud judge unavailable (cloud-only mode). Blocking to stay safe.',
         allowed: false,
-        warnings: ['Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'],
+        warnings: [warning],
         backend: 'cloud-only-error',
         verdict: 'BLOCK',
       };
@@ -395,6 +405,9 @@ export class SafeguardService {
           case 'ollama':
             result = await this.analyzeWithOllamaPrompt(prompt, command);
             break;
+          case 'openrouter':
+            result = await this.analyzeWithOpenRouterPrompt(prompt, { tool: 'exec', summary: command });
+            break;
           default:
             result = this.fallbackAnalysis(command);
         }
@@ -423,6 +436,29 @@ export class SafeguardService {
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);
     }
+    const judgeMode = cloudJudge.judgeMode ?? 'mixed';
+    const mixedEscalate = async (result, promptOverride = null) => {
+      if (judgeMode !== 'mixed') return result;
+      if (!result || result.riskScore < 4 || !cloudJudge.isConfigured || result.backend?.startsWith('cloud:')) return result;
+      const prompt = promptOverride || this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
+      const cloudResult = await cloudJudge.analyze(prompt, action);
+      if (!cloudResult) return result;
+      this._recordJudgeCall(cloudResult, action);
+      return {
+        ...cloudResult,
+        localRiskScore: result.riskScore,
+        localReasoning: result.reasoning,
+      };
+    };
+
+    // cloud-only: every tool action goes to cloud judge (or blocks if unavailable).
+    if (judgeMode === 'cloud-only') {
+      if (action.tool === 'write' || action.tool === 'edit') {
+        return this.analyzeWriteAction(action, chainHistory, taskContext, judgeMeta);
+      }
+      const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
+      return this.runLLMPrompt(prompt, action, judgeMeta);
+    }
 
     // Fast-path: clearly safe tools — no side effects, no writes, no network posts
     const SAFE_TOOLS = new Set([
@@ -441,14 +477,14 @@ export class SafeguardService {
     ]);
     if (SAFE_TOOLS.has(action.tool)) {
       this.cacheStats.ruleCalls++;
-      return {
+      return mixedEscalate({
         riskScore: 1,
         category: 'safe',
         reasoning: `Read-only tool: ${action.tool}`,
         allowed: true,
         warnings: [],
         backend: 'rules',
-      };
+      });
     }
 
     // Read tool: no longer fast-pathed — let LLM judge all reads
@@ -472,24 +508,24 @@ export class SafeguardService {
       const urlMatch = SECRET_IN_URL.find(({ re }) => re.test(url));
       if (urlMatch) {
         this.cacheStats.ruleCalls++;
-        return {
+        return mixedEscalate({
           riskScore: 9,
           category: 'data-exfiltration',
           reasoning: `Potential data exfiltration via WebFetch: ${urlMatch.reason} — ${url.slice(0, 120)}`,
           allowed: false,
           warnings: [urlMatch.reason],
           backend: 'rules',
-        };
+        });
       }
       this.cacheStats.ruleCalls++;
-      return {
+      return mixedEscalate({
         riskScore: 1,
         category: 'safe',
         reasoning: `WebFetch to ${url.slice(0, 80)} — no chain history, no embedded secrets`,
         allowed: true,
         warnings: [],
         backend: 'rules',
-      };
+      });
     }
 
     // Glob/Grep: check if searching for sensitive patterns or paths
@@ -510,20 +546,20 @@ export class SafeguardService {
         // Broad credential search across home dir or root = higher risk
         const broadSearch = !searchPath || /^[/~]\/?$/.test(searchPath) || /^\/(Users|home)\/[^/]+\/?$/.test(searchPath);
         const score = broadSearch ? 8 : 7;
-        return {
+        return mixedEscalate({
           riskScore: score,
           category: 'sensitive-search',
           reasoning: `${reason}: ${action.tool}("${pattern}"${searchPath ? `, "${searchPath}"` : ''})${broadSearch ? ' — broad search scope' : ''}`,
           allowed: score < 8,
           warnings: [reason],
           backend: 'rules',
-        };
+        });
       }
       this.cacheStats.ruleCalls++;
       const searchInfo = action.tool === 'grep' ? `pattern="${action.pattern || ''}" in ${action.path || '.'}`
         : action.tool === 'glob' ? `pattern="${action.pattern || ''}" in ${action.path || '.'}`
         : action.file_path || action.path || '';
-      return { riskScore: 1, category: 'safe', reasoning: `Read-only ${action.tool}: ${searchInfo}`, allowed: true, warnings: [], backend: 'rules' };
+      return mixedEscalate({ riskScore: 1, category: 'safe', reasoning: `Read-only ${action.tool}: ${searchInfo}`, allowed: true, warnings: [], backend: 'rules' });
     }
 
     // Agent spawn: always flag — sub-agents run with full permissions
@@ -549,14 +585,14 @@ export class SafeguardService {
         return true;
       });
       const riskScore = matchedTask ? matchedTask.score : 4;
-      return {
+      return mixedEscalate({
         riskScore,
         category: 'agent-spawn',
         reasoning: matchedTask ? `${matchedTask.reason}: ${task.slice(0, 100)}` : `Sub-agent spawned: ${task.slice(0, 100)}`,
         allowed: riskScore < 8,
         warnings: matchedTask ? [matchedTask.reason] : ['Sub-agent runs with full tool permissions'],
         backend: 'rules',
-      };
+      });
     }
 
     // Skill: route to the dedicated skill-content review path.
@@ -575,27 +611,28 @@ export class SafeguardService {
         action.parsedInput?.content ||
         action.parsedInput?.skillContent ||
         null;
-      return this.analyzeSkillContent(skillName, skillContent);
+      const skillResult = await this.analyzeSkillContent(skillName, skillContent);
+      return mixedEscalate(skillResult);
     }
 
     // Worktree: flag if sandbox disabled
     if (action.tool === 'worktree') {
       this.cacheStats.ruleCalls++;
       const sandboxDisabled = action.dangerouslyDisableSandbox || action.parsedInput?.dangerouslyDisableSandbox;
-      return {
+      return mixedEscalate({
         riskScore: sandboxDisabled ? 8 : 3,
         category: 'worktree',
         reasoning: sandboxDisabled ? 'Worktree with sandbox DISABLED — full system access' : 'Worktree created (sandboxed)',
         allowed: !sandboxDisabled,
         warnings: sandboxDisabled ? ['dangerouslyDisableSandbox=true — no isolation'] : [],
         backend: 'rules',
-      };
+      });
     }
 
     // Safe CC tools that need no analysis
     if (action.tool === 'plan_mode' || action.tool === 'task' || action.tool === 'ask_user') {
       this.cacheStats.ruleCalls++;
-      return { riskScore: 1, category: 'safe', reasoning: `Safe CC tool: ${action.tool}`, allowed: true, warnings: [], backend: 'rules' };
+      return mixedEscalate({ riskScore: 1, category: 'safe', reasoning: `Safe CC tool: ${action.tool}`, allowed: true, warnings: [], backend: 'rules' });
     }
 
     // canvas: only eval is risky; present/hide/navigate/snapshot are safe
@@ -603,7 +640,7 @@ export class SafeguardService {
       const canvasAction = action.parsedInput?.action || action.summary;
       if (!String(canvasAction).includes('eval')) {
         this.cacheStats.ruleCalls++;
-        return { riskScore: 1, category: 'safe', reasoning: `canvas ${canvasAction}: display-only`, allowed: true, warnings: [], backend: 'rules' };
+        return mixedEscalate({ riskScore: 1, category: 'safe', reasoning: `canvas ${canvasAction}: display-only`, allowed: true, warnings: [], backend: 'rules' });
       }
       // eval: fall through to LLM with the JS code prominently shown
     }
@@ -618,7 +655,7 @@ export class SafeguardService {
     const cached = this.getFromCache(cacheKey);
     if (cached) {
       this.cacheStats.hits++;
-      return { ...cached, cached: true };
+      return mixedEscalate({ ...cached, cached: true });
     }
     this.cacheStats.misses++;
 
@@ -643,10 +680,15 @@ export class SafeguardService {
         case 'ollama':
           result = await this.analyzeWithOllamaPrompt(prompt);
           break;
+        case 'openrouter':
+          result = await this.analyzeWithOpenRouterPrompt(prompt, action);
+          break;
         default:
           result = this.fallbackToolAnalysis(action);
       }
     }
+
+    result = await mixedEscalate(result);
 
     // Don't cache chain-aware results (history context makes them session-specific)
     if (!chainHistory) {
@@ -663,6 +705,27 @@ export class SafeguardService {
     const filePath = input.file_path || input.path || action.file_path || action.path || '';
     const content = input.content || input.new_string || action.content || action.new_string || '';
     const oldStr = input.old_string || action.old_string || '';
+    const judgeMode = cloudJudge.judgeMode ?? 'mixed';
+    const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
+    const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+    const writePrompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection + chainSection);
+    const mixedEscalateWrite = async (result) => {
+      if (judgeMode !== 'mixed') return result;
+      if (!result || result.riskScore < 4 || !cloudJudge.isConfigured || result.backend?.startsWith('cloud:')) return result;
+      const cloudResult = await cloudJudge.analyze(writePrompt, action);
+      if (!cloudResult) return result;
+      this._recordJudgeCall(cloudResult, action);
+      return {
+        ...cloudResult,
+        localRiskScore: result.riskScore,
+        localReasoning: result.reasoning,
+      };
+    };
+
+    // cloud-only: write/edit must also go directly to cloud.
+    if (judgeMode === 'cloud-only') {
+      return this.runLLMPrompt(writePrompt, action, judgeMeta);
+    }
 
     // Fast-path: writing to clearly safe project/home paths with no suspicious content
     const SAFE_PATH_PREFIXES = [
@@ -690,14 +753,14 @@ export class SafeguardService {
     for (const { re, reason } of PERSISTENCE_PATHS) {
       if (re.test(filePath)) {
         this.cacheStats.ruleCalls++;
-        return {
+        return mixedEscalateWrite({
           riskScore: 9,
           category: 'file-write',
           reasoning: `${reason}: ${filePath}`,
           allowed: false,
           warnings: [reason],
           backend: 'rules',
-        };
+        });
       }
     }
 
@@ -733,22 +796,19 @@ export class SafeguardService {
     ];
     for (const { re, reason } of DANGER_CONTENT) {
       if (re.test(content)) {
-        return {
+        return mixedEscalateWrite({
           riskScore: 8,
           category: 'file-write',
           reasoning: reason,
           allowed: false,
           warnings: [reason],
           backend: 'rules',
-        };
+        });
       }
     }
 
     // Safe path + no dangerous content — build LLM prompt with content snippet
-    const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
-    const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
-    const prompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection + chainSection);
-    return this.runLLMPrompt(prompt, action, judgeMeta);
+    return this.runLLMPrompt(writePrompt, action, judgeMeta);
   }
 
   createWriteAnalysisPrompt(filePath, content, oldStr, tool, taskSection = '') {
@@ -766,17 +826,22 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
     const judgeMode = cloudJudge.judgeMode ?? 'mixed';
     const cacheKey = prompt.substring(0, 300);
 
-    // cloud-only: skip local LLM, go straight to cloud judge
-    if (judgeMode === 'cloud-only' && cloudJudge.isConfigured) {
-      const cloudResult = await cloudJudge.analyze(prompt, action);
+    // cloud-only: skip local LLM entirely; cloud judge must succeed or we block
+    if (judgeMode === 'cloud-only') {
+      const cloudResult = cloudJudge.isConfigured
+        ? await cloudJudge.analyze(prompt, action)
+        : null;
       if (cloudResult) { this._recordJudgeCall(cloudResult, action); return cloudResult; }
-      // Cloud call failed — do NOT fall back to local LLM in cloud-only mode
+      const warning = cloudJudge.isConfigured
+        ? 'Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'
+        : 'Cloud judge is not configured — connect a provider in Dashboard → Judge → Cloud';
+      // Cloud unavailable or not configured — do NOT fall back to local LLM in cloud-only mode
       return {
         riskScore: 9,
         category: 'dangerous',
         reasoning: 'Cloud judge unavailable (cloud-only mode). Blocking to stay safe.',
         allowed: false,
-        warnings: ['Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'],
+        warnings: [warning],
         backend: 'cloud-only-error',
         verdict: 'BLOCK',
       };
@@ -803,10 +868,11 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
       result = this.fallbackToolAnalysis(action);
     } else {
       switch (this.backend) {
-        case 'anthropic': result = await this.analyzeWithClaudePrompt(prompt); break;
-        case 'built-in': result = await this.analyzeWithBuiltIn(prompt, action); break;
-        case 'lmstudio': result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
-        case 'ollama':   result = await this.analyzeWithOllamaPrompt(prompt); break;
+        case 'anthropic':   result = await this.analyzeWithClaudePrompt(prompt); break;
+        case 'built-in':    result = await this.analyzeWithBuiltIn(prompt, action); break;
+        case 'lmstudio':    result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
+        case 'ollama':      result = await this.analyzeWithOllamaPrompt(prompt); break;
+        case 'openrouter':  result = await this.analyzeWithOpenRouterPrompt(prompt, action); break;
         default:         result = this.fallbackToolAnalysis(action);
       }
     }
@@ -864,6 +930,22 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
         const data = await resp.json();
         return data?.message?.content || null;
       }
+      if (this.backend === 'openrouter') {
+        const url = `${this.config.openrouterUrl}/chat/completions`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.openrouterApiKey}`,
+            'HTTP-Referer': 'https://github.com/TobyGE/GuardClaw',
+            'X-Title': 'GuardClaw',
+          },
+          body: JSON.stringify({ model: this.config.openrouterModel, messages, temperature: 0.3, max_tokens: 500 }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const data = await resp.json();
+        return data?.choices?.[0]?.message?.content || null;
+      }
       return null;
     } catch (e) {
       console.error('[SafeguardService] rawLLMChat failed:', e.message);
@@ -911,6 +993,9 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
           break;
         case 'ollama':
           result = await this.analyzeWithOllamaPrompt(prompt);
+          break;
+        case 'openrouter':
+          result = await this.analyzeWithOpenRouterPrompt(prompt);
           break;
         default:
           result = {
@@ -1444,6 +1529,59 @@ ACTION: ${action.summary}${detailSection}`;
     } catch (error) {
       console.error('[SafeguardService] LM Studio analysis failed:', error);
       console.error('[SafeguardService] Model:', modelToUse);
+      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
+    }
+  }
+
+  async analyzeWithOpenRouterPrompt(prompt, action) {
+    const url = `${this.config.openrouterUrl}/chat/completions`;
+    const model = this.config.openrouterModel;
+    const modelCfg = this.getModelConfig(model);
+    const userPrompt = (modelCfg.promptStyle === 'minimal' && action)
+      ? this.createToolAnalysisPromptMinimal(action)
+      : prompt;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.openrouterApiKey}`,
+          'HTTP-Referer': 'https://github.com/TobyGE/GuardClaw',
+          'X-Title': 'GuardClaw',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: modelCfg.system },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: modelCfg.temperature,
+          max_tokens: modelCfg.max_tokens,
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      if (data.usage && llmEngine._onTokenUsage) {
+        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+      }
+      const content = data.choices[0].message.content;
+      const result = this.parseAnalysisResponse(content, prompt, action?.summary);
+      result._rawResponse = content;
+      result._systemPrompt = modelCfg.system;
+      result._userPrompt = userPrompt;
+      result._model = model;
+      result.backend = 'openrouter';
+      this._recordJudgeCall(result, action);
+      return result;
+    } catch (error) {
+      console.error('[SafeguardService] OpenRouter analysis failed:', error.message);
       return this.fallbackToolAnalysis(action || { summary: 'unknown' });
     }
   }
@@ -2166,6 +2304,22 @@ ACTION: ${action.summary}${detailSection}`;
         this._connCacheResult = anthropicResult;
         this._connCacheTime = now;
         return anthropicResult;
+      }
+
+      if (this.backend === 'openrouter') {
+        if (!this.config.openrouterApiKey) {
+          const r = { connected: false, backend: 'openrouter', message: 'OPENROUTER_API_KEY not set' };
+          this._connCacheResult = r; this._connCacheTime = now; return r;
+        }
+        const response = await fetch(`${this.config.openrouterUrl}/models`, {
+          headers: { 'Authorization': `Bearer ${this.config.openrouterApiKey}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const modelCount = data.data?.length || 0;
+        const r = { connected: true, backend: 'openrouter', model: this.config.openrouterModel, models: modelCount, message: `Connected (${modelCount} models available)` };
+        this._connCacheResult = r; this._connCacheTime = now; return r;
       }
 
       const unknownResult = { connected: false, backend: this.backend, message: 'Unknown backend type' };

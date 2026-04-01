@@ -259,6 +259,8 @@ struct CloudJudgeProviderInfo: Codable, Sendable, Identifiable {
     let displayName: String
     let defaultModel: String
     let connected: Bool
+    let hasApiKey: Bool?
+    let ready: Bool?
     let oauthSupported: Bool?
 }
 

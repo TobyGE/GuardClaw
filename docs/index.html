@@ -667,7 +667,8 @@
             <span class="line"><span class="comment"># Install and start GuardClaw</span></span>
             <span class="line"><span class="cmd">git clone</span> https://github.com/TobyGE/GuardClaw.git</span>
             <span class="line"><span class="cmd">cd</span> GuardClaw</span>
-            <span class="line"><span class="cmd">npm install</span> && <span class="cmd">npm install</span> <span class="flag">--prefix</span> client && <span class="cmd">npm run</span> build</span>
+            <span class="line"><span class="cmd">nvm use</span> <span class="comment"># Node 22.x</span></span>
+            <span class="line"><span class="cmd">npm ci</span> && <span class="cmd">npm ci</span> <span class="flag">--prefix</span> client && <span class="cmd">npm run</span> verify:native && <span class="cmd">npm run</span> build</span>
             <span class="line"><span class="cmd">npm link</span></span>
             <span class="line"><span class="cmd">guardclaw start</span>  <span class="comment"># → opens localhost:3002</span></span>
         </div>

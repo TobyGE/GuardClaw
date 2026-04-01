@@ -4,13 +4,14 @@
 #
 # This script:
 # 1. Downloads a standalone Node.js binary (if not cached)
-# 2. Copies server/, client/dist/, package.json, node_modules/ into .app/Contents/Resources/backend/
-# 3. The app will auto-start the backend on launch
+# 2. Copies server/, client/dist/, package manifests into .app/Contents/Resources/backend/
+# 3. Installs production dependencies with the bundled Node runtime
+# 4. The app will auto-start the backend on launch
 
 set -euo pipefail
 
 APP_BUNDLE="${1:?Usage: $0 <path-to-GuardClawBar.app>}"
-NODE_VERSION="${NODE_VERSION:-22.14.0}"
+NODE_VERSION="${NODE_VERSION:-22.21.1}"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -36,6 +37,7 @@ echo "    Node.js: v${NODE_VERSION} (${NODE_ARCH})"
 mkdir -p "$CACHE_DIR"
 NODE_TARBALL="${CACHE_DIR}/${NODE_DIST}.tar.gz"
 NODE_BIN="${CACHE_DIR}/${NODE_DIST}/bin/node"
+NODE_NPM="${CACHE_DIR}/${NODE_DIST}/bin/npm"
 
 if [ ! -f "$NODE_BIN" ]; then
   echo "--- Downloading Node.js v${NODE_VERSION}..."
@@ -62,23 +64,22 @@ cp -R "$PROJECT_ROOT/server" "$BACKEND_DIR/server"
 mkdir -p "$BACKEND_DIR/client"
 cp -R "$PROJECT_ROOT/client/dist" "$BACKEND_DIR/client/dist"
 
-# Copy package.json (needed for ES module resolution)
+# Copy package manifest + lockfile (needed for deterministic dependency install)
 cp "$PROJECT_ROOT/package.json" "$BACKEND_DIR/package.json"
+cp "$PROJECT_ROOT/package-lock.json" "$BACKEND_DIR/package-lock.json"
 
 # Copy OC plugin (for one-click install from Dashboard)
 cp -R "$PROJECT_ROOT/plugin" "$BACKEND_DIR/plugin"
 
-# Copy node_modules (production deps only if possible)
-if [ -d "$PROJECT_ROOT/node_modules" ]; then
-  echo "--- Copying node_modules..."
-  cp -R "$PROJECT_ROOT/node_modules" "$BACKEND_DIR/node_modules"
-fi
+# Install production dependencies with the bundled Node runtime.
+# This avoids ABI mismatches for native modules (e.g. better-sqlite3).
+echo "--- Installing production dependencies with bundled Node..."
+"$NODE_NPM" ci --omit=dev --prefix "$BACKEND_DIR"
 
 # Step 3: Clean up unnecessary files from the bundle
 echo "--- Cleaning up bundle..."
 # Remove dev-only files
 rm -rf "$BACKEND_DIR/node_modules/.cache"
-rm -rf "$BACKEND_DIR/node_modules/.package-lock.json"
 # Remove test files from native modules
 find "$BACKEND_DIR/node_modules" -name "test" -type d -maxdepth 3 -exec rm -rf {} + 2>/dev/null || true
 find "$BACKEND_DIR/node_modules" -name "*.md" -maxdepth 3 -delete 2>/dev/null || true

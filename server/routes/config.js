@@ -101,7 +101,7 @@ export function configRoutes(deps) {
 
   router.post('/api/config/llm', async (req, res) => {
     const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
-    if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
+    if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic', 'openrouter'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
 
     try {
       const envPath = path.join(getDataDir(), '.env');
@@ -142,7 +142,7 @@ export function configRoutes(deps) {
 
   router.post('/api/config/llm/test', async (req, res) => {
     const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
-    if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
+    if (!backend || !['built-in', 'lmstudio', 'ollama', 'anthropic', 'openrouter'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
     try {
       const testSafeguard = new SafeguardService(process.env.ANTHROPIC_API_KEY, backend, { lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel });
       res.json(await testSafeguard.testConnection());
@@ -183,11 +183,7 @@ export function configRoutes(deps) {
   // ─── Cloud Judge ─────────────────────────────────────────────────────────────
 
   router.get('/api/config/cloud-judge', (_req, res) => {
-    const { CloudJudge } = cloudJudge.constructor === Object ? {} : { CloudJudge: cloudJudge.constructor };
-    res.json({
-      ...cloudJudge.getConfig(),
-      providers: cloudJudge.constructor.getProviders?.() ?? [],
-    });
+    res.json(cloudJudge.getConfig());
   });
 
   router.post('/api/config/cloud-judge', async (req, res) => {

@@ -2,6 +2,13 @@ import Foundation
 
 actor GuardClawAPI {
     private let session: URLSession
+    private struct CloudJudgeUpdateRequest: Encodable {
+        let enabled: Bool?
+        let provider: String?
+        let apiKey: String?
+        let model: String?
+        let judgeMode: String?
+    }
 
     var baseURL: URL {
         URL(string: SettingsStore.shared.serverURL)!
@@ -208,12 +215,13 @@ actor GuardClawAPI {
     }
 
     func updateCloudJudge(enabled: Bool? = nil, provider: String? = nil, apiKey: String? = nil, model: String? = nil, judgeMode: String? = nil) async throws -> GenericResponse {
-        var body: [String: String] = [:]
-        if let enabled { body["enabled"] = enabled ? "true" : "false" }
-        if let provider { body["provider"] = provider }
-        if let apiKey { body["apiKey"] = apiKey }
-        if let model { body["model"] = model }
-        if let judgeMode { body["judgeMode"] = judgeMode }
+        let body = CloudJudgeUpdateRequest(
+            enabled: enabled,
+            provider: provider,
+            apiKey: apiKey,
+            model: model,
+            judgeMode: judgeMode
+        )
         return try await post("/api/config/cloud-judge", body: body)
     }
 

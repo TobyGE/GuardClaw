@@ -32,6 +32,7 @@ jobs:
           "README.md"
           "LICENSE"
           "package.json"
+          ".nvmrc"
           ".gitignore"
           "server/index.js"
           "server/safeguard.js"
@@ -113,16 +114,20 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version-file: '.nvmrc'
+        cache: 'npm'
         
     - name: Install server dependencies
-      run: npm install
+      run: npm ci
+
+    - name: Verify native dependencies
+      run: npm run verify:native
       
     - name: Install client dependencies
-      run: cd client && npm install
+      run: npm ci --prefix client
       
     - name: Build client
-      run: cd client && npm run build
+      run: npm run build
       
     - name: Verify build output
       run: |

@@ -34,7 +34,7 @@ async function gcApi(path, method = 'GET', body) {
   }
 }
 
-// ─── Readline helpers ─────────────────────────────────────────────────────────
+// ─── Interactive prompt helpers (arrow-key navigation) ───────────────────────
 
 function createPrompt() {
   return createInterface({ input: process.stdin, output: process.stdout });
@@ -42,6 +42,110 @@ function createPrompt() {
 
 function ask(rl, question) {
   return new Promise(resolve => rl.question(question, a => resolve(a.trim())));
+}
+
+/**
+ * Arrow-key menu selector. Returns the value of the chosen option.
+ * options: [{ label: 'display text', value: 'return value', hint?: 'gray hint' }]
+ */
+function select(options, { title, defaultIndex = 0 } = {}) {
+  return new Promise((resolve) => {
+    let cursor = defaultIndex;
+    const { stdin, stdout } = process;
+    const wasRaw = stdin.isRaw;
+
+    function render() {
+      // Move up to clear previous render (except first time)
+      stdout.write(`\x1b[${options.length}A`);
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i];
+        const selected = i === cursor;
+        const pointer = selected ? '\x1b[36m❯\x1b[0m' : ' ';
+        const label = selected ? `\x1b[1m${opt.label}\x1b[0m` : opt.label;
+        const hint = opt.hint ? `  \x1b[90m${opt.hint}\x1b[0m` : '';
+        stdout.write(`\x1b[2K  ${pointer} ${label}${hint}\n`);
+      }
+    }
+
+    if (title) stdout.write(`${title}\n`);
+    // Print initial lines so render() can overwrite them
+    for (let i = 0; i < options.length; i++) stdout.write('\n');
+    render();
+
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+
+    function onKey(key) {
+      if (key === '\x1b[A' || key === 'k') { // up
+        cursor = (cursor - 1 + options.length) % options.length;
+        render();
+      } else if (key === '\x1b[B' || key === 'j') { // down
+        cursor = (cursor + 1) % options.length;
+        render();
+      } else if (key === '\r' || key === '\n') { // enter
+        cleanup();
+        resolve(options[cursor].value);
+      } else if (key === '\x03') { // ctrl-c
+        cleanup();
+        process.exit(0);
+      }
+    }
+
+    function cleanup() {
+      stdin.removeListener('data', onKey);
+      stdin.setRawMode(wasRaw ?? false);
+      stdin.pause();
+    }
+
+    stdin.on('data', onKey);
+  });
+}
+
+/**
+ * Arrow-key yes/no confirm. Returns boolean.
+ */
+function confirm(question, { defaultYes = true } = {}) {
+  return new Promise((resolve) => {
+    const { stdin, stdout } = process;
+    const wasRaw = stdin.isRaw;
+    let value = defaultYes;
+
+    function render() {
+      const yes = value ? '\x1b[1m\x1b[36m● Yes\x1b[0m' : '○ Yes';
+      const no = !value ? '\x1b[1m\x1b[36m● No\x1b[0m' : '○ No';
+      stdout.write(`\x1b[2K\r  ${question} ${yes}  ${no}`);
+    }
+
+    render();
+
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+
+    function onKey(key) {
+      if (key === '\x1b[C' || key === '\x1b[D' || key === 'h' || key === 'l' || key === '\t') {
+        value = !value;
+        render();
+      } else if (key === 'y' || key === 'Y') {
+        value = true; cleanup(); stdout.write('\n'); resolve(true);
+      } else if (key === 'n' || key === 'N') {
+        value = false; cleanup(); stdout.write('\n'); resolve(false);
+      } else if (key === '\r' || key === '\n') {
+        cleanup(); stdout.write('\n'); resolve(value);
+      } else if (key === '\x03') {
+        cleanup(); process.exit(0);
+      }
+    }
+
+    function cleanup() {
+      stdin.removeListener('data', onKey);
+      stdin.setRawMode(wasRaw ?? false);
+      stdin.pause();
+    }
+
+    stdin.on('data', onKey);
+  });
 }
 
 // ─── .env helpers ─────────────────────────────────────────────────────────────
@@ -254,6 +358,16 @@ const KNOWN_MODELS = {
     'gemini-1.5-pro',
     'gemini-1.5-flash',
   ],
+  openrouter: [
+    'openai/gpt-4o',
+    'openai/gpt-4o-mini',
+    'anthropic/claude-sonnet-4-6',
+    'anthropic/claude-haiku-4-5',
+    'google/gemini-2.0-flash-001',
+    'meta-llama/llama-3.3-70b-instruct',
+    'deepseek/deepseek-r1',
+    'qwen/qwen3-235b-a22b',
+  ],
 };
 
 /** Fetch available models for a backend. Returns [] on failure. */
@@ -311,106 +425,193 @@ async function fetchModels(backend, baseUrl, apiKey) {
           .filter(id => id.startsWith('gemini-'));
       }
     }
+    if (backend === 'openrouter') {
+      // OpenRouter /models is public — no auth needed
+      const res = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.data || [])
+          .map(m => m.id)
+          .sort();
+      }
+    }
   } catch {}
   // fallback to known list
   return KNOWN_MODELS[backend] || [];
 }
 
 /**
- * Show numbered model list and return the chosen model string.
- * Falls back to current/default if user just presses Enter.
+ * Arrow-key model picker. Returns the chosen model string.
  */
 async function pickModel(rl, models, current, fallback) {
   const def = current || fallback || models[0];
   if (!models.length) return null;
 
-  console.log('');
-  models.forEach((m, i) => {
-    const marker = m === current ? '  ◀ current' : '';
-    console.log(`    ${i + 1}) ${m}${marker}`);
-  });
-  console.log(`    ${models.length + 1}) Enter manually\n`);
+  const options = models.map(m => ({
+    label: m,
+    value: m,
+    hint: m === current ? '◀ current' : undefined,
+  }));
+  options.push({ label: 'Enter manually...', value: '__manual__' });
 
-  const choice = await ask(rl, `  Model [${def}]: `);
-  if (!choice) return def;
-  const idx = parseInt(choice) - 1;
-  if (idx >= 0 && idx < models.length) return models[idx];
-  if (parseInt(choice) === models.length + 1) return await ask(rl, '  Model name: ');
-  return choice; // user typed a name directly
+  const defaultIdx = current ? Math.max(0, models.indexOf(current)) : 0;
+  const choice = await select(options, { title: '', defaultIndex: defaultIdx });
+
+  if (choice === '__manual__') {
+    const rl2 = createPrompt();
+    const name = await ask(rl2, '  Model name: ');
+    rl2.close();
+    return name || def;
+  }
+  return choice;
 }
 
 // ─── Onboarding wizard ────────────────────────────────────────────────────────
 
 async function runOnboarding() {
   console.log('\n🛡️  Welcome to GuardClaw!\n');
-  console.log('Let\'s get you set up. Press Enter to accept defaults in [brackets].\n');
+  console.log('Use ↑↓ arrow keys to navigate, Enter to select.\n');
 
-  const rl = createPrompt();
   let env = readEnvFile();
 
-  // ── Step 1: LLM backend ──────────────────────────────────────────────────────
-  console.log('── Step 1 of 3: LLM backend ────────────────────────────────────────\n');
-  console.log('  1) lmstudio   Local LLM via LM Studio  (recommended, private)');
-  console.log('  2) ollama     Local LLM via Ollama');
-  console.log('  3) anthropic  Claude API               (best accuracy, needs key)');
-  console.log('  4) built-in   Download model locally   (Apple Silicon only)');
-  console.log('  5) fallback   Rule-based only, no LLM\n');
+  // ── Step 1: Evaluation mode ─────────────────────────────────────────────────
+  console.log('── Step 1 of 4: Evaluation mode ────────────────────────────────────\n');
 
-  const backendChoice = await ask(rl, 'Choice [1]: ');
-  const backendMap = { '': 'lmstudio', '1': 'lmstudio', '2': 'ollama', '3': 'anthropic', '4': 'built-in', '5': 'fallback' };
-  const backend = backendMap[backendChoice] ?? 'lmstudio';
-  env = setEnvVar(env, 'SAFEGUARD_BACKEND', backend);
-  console.log(`  → ${backend}\n`);
+  const judgeMode = await select([
+    { label: 'Local only',     value: 'local-only',  hint: 'private, fast, single LLM' },
+    { label: 'Mixed',          value: 'mixed',       hint: 'local first, cloud escalates risky calls (recommended)' },
+    { label: 'Cloud only',     value: 'cloud-only',  hint: 'all evaluation via cloud API' },
+  ], { defaultIndex: 1 });
+  console.log(`  → ${judgeMode}\n`);
 
-  if (backend === 'anthropic') {
-    const key = await ask(rl, 'Anthropic API key: ');
-    if (key) env = setEnvVar(env, 'ANTHROPIC_API_KEY', key);
-    else console.log('  (skipped — set later: guardclaw config set ANTHROPIC_API_KEY <key>)');
-    process.stdout.write('  Fetching models...');
-    const models = await fetchModels('anthropic', null, key || getEnvVar(env, 'ANTHROPIC_API_KEY'));
-    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (using defaults)\n');
-    console.log('  Available models:');
-    const model = await pickModel(rl, models.length ? models : KNOWN_MODELS.anthropic, null, KNOWN_MODELS.anthropic[0]);
-    if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
-  } else if (backend === 'lmstudio') {
-    const url = await ask(rl, 'LM Studio URL [http://localhost:1234/v1]: ');
+  // ── Step 2: LLM backend(s) ───────────────────────────────────────────────────
+  let cloudProvider = null;
+  let cloudApiKey = '';
+
+  if (judgeMode === 'local-only') {
+    console.log('── Step 2 of 4: Local LLM backend ──────────────────────────────────\n');
+  } else if (judgeMode === 'cloud-only') {
+    console.log('── Step 2 of 4: Cloud LLM provider ─────────────────────────────────\n');
+  } else {
+    console.log('── Step 2 of 4: Local LLM backend ──────────────────────────────────\n');
+    console.log('  Mixed mode: first pick your local backend, then the cloud provider.\n');
+  }
+
+  // Pick local backend (skip for cloud-only)
+  let backend = 'fallback';
+  if (judgeMode !== 'cloud-only') {
+    backend = await select([
+      { label: 'LM Studio',  value: 'lmstudio',  hint: 'local, recommended' },
+      { label: 'Ollama',     value: 'ollama',     hint: 'local' },
+      { label: 'Built-in',   value: 'built-in',   hint: 'Apple Silicon, download model' },
+      { label: 'Fallback',   value: 'fallback',   hint: 'rule-based only, no LLM' },
+    ]);
+    env = setEnvVar(env, 'SAFEGUARD_BACKEND', backend);
+    console.log(`  → local: ${backend}\n`);
+  } else {
+    env = setEnvVar(env, 'SAFEGUARD_BACKEND', 'fallback');
+  }
+
+  if (backend === 'lmstudio') {
+    const rl = createPrompt();
+    const url = await ask(rl, '  LM Studio URL [http://localhost:1234/v1]: ');
+    rl.close();
     const resolvedUrl = url || 'http://localhost:1234/v1';
     env = setEnvVar(env, 'LMSTUDIO_URL', resolvedUrl);
     process.stdout.write('  Fetching models...');
     const models = await fetchModels('lmstudio', resolvedUrl);
     process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found, enter manually)\n');
     if (models.length) {
-      const model = await pickModel(rl, models, null, 'auto');
+      const model = await pickModel(null, models, null, 'auto');
       env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
     } else {
-      const model = await ask(rl, '  Model name [auto]: ');
+      const rl2 = createPrompt();
+      const model = await ask(rl2, '  Model name [auto]: ');
+      rl2.close();
       env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
     }
   } else if (backend === 'ollama') {
-    const url = await ask(rl, 'Ollama URL [http://localhost:11434]: ');
+    const rl = createPrompt();
+    const url = await ask(rl, '  Ollama URL [http://localhost:11434]: ');
+    rl.close();
     const resolvedUrl = url || 'http://localhost:11434';
     env = setEnvVar(env, 'OLLAMA_URL', resolvedUrl);
     process.stdout.write('  Fetching models...');
     const models = await fetchModels('ollama', resolvedUrl);
     process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found, enter manually)\n');
     if (models.length) {
-      const model = await pickModel(rl, models, null, 'llama3');
+      const model = await pickModel(null, models, null, 'llama3');
       env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
     } else {
-      const model = await ask(rl, '  Model name [llama3]: ');
+      const rl2 = createPrompt();
+      const model = await ask(rl2, '  Model name [llama3]: ');
+      rl2.close();
       env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
     }
   }
 
-  // ── Step 2: Approval mode ────────────────────────────────────────────────────
-  console.log('\n── Step 2 of 3: Approval mode ──────────────────────────────────────\n');
-  console.log('  1) auto         Auto-allow safe, auto-block dangerous  (recommended)');
-  console.log('  2) prompt       Ask you for medium-risk commands');
-  console.log('  3) monitor-only Never block, just log and analyze\n');
+  // Pick cloud provider (for mixed + cloud-only)
+  if (judgeMode === 'mixed' || judgeMode === 'cloud-only') {
+    if (judgeMode === 'mixed') {
+      console.log('\n  Now pick the cloud provider for escalation:\n');
+    }
+    if (judgeMode === 'cloud-only') {
+      console.log('');
+    }
 
-  const modeChoice = await ask(rl, 'Choice [1]: ');
-  const modeMap = { '': 'auto', '1': 'auto', '2': 'prompt', '3': 'monitor-only' };
-  const mode = modeMap[modeChoice] ?? 'auto';
+    cloudProvider = await select([
+      { label: 'Anthropic Claude',  value: 'claude',      hint: 'OAuth login or API key' },
+      { label: 'OpenRouter',        value: 'openrouter',  hint: '400+ models, API key' },
+      { label: 'Google Gemini',     value: 'gemini',      hint: 'API key' },
+      { label: 'OpenAI',            value: 'openai',      hint: 'API key' },
+    ]);
+    console.log(`  → cloud: ${cloudProvider}\n`);
+
+    // Get API key for non-OAuth providers (or optionally for Claude)
+    if (cloudProvider !== 'claude') {
+      const rl = createPrompt();
+      const key = await ask(rl, `  ${cloudProvider} API key: `);
+      rl.close();
+      cloudApiKey = key || '';
+      if (!key) console.log('  (skipped — configure later in Settings)\n');
+    } else {
+      console.log('  Claude supports OAuth login — configure in Settings dashboard.\n');
+      const rl = createPrompt();
+      const key = await ask(rl, '  Or paste API key now (Enter to skip): ');
+      rl.close();
+      cloudApiKey = key || '';
+    }
+
+    // Apply cloud judge config via API
+    try {
+      await gcApi('/api/config/cloud-judge', 'POST', {
+        enabled: true,
+        judgeMode,
+        provider: cloudProvider,
+        ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
+      });
+      console.log('  ✅ Cloud judge configured\n');
+    } catch {
+      console.log('  ⚠️  Server not running — cloud judge will be configured on next start.\n');
+    }
+  } else {
+    // local-only: disable cloud judge
+    try {
+      await gcApi('/api/config/cloud-judge', 'POST', { enabled: false, judgeMode: 'local-only' });
+    } catch { /* server may not be running */ }
+  }
+
+  // ── Step 3: Approval mode ────────────────────────────────────────────────────
+  console.log('── Step 3 of 4: Approval mode ──────────────────────────────────────\n');
+
+  const mode = await select([
+    { label: 'Auto',         value: 'auto',         hint: 'auto-allow safe, auto-block dangerous' },
+    { label: 'Prompt',       value: 'prompt',       hint: 'ask you for medium-risk commands' },
+    { label: 'Monitor only', value: 'monitor-only', hint: 'never block, just log and analyze' },
+  ]);
   env = setEnvVar(env, 'GUARDCLAW_APPROVAL_MODE', mode);
   console.log(`  → ${mode}`);
 
@@ -418,26 +619,26 @@ async function runOnboarding() {
   const agents = detectAgents();
 
   if (agents.length > 0) {
-    console.log('\n── Step 3 of 3: Agent connections ──────────────────────────────────\n');
+    console.log('\n── Step 4 of 4: Agent connections ──────────────────────────────────\n');
     console.log('  Detected on your system:\n');
 
     for (const agent of agents) {
       if (agent.installed) {
-        console.log(`  ✅ ${agent.label.padEnd(14)} already connected, skip`);
+        console.log(`  ✅ ${agent.label.padEnd(14)} already connected`);
         continue;
       }
 
       if (agent.type === 'hook') {
-        const ans = await ask(rl, `  Connect ${agent.label}? [Y/n] `);
-        if (ans !== 'n' && ans !== 'N') {
+        const yes = await confirm(`Connect ${agent.label}?`);
+        if (yes) {
           if (agent.id === 'claude-code') installClaudeCodeHooks(GC_PORT);
           if (agent.id === 'codex') installCodexHooks();
           console.log(`  ✅ ${agent.label} hooks installed`);
         }
       } else if (agent.type === 'ws' && agent.token) {
         const masked = agent.token.slice(0, 8) + '...';
-        const ans = await ask(rl, `  Save ${agent.label} token (${masked})? [Y/n] `);
-        if (ans !== 'n' && ans !== 'N') {
+        const yes = await confirm(`Save ${agent.label} token (${masked})?`);
+        if (yes) {
           if (agent.id === 'openclaw') env = setEnvVar(env, 'OPENCLAW_TOKEN', agent.token);
           if (agent.id === 'qclaw')    env = setEnvVar(env, 'QCLAW_TOKEN', agent.token);
           console.log(`  ✅ ${agent.label} token saved`);
@@ -445,8 +646,6 @@ async function runOnboarding() {
       }
     }
   }
-
-  rl.close();
 
   writeEnvFile(env);
   markOnboardingDone();
@@ -458,33 +657,42 @@ async function runOnboarding() {
 // ─── Interactive config menu ──────────────────────────────────────────────────
 
 async function configLLM() {
-  const rl = createPrompt();
   let env = readEnvFile();
   const current = getEnvVar(env, 'SAFEGUARD_BACKEND') || 'lmstudio';
 
   console.log('\n── LLM Backend ─────────────────────────────────────────────────────\n');
   console.log(`  Current: ${current}\n`);
-  console.log('  1) lmstudio  2) ollama  3) anthropic  4) built-in  5) fallback\n');
 
-  const choice = await ask(rl, `Choice [${current}]: `);
-  const backendMap = { '1': 'lmstudio', '2': 'ollama', '3': 'anthropic', '4': 'built-in', '5': 'fallback' };
-  const backend = backendMap[choice] ?? (choice || current);
+  const backends = [
+    { label: 'LM Studio',  value: 'lmstudio' },
+    { label: 'Ollama',     value: 'ollama' },
+    { label: 'Claude API', value: 'anthropic' },
+    { label: 'OpenRouter', value: 'openrouter' },
+    { label: 'Built-in',   value: 'built-in' },
+    { label: 'Fallback',   value: 'fallback' },
+  ];
+  const defaultIdx = Math.max(0, backends.findIndex(b => b.value === current));
+  const backend = await select(backends, { defaultIndex: defaultIdx });
   env = setEnvVar(env, 'SAFEGUARD_BACKEND', backend);
 
   if (backend === 'anthropic') {
+    const rl = createPrompt();
     const existing = getEnvVar(env, 'ANTHROPIC_API_KEY');
     const key = await ask(rl, `  API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    rl.close();
     const resolvedKey = key || existing;
     if (key) env = setEnvVar(env, 'ANTHROPIC_API_KEY', key);
     process.stdout.write('  Fetching models...');
     const models = await fetchModels('anthropic', null, resolvedKey);
     process.stdout.write(models.length ? ` ${models.length} found\n` : ' (using defaults)\n');
     const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
-    const model = await pickModel(rl, models.length ? models : KNOWN_MODELS.anthropic, currentModel, KNOWN_MODELS.anthropic[0]);
+    const model = await pickModel(null, models.length ? models : KNOWN_MODELS.anthropic, currentModel, KNOWN_MODELS.anthropic[0]);
     if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
   } else if (backend === 'lmstudio') {
+    const rl = createPrompt();
     const existingUrl = getEnvVar(env, 'LMSTUDIO_URL') || 'http://localhost:1234/v1';
     const u = await ask(rl, `  URL [${existingUrl}]: `);
+    rl.close();
     const resolvedUrl = u || existingUrl;
     if (u) env = setEnvVar(env, 'LMSTUDIO_URL', resolvedUrl);
     process.stdout.write('  Fetching models...');
@@ -492,15 +700,19 @@ async function configLLM() {
     process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found)\n');
     const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL') || 'auto';
     if (models.length) {
-      const model = await pickModel(rl, models, currentModel, 'auto');
+      const model = await pickModel(null, models, currentModel, 'auto');
       env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
     } else {
-      const m = await ask(rl, `  Model [${currentModel}]: `);
+      const rl2 = createPrompt();
+      const m = await ask(rl2, `  Model [${currentModel}]: `);
+      rl2.close();
       if (m) env = setEnvVar(env, 'LMSTUDIO_MODEL', m);
     }
   } else if (backend === 'ollama') {
+    const rl = createPrompt();
     const existingUrl = getEnvVar(env, 'OLLAMA_URL') || 'http://localhost:11434';
     const u = await ask(rl, `  URL [${existingUrl}]: `);
+    rl.close();
     const resolvedUrl = u || existingUrl;
     if (u) env = setEnvVar(env, 'OLLAMA_URL', resolvedUrl);
     process.stdout.write('  Fetching models...');
@@ -508,16 +720,34 @@ async function configLLM() {
     process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found)\n');
     const currentModel = getEnvVar(env, 'OLLAMA_MODEL') || 'llama3';
     if (models.length) {
-      const model = await pickModel(rl, models, currentModel, 'llama3');
+      const model = await pickModel(null, models, currentModel, 'llama3');
       env = setEnvVar(env, 'OLLAMA_MODEL', model);
     } else {
-      const m = await ask(rl, `  Model [${currentModel}]: `);
+      const rl2 = createPrompt();
+      const m = await ask(rl2, `  Model [${currentModel}]: `);
+      rl2.close();
       if (m) env = setEnvVar(env, 'OLLAMA_MODEL', m);
     }
+  } else if (backend === 'openrouter') {
+    const rl = createPrompt();
+    const existing = getEnvVar(env, 'OPENROUTER_API_KEY');
+    const key = await ask(rl, `  API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    rl.close();
+    const resolvedKey = key || existing;
+    if (key) env = setEnvVar(env, 'OPENROUTER_API_KEY', key);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('openrouter', null, resolvedKey);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (using defaults)\n');
+    const currentModel = getEnvVar(env, 'OPENROUTER_MODEL');
+    const list = models.length ? models : KNOWN_MODELS.openrouter;
+    const model = await pickModel(null, list, currentModel, list[0]);
+    if (model) env = setEnvVar(env, 'OPENROUTER_MODEL', model);
   } else if (backend === 'openai' || backend === 'gemini') {
+    const rl = createPrompt();
     const keyName = backend === 'openai' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY';
     const existing = getEnvVar(env, keyName);
     const key = await ask(rl, `  API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    rl.close();
     const resolvedKey = key || existing;
     if (key) env = setEnvVar(env, keyName, key);
     process.stdout.write('  Fetching models...');
@@ -526,30 +756,30 @@ async function configLLM() {
     const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
     const list = models.length ? models : (KNOWN_MODELS[backend] || []);
     if (list.length) {
-      const model = await pickModel(rl, list, currentModel, list[0]);
+      const model = await pickModel(null, list, currentModel, list[0]);
       if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
     }
   }
 
-  rl.close();
   writeEnvFile(env);
   console.log(`\n✅ Backend set to: ${backend}  (restart to apply)\n`);
 }
 
 async function configMode() {
-  const rl = createPrompt();
   let env = readEnvFile();
   const current = getEnvVar(env, 'GUARDCLAW_APPROVAL_MODE') || 'auto';
 
   console.log('\n── Approval Mode ───────────────────────────────────────────────────\n');
   console.log(`  Current: ${current}\n`);
-  console.log('  1) auto  2) prompt  3) monitor-only\n');
 
-  const choice = await ask(rl, `Choice [${current}]: `);
-  const modeMap = { '1': 'auto', '2': 'prompt', '3': 'monitor-only' };
-  const mode = modeMap[choice] ?? (choice || current);
+  const modes = [
+    { label: 'Auto',         value: 'auto',         hint: 'auto-allow safe, auto-block dangerous' },
+    { label: 'Prompt',       value: 'prompt',       hint: 'ask for medium-risk commands' },
+    { label: 'Monitor only', value: 'monitor-only', hint: 'never block, just log' },
+  ];
+  const defaultIdx = Math.max(0, modes.findIndex(m => m.value === current));
+  const mode = await select(modes, { defaultIndex: defaultIdx });
 
-  rl.close();
   writeEnvFile(setEnvVar(env, 'GUARDCLAW_APPROVAL_MODE', mode));
   console.log(`\n✅ Mode set to: ${mode}  (restart to apply)\n`);
 }
@@ -587,7 +817,6 @@ async function configAgentsInteractive() {
     return;
   }
 
-  const rl = createPrompt();
   let env = readEnvFile();
 
   console.log('\n── Agent Connections ───────────────────────────────────────────────\n');
@@ -601,15 +830,15 @@ async function configAgentsInteractive() {
   for (const agent of agents) {
     if (agent.type === 'hook') {
       if (agent.installed) {
-        const ans = await ask(rl, `  Remove ${agent.label} hooks? [y/N] `);
-        if (ans === 'y' || ans === 'Y') {
+        const yes = await confirm(`Remove ${agent.label} hooks?`, { defaultYes: false });
+        if (yes) {
           if (agent.id === 'claude-code') uninstallClaudeCodeHooks();
           if (agent.id === 'codex') uninstallCodexHooks();
           console.log(`  ✅ ${agent.label} hooks removed`);
         }
       } else {
-        const ans = await ask(rl, `  Install ${agent.label} hooks? [Y/n] `);
-        if (ans !== 'n' && ans !== 'N') {
+        const yes = await confirm(`Install ${agent.label} hooks?`);
+        if (yes) {
           if (agent.id === 'claude-code') installClaudeCodeHooks(GC_PORT);
           if (agent.id === 'codex') installCodexHooks();
           console.log(`  ✅ ${agent.label} hooks installed`);
@@ -618,8 +847,8 @@ async function configAgentsInteractive() {
     } else if (agent.type === 'ws' && agent.token) {
       if (!agent.installed) {
         const masked = agent.token.slice(0, 8) + '...';
-        const ans = await ask(rl, `  Save ${agent.label} token (${masked})? [Y/n] `);
-        if (ans !== 'n' && ans !== 'N') {
+        const yes = await confirm(`Save ${agent.label} token (${masked})?`);
+        if (yes) {
           if (agent.id === 'openclaw') env = setEnvVar(env, 'OPENCLAW_TOKEN', agent.token);
           if (agent.id === 'qclaw')    env = setEnvVar(env, 'QCLAW_TOKEN', agent.token);
           console.log(`  ✅ ${agent.label} token saved`);
@@ -628,32 +857,60 @@ async function configAgentsInteractive() {
     }
   }
 
-  rl.close();
   writeEnvFile(env);
   console.log('');
 }
 
-async function runInteractiveConfig() {
-  const rl = createPrompt();
-  console.log('\n⚙️  GuardClaw Configuration\n');
-  console.log('  1) LLM backend');
-  console.log('  2) Approval mode');
-  console.log('  3) Risk thresholds');
-  console.log('  4) Agent connections');
-  console.log('  5) Show all settings');
-  console.log('  6) Re-run setup wizard');
-  console.log('  q) Quit\n');
+async function configEvalMode() {
+  console.log('\n── Evaluation Mode ─────────────────────────────────────────────────\n');
 
-  const choice = await ask(rl, 'Choose: ');
-  rl.close();
+  let currentMode = 'mixed';
+  try {
+    const cfg = await gcApi('/api/config/cloud-judge');
+    currentMode = cfg.judgeMode || 'mixed';
+    console.log(`  Current: ${currentMode}\n`);
+  } catch {
+    console.log('  Current: unknown (server not running)\n');
+  }
+
+  const modes = [
+    { label: 'Local only',  value: 'local-only',  hint: 'private, fast, single LLM' },
+    { label: 'Mixed',       value: 'mixed',       hint: 'local + cloud escalation for risky calls' },
+    { label: 'Cloud only',  value: 'cloud-only',  hint: 'all evaluation via cloud API' },
+  ];
+  const defaultIdx = Math.max(0, modes.findIndex(m => m.value === currentMode));
+  const mode = await select(modes, { defaultIndex: defaultIdx });
+
+  try {
+    const enabled = mode !== 'local-only';
+    await gcApi('/api/config/cloud-judge', 'POST', { enabled, judgeMode: mode });
+    console.log(`\n✅ Evaluation mode set to: ${mode}\n`);
+  } catch {
+    console.log(`\n⚠️  Could not apply (server not running?). Start server first.\n`);
+  }
+}
+
+async function runInteractiveConfig() {
+  console.log('\n⚙️  GuardClaw Configuration\n');
+
+  const choice = await select([
+    { label: 'Evaluation mode',    value: 'eval',       hint: 'local / mixed / cloud' },
+    { label: 'LLM backend',       value: 'llm' },
+    { label: 'Approval mode',     value: 'mode' },
+    { label: 'Risk thresholds',   value: 'thresholds' },
+    { label: 'Agent connections',  value: 'agents' },
+    { label: 'Show all settings',  value: 'show' },
+    { label: 'Re-run setup wizard', value: 'wizard' },
+  ]);
 
   switch (choice) {
-    case '1': await configLLM(); break;
-    case '2': await configMode(); break;
-    case '3': await configThresholds(); break;
-    case '4': await configAgentsInteractive(); break;
-    case '5': configShow(); break;
-    case '6': await runOnboarding(); break;
+    case 'eval': await configEvalMode(); break;
+    case 'llm': await configLLM(); break;
+    case 'mode': await configMode(); break;
+    case 'thresholds': await configThresholds(); break;
+    case 'agents': await configAgentsInteractive(); break;
+    case 'show': configShow(); break;
+    case 'wizard': await runOnboarding(); break;
   }
 }
 
@@ -799,12 +1056,14 @@ function configShow() {
 
   const sections = [
     { title: 'LLM Backend', vars: [
-      ['SAFEGUARD_BACKEND',  'Backend (lmstudio/ollama/anthropic/built-in/fallback)'],
-      ['LMSTUDIO_URL',       'LM Studio URL'],
-      ['LMSTUDIO_MODEL',     'LM Studio model'],
-      ['OLLAMA_URL',         'Ollama URL'],
-      ['OLLAMA_MODEL',       'Ollama model'],
-      ['ANTHROPIC_API_KEY',  'Anthropic API key'],
+      ['SAFEGUARD_BACKEND',   'Backend (lmstudio/ollama/anthropic/openrouter/built-in/fallback)'],
+      ['LMSTUDIO_URL',        'LM Studio URL'],
+      ['LMSTUDIO_MODEL',      'LM Studio model'],
+      ['OLLAMA_URL',          'Ollama URL'],
+      ['OLLAMA_MODEL',        'Ollama model'],
+      ['ANTHROPIC_API_KEY',   'Anthropic API key'],
+      ['OPENROUTER_API_KEY',  'OpenRouter API key'],
+      ['OPENROUTER_MODEL',    'OpenRouter model'],
     ]},
     { title: 'Approval Policy', vars: [
       ['GUARDCLAW_APPROVAL_MODE',         'Mode (auto/prompt/monitor-only)'],

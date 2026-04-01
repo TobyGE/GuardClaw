@@ -47,6 +47,12 @@ const PROVIDERS = {
     defaultModel: 'gpt-4o-mini',
     oauthSupported: false,
   },
+  openrouter: {
+    displayName: 'OpenRouter',
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultModel: 'anthropic/claude-haiku-4-5-20251001',
+    oauthSupported: false,
+  },
 };
 
 // ─── Config persistence ───────────────────────────────────────────────────────
@@ -104,6 +110,15 @@ function clearToken(provider) {
   const tokens = loadTokens();
   delete tokens[provider];
   saveTokens(tokens);
+}
+
+function inferProviderFromApiKey(apiKey = '') {
+  const key = String(apiKey).trim();
+  if (!key) return null;
+  if (/^AIza[0-9A-Za-z_\-]{20,}$/.test(key)) return 'gemini';
+  if (/^sk-ant-[0-9A-Za-z\-]{20,}$/.test(key)) return 'claude';
+  if (/^sk-[0-9A-Za-z_\-]{20,}$/.test(key)) return 'openai';
+  return null;
 }
 
 // ─── PKCE helpers ────────────────────────────────────────────────────────────
@@ -545,16 +560,16 @@ export class CloudJudge {
   // ─── Config helpers ──────────────────────────────────────────────────────────
 
   getConfig() {
-    const connections = {};
-    for (const p of Object.keys(PROVIDERS)) {
-      const t = getToken(p);
-      connections[p] = {
-        connected: !!t,
-        hasApiKey: p === this.provider && !!this.apiKey,
-        displayName: PROVIDERS[p].displayName,
-        defaultModel: PROVIDERS[p].defaultModel,
-      };
-    }
+    const providers = this._providerStatuses();
+    const connections = Object.fromEntries(
+      providers.map(p => [p.id, {
+        connected: p.connected,
+        hasApiKey: p.hasApiKey,
+        ready: p.ready,
+        displayName: p.displayName,
+        defaultModel: p.defaultModel,
+      }]),
+    );
     return {
       enabled: this.enabled,
       provider: this.provider,
@@ -562,23 +577,50 @@ export class CloudJudge {
       baseURL: this.baseURL,
       isConfigured: this.isConfigured,
       judgeMode: this.judgeMode,
+      providers,
       connections,
     };
   }
 
   updateConfig(updates) {
-    if (updates.enabled !== undefined) this.enabled = !!updates.enabled;
-    if (updates.provider && PROVIDERS[updates.provider]) {
-      this.provider = updates.provider;
-      const cfg = PROVIDERS[this.provider];
-      if (!updates.model) this.model = cfg.defaultModel;
-      if (!updates.baseURL) this.baseURL = cfg.baseURL;
+    const next = { ...updates };
+
+    if (!next.provider && next.apiKey !== undefined) {
+      const inferredProvider = inferProviderFromApiKey(next.apiKey);
+      // Backward compatibility: old clients posted API key without provider.
+      // If we can infer the provider from key shape, adopt it.
+      if (inferredProvider) next.provider = inferredProvider;
     }
-    if (updates.apiKey !== undefined) this.apiKey = updates.apiKey;
-    if (updates.model) this.model = updates.model;
-    if (updates.baseURL) this.baseURL = updates.baseURL;
-    if (updates.judgeMode && ['mixed', 'local-only', 'cloud-only'].includes(updates.judgeMode)) {
-      this.judgeMode = updates.judgeMode;
+
+    if (next.enabled !== undefined) {
+      if (typeof next.enabled === 'boolean') {
+        this.enabled = next.enabled;
+      } else if (typeof next.enabled === 'string') {
+        const normalized = next.enabled.trim().toLowerCase();
+        if (['true', '1', 'yes', 'on'].includes(normalized)) {
+          this.enabled = true;
+        } else if (['false', '0', 'no', 'off', ''].includes(normalized)) {
+          this.enabled = false;
+        } else {
+          this.enabled = Boolean(next.enabled);
+        }
+      } else if (typeof next.enabled === 'number') {
+        this.enabled = next.enabled !== 0;
+      } else {
+        this.enabled = Boolean(next.enabled);
+      }
+    }
+    if (next.provider && PROVIDERS[next.provider]) {
+      this.provider = next.provider;
+      const cfg = PROVIDERS[this.provider];
+      if (!next.model) this.model = cfg.defaultModel;
+      if (!next.baseURL) this.baseURL = cfg.baseURL;
+    }
+    if (next.apiKey !== undefined) this.apiKey = next.apiKey;
+    if (next.model) this.model = next.model;
+    if (next.baseURL) this.baseURL = next.baseURL;
+    if (next.judgeMode && ['mixed', 'local-only', 'cloud-only'].includes(next.judgeMode)) {
+      this.judgeMode = next.judgeMode;
     }
 
     // Persist to disk
@@ -586,8 +628,26 @@ export class CloudJudge {
       enabled: this.enabled,
       provider: this.provider,
       model: this.model,
+      baseURL: this.baseURL,
       apiKey: this.apiKey,
       judgeMode: this.judgeMode,
+    });
+  }
+
+  _providerStatuses() {
+    const tokens = loadTokens();
+    return Object.entries(PROVIDERS).map(([id, cfg]) => {
+      const connected = !!tokens[id];
+      const hasApiKey = id === this.provider && !!this.apiKey;
+      return {
+        id,
+        displayName: cfg.displayName,
+        defaultModel: cfg.defaultModel,
+        connected,
+        hasApiKey,
+        ready: connected || hasApiKey,
+        oauthSupported: cfg.oauthSupported ?? false,
+      };
     });
   }
 

@@ -269,11 +269,21 @@ private struct ClaudeModel: Identifiable {
     let label: String
 }
 
+private struct ApiKeyProvider: Identifiable {
+    let id: String
+    let label: String
+}
+
 private let CLAUDE_MODELS: [ClaudeModel] = [
     ClaudeModel(id: "claude-haiku-4-5-20251001",  label: "Haiku 4.5  —  Fast & cheap"),
     ClaudeModel(id: "claude-sonnet-4-5-20251029", label: "Sonnet 4.5  —  Balanced"),
     ClaudeModel(id: "claude-sonnet-4-6",          label: "Sonnet 4.6  —  Balanced (latest)"),
     ClaudeModel(id: "claude-opus-4-5",            label: "Opus 4.5  —  Most capable"),
+]
+private let API_KEY_PROVIDERS: [ApiKeyProvider] = [
+    ApiKeyProvider(id: "openai", label: "OpenAI"),
+    ApiKeyProvider(id: "gemini", label: "Gemini"),
+    ApiKeyProvider(id: "claude", label: "Claude"),
 ]
 
 private struct CloudProvidersSection: View {
@@ -283,9 +293,11 @@ private struct CloudProvidersSection: View {
     @State private var apiKey: String = ""
     @State private var message: String? = nil
     @State private var selectedModel: String = "claude-haiku-4-5-20251001"
+    @State private var selectedApiProvider: String = "openai"
 
     private var claudeConnected: Bool {
-        config?.providers?.first(where: { $0.id == "claude" })?.connected == true
+        let claude = config?.providers?.first(where: { $0.id == "claude" })
+        return (claude?.ready ?? claude?.connected) == true
     }
 
     var body: some View {
@@ -322,16 +334,29 @@ private struct CloudProvidersSection: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("API Key (Gemini / OpenAI)")
+                Text("API Key")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
+                    Picker("Provider", selection: $selectedApiProvider) {
+                        ForEach(API_KEY_PROVIDERS) { p in
+                            Text(p.label).tag(p.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+
                     SecureField("Paste API key…", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                     Button("Save") {
                         Task {
-                            _ = try? await api.updateCloudJudge(apiKey: apiKey)
+                            _ = try? await api.updateCloudJudge(
+                                enabled: true,
+                                provider: selectedApiProvider,
+                                apiKey: apiKey
+                            )
                             await refreshConfig()
-                            await MainActor.run { message = "✓ API key saved" }
+                            let providerName = API_KEY_PROVIDERS.first(where: { $0.id == selectedApiProvider })?.label ?? selectedApiProvider
+                            await MainActor.run { message = "✓ API key saved for \(providerName)" }
                         }
                     }
                     .buttonStyle(.borderedProminent).controlSize(.small)
@@ -349,13 +374,17 @@ private struct CloudProvidersSection: View {
 
     @ViewBuilder
     private func providerRow(_ provider: CloudJudgeProviderInfo) -> some View {
+        let providerReady = provider.ready ?? provider.connected
+        let hasApiKey = provider.hasApiKey == true
         HStack(spacing: 10) {
             Circle()
-                .fill(provider.connected ? Color.green : Color.gray.opacity(0.4))
+                .fill(providerReady ? Color.green : Color.gray.opacity(0.4))
                 .frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text(provider.displayName).font(.subheadline)
-                Text(provider.connected ? "Connected" : (provider.oauthSupported == true ? "Not connected" : "API key required"))
+                Text(providerReady
+                     ? (provider.connected ? "Connected (OAuth)" : "Connected (API key)")
+                     : (provider.oauthSupported == true ? "Not connected" : "API key required"))
                     .font(.caption2).foregroundStyle(.tertiary)
             }
             Spacer()
@@ -386,12 +415,20 @@ private struct CloudProvidersSection: View {
                     .buttonStyle(.borderedProminent).controlSize(.small)
                     .disabled(connecting != nil)
                 }
+            } else if hasApiKey {
+                Button("Clear Key") {
+                    Task {
+                        _ = try? await api.updateCloudJudge(provider: provider.id, apiKey: "")
+                        await refreshConfig()
+                    }
+                }
+                .controlSize(.small)
             }
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(provider.connected ? Color.green.opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 1))
+            .stroke(providerReady ? Color.green.opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 1))
     }
 
     private func refreshConfig() async {
@@ -401,6 +438,9 @@ private struct CloudProvidersSection: View {
                 // Sync picker to persisted model, defaulting to haiku if unknown
                 if CLAUDE_MODELS.contains(where: { $0.id == cfg.model }) {
                     selectedModel = cfg.model
+                }
+                if API_KEY_PROVIDERS.contains(where: { $0.id == cfg.provider }) {
+                    selectedApiProvider = cfg.provider
                 }
             }
         }
@@ -416,8 +456,12 @@ private struct JudgeModeSection: View {
     @State private var message: String? = nil
 
     private var currentMode: String { config?.judgeMode ?? "mixed" }
-    private var hasCloudProvider: Bool {
-        (config?.providers ?? []).contains { $0.connected }
+    private var cloudEnabled: Bool { config?.enabled ?? false }
+    private var hasCloudCredentials: Bool {
+        (config?.providers ?? []).contains { ($0.ready ?? $0.connected) }
+    }
+    private var cloudReady: Bool {
+        cloudEnabled && hasCloudCredentials
     }
     private var modeWarnings: [String] {
         var warnings: [String] = []
@@ -430,12 +474,17 @@ private struct JudgeModeSection: View {
             if !localModelReady {
                 warnings.append("No local model is loaded. The first stage of Mix mode will fall back to rule-based scoring.")
             }
-            if !hasCloudProvider {
-                warnings.append("No cloud provider connected. Mix mode won't escalate to a second opinion — go to the Cloud tab to connect one.")
+            if !cloudEnabled {
+                warnings.append("Cloud Judge is disabled. Mix mode behaves like local-only until you enable it.")
+            } else if !hasCloudCredentials {
+                warnings.append("No cloud provider/API key configured. Mix mode won't escalate to a second opinion — go to the Cloud tab to connect one.")
             }
         case "cloud-only":
-            if !hasCloudProvider {
-                warnings.append("No cloud provider connected. All External mode cannot judge any requests — go to the Cloud tab to connect one.")
+            if !cloudEnabled {
+                warnings.append("Cloud Judge is disabled. In cloud-only mode, all requests will be blocked until you enable Cloud Judge.")
+            }
+            if !hasCloudCredentials {
+                warnings.append("No cloud provider/API key configured. Cloud-only mode cannot judge requests — go to the Cloud tab to connect one.")
             }
         default: break
         }
@@ -494,7 +543,7 @@ private struct JudgeModeSection: View {
                     description: "Local model runs first. If score ≥ 4 (WARNING/BLOCK), a cloud model re-analyzes for a second opinion. Recommended.",
                     icon: "arrow.triangle.branch",
                     currentMode: currentMode,
-                    disabled: !hasCloudProvider,
+                    disabled: !cloudReady,
                     onSelect: { setMode("mixed") }
                 )
                 ModeCard(
@@ -503,7 +552,7 @@ private struct JudgeModeSection: View {
                     description: "Every action goes directly to your cloud provider. Highest accuracy, but uses API credits for every tool call.",
                     icon: "cloud",
                     currentMode: currentMode,
-                    disabled: !hasCloudProvider,
+                    disabled: !cloudReady,
                     onSelect: { setMode("cloud-only") }
                 )
             }
@@ -520,7 +569,13 @@ private struct JudgeModeSection: View {
         Task {
             _ = try? await api.updateCloudJudge(judgeMode: mode)
             await refreshConfig()
-            await MainActor.run { message = "✓ Mode set to \(mode)" }
+            let label: String
+            switch mode {
+            case "local-only": label = "All Local"
+            case "cloud-only": label = "All External"
+            default: label = "Hybrid"
+            }
+            await MainActor.run { message = "✓ Mode set to \(label)" }
         }
     }
 

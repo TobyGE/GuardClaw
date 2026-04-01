@@ -2,20 +2,19 @@
   "name": "guardclaw",
   "version": "0.1.0",
   "description": "AI Agent Safety Monitor with LLM-based Command Safeguard",
-  "main": "desktop/main.cjs",
+  "main": "server/index.js",
   "type": "module",
   "bin": {
     "guardclaw": "./bin/guardclaw.js"
   },
   "scripts": {
-    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "dev": "npm run verify:native && concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "server:dev": "nodemon server/index.js",
     "client:dev": "cd client && ./node_modules/.bin/vite",
     "build": "cd client && ./node_modules/.bin/vite build",
-    "start": "node server/index.js",
+    "start": "npm run verify:native && node server/index.js",
     "test": "node --test test/",
-    "dist": "npm run build && electron-builder --mac --arm64",
-    "dist:dir": "npm run build && electron-builder --mac --arm64 --dir"
+    "verify:native": "node scripts/verify-native.mjs"
   },
   "keywords": [
     "openclaw",
@@ -41,11 +40,9 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "electron": "^34.5.8",
-    "electron-builder": "^25.1.8",
     "nodemon": "^3.0.3"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22 <23"
   }
 }

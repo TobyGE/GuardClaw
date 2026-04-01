@@ -290,6 +290,10 @@ private struct CloudJudgeSection: View {
 
     private var L: Loc { Loc.shared }
     private var currentMode: String { config?.judgeMode ?? "mixed" }
+    private var cloudEnabled: Bool { config?.enabled ?? false }
+    private var hasCloudCredentials: Bool {
+        (config?.providers ?? []).contains { ($0.ready ?? $0.connected) }
+    }
     private var modeDescription: String {
         switch currentMode {
         case "local-only": return L.t("judge.modeLocalDesc")
@@ -322,6 +326,14 @@ private struct CloudJudgeSection: View {
 
             Text(modeDescription)
                 .font(.system(size: 9)).foregroundStyle(.secondary)
+
+            if currentMode != "local-only" && !cloudEnabled {
+                Text("Cloud Judge is disabled. Non-local modes may not work as expected.")
+                    .font(.system(size: 9)).foregroundStyle(.orange)
+            } else if currentMode != "local-only" && !hasCloudCredentials {
+                Text("No cloud provider/API key configured. Non-local modes cannot call cloud judge.")
+                    .font(.system(size: 9)).foregroundStyle(.orange)
+            }
 
             Text("Configure providers in Dashboard → Judge → Cloud")
                 .font(.system(size: 9)).foregroundStyle(.tertiary)
