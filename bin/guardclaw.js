@@ -232,6 +232,78 @@ function detectAgents() {
   return agents;
 }
 
+// ─── Model selection helpers ──────────────────────────────────────────────────
+
+const KNOWN_MODELS = {
+  anthropic: [
+    'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'claude-3-5-haiku-20241022',
+    'claude-3-5-sonnet-20241022',
+  ],
+  openai: [
+    'gpt-4o',
+    'gpt-4o-mini',
+    'o1',
+    'o1-mini',
+    'gpt-3.5-turbo',
+  ],
+  gemini: [
+    'gemini-2.0-flash',
+    'gemini-1.5-pro',
+    'gemini-1.5-flash',
+  ],
+};
+
+/** Fetch available models for a backend. Returns [] on failure. */
+async function fetchModels(backend, baseUrl) {
+  try {
+    if (backend === 'lmstudio') {
+      const url = (baseUrl || 'http://localhost:1234/v1').replace(/\/$/, '');
+      const res = await fetch(`${url}/models`, { signal: AbortSignal.timeout(4000) });
+      const data = await res.json();
+      return (data.data || []).map(m => m.id).filter(id => !id.includes('embedding'));
+    }
+    if (backend === 'ollama') {
+      const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+      const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(4000) });
+      const data = await res.json();
+      return (data.models || []).map(m => m.name);
+    }
+    if (backend === 'built-in') {
+      const res = await fetch(`${GC_BASE}/api/models`, { signal: AbortSignal.timeout(4000) });
+      const data = await res.json();
+      return (data.models || []).filter(m => m.downloaded || m.loaded).map(m => m.id);
+    }
+    if (KNOWN_MODELS[backend]) return KNOWN_MODELS[backend];
+  } catch {}
+  return [];
+}
+
+/**
+ * Show numbered model list and return the chosen model string.
+ * Falls back to current/default if user just presses Enter.
+ */
+async function pickModel(rl, models, current, fallback) {
+  const def = current || fallback || models[0];
+  if (!models.length) return null;
+
+  console.log('');
+  models.forEach((m, i) => {
+    const marker = m === current ? '  ◀ current' : '';
+    console.log(`    ${i + 1}) ${m}${marker}`);
+  });
+  console.log(`    ${models.length + 1}) Enter manually\n`);
+
+  const choice = await ask(rl, `  Model [${def}]: `);
+  if (!choice) return def;
+  const idx = parseInt(choice) - 1;
+  if (idx >= 0 && idx < models.length) return models[idx];
+  if (parseInt(choice) === models.length + 1) return await ask(rl, '  Model name: ');
+  return choice; // user typed a name directly
+}
+
 // ─── Onboarding wizard ────────────────────────────────────────────────────────
 
 async function runOnboarding() {
@@ -259,16 +331,38 @@ async function runOnboarding() {
     const key = await ask(rl, 'Anthropic API key: ');
     if (key) env = setEnvVar(env, 'ANTHROPIC_API_KEY', key);
     else console.log('  (skipped — set later: guardclaw config set ANTHROPIC_API_KEY <key>)');
+    const models = KNOWN_MODELS.anthropic;
+    console.log('  Available models:');
+    const model = await pickModel(rl, models, null, models[0]);
+    if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model); // reuse as hint; server uses ANTHROPIC_API_KEY
   } else if (backend === 'lmstudio') {
     const url = await ask(rl, 'LM Studio URL [http://localhost:1234/v1]: ');
-    env = setEnvVar(env, 'LMSTUDIO_URL', url || 'http://localhost:1234/v1');
-    const model = await ask(rl, 'Model name [auto]: ');
-    env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
+    const resolvedUrl = url || 'http://localhost:1234/v1';
+    env = setEnvVar(env, 'LMSTUDIO_URL', resolvedUrl);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('lmstudio', resolvedUrl);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found, enter manually)\n');
+    if (models.length) {
+      const model = await pickModel(rl, models, null, 'auto');
+      env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
+    } else {
+      const model = await ask(rl, '  Model name [auto]: ');
+      env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
+    }
   } else if (backend === 'ollama') {
     const url = await ask(rl, 'Ollama URL [http://localhost:11434]: ');
-    env = setEnvVar(env, 'OLLAMA_URL', url || 'http://localhost:11434');
-    const model = await ask(rl, 'Model name [llama3]: ');
-    env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
+    const resolvedUrl = url || 'http://localhost:11434';
+    env = setEnvVar(env, 'OLLAMA_URL', resolvedUrl);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('ollama', resolvedUrl);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found, enter manually)\n');
+    if (models.length) {
+      const model = await pickModel(rl, models, null, 'llama3');
+      env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
+    } else {
+      const model = await ask(rl, '  Model name [llama3]: ');
+      env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
+    }
   }
 
   // ── Step 2: Approval mode ────────────────────────────────────────────────────
@@ -342,18 +436,53 @@ async function configLLM() {
 
   if (backend === 'anthropic') {
     const existing = getEnvVar(env, 'ANTHROPIC_API_KEY');
-    const key = await ask(rl, `API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    const key = await ask(rl, `  API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
     if (key) env = setEnvVar(env, 'ANTHROPIC_API_KEY', key);
+    const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
+    console.log('  Available models:');
+    const model = await pickModel(rl, KNOWN_MODELS.anthropic, currentModel, KNOWN_MODELS.anthropic[0]);
+    if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
   } else if (backend === 'lmstudio') {
-    const u = await ask(rl, `URL [${getEnvVar(env, 'LMSTUDIO_URL') || 'http://localhost:1234/v1'}]: `);
-    if (u) env = setEnvVar(env, 'LMSTUDIO_URL', u);
-    const m = await ask(rl, `Model [${getEnvVar(env, 'LMSTUDIO_MODEL') || 'auto'}]: `);
-    if (m) env = setEnvVar(env, 'LMSTUDIO_MODEL', m);
+    const existingUrl = getEnvVar(env, 'LMSTUDIO_URL') || 'http://localhost:1234/v1';
+    const u = await ask(rl, `  URL [${existingUrl}]: `);
+    const resolvedUrl = u || existingUrl;
+    if (u) env = setEnvVar(env, 'LMSTUDIO_URL', resolvedUrl);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('lmstudio', resolvedUrl);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found)\n');
+    const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL') || 'auto';
+    if (models.length) {
+      const model = await pickModel(rl, models, currentModel, 'auto');
+      env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
+    } else {
+      const m = await ask(rl, `  Model [${currentModel}]: `);
+      if (m) env = setEnvVar(env, 'LMSTUDIO_MODEL', m);
+    }
   } else if (backend === 'ollama') {
-    const u = await ask(rl, `URL [${getEnvVar(env, 'OLLAMA_URL') || 'http://localhost:11434'}]: `);
-    if (u) env = setEnvVar(env, 'OLLAMA_URL', u);
-    const m = await ask(rl, `Model [${getEnvVar(env, 'OLLAMA_MODEL') || 'llama3'}]: `);
-    if (m) env = setEnvVar(env, 'OLLAMA_MODEL', m);
+    const existingUrl = getEnvVar(env, 'OLLAMA_URL') || 'http://localhost:11434';
+    const u = await ask(rl, `  URL [${existingUrl}]: `);
+    const resolvedUrl = u || existingUrl;
+    if (u) env = setEnvVar(env, 'OLLAMA_URL', resolvedUrl);
+    process.stdout.write('  Fetching models...');
+    const models = await fetchModels('ollama', resolvedUrl);
+    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found)\n');
+    const currentModel = getEnvVar(env, 'OLLAMA_MODEL') || 'llama3';
+    if (models.length) {
+      const model = await pickModel(rl, models, currentModel, 'llama3');
+      env = setEnvVar(env, 'OLLAMA_MODEL', model);
+    } else {
+      const m = await ask(rl, `  Model [${currentModel}]: `);
+      if (m) env = setEnvVar(env, 'OLLAMA_MODEL', m);
+    }
+  } else if (backend === 'openai' || backend === 'gemini') {
+    // Cloud Judge backends — show known model list
+    const knownList = KNOWN_MODELS[backend] || [];
+    if (knownList.length) {
+      console.log('  Available models:');
+      const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
+      const model = await pickModel(rl, knownList, currentModel, knownList[0]);
+      if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
+    }
   }
 
   rl.close();
