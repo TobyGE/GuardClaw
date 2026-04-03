@@ -671,7 +671,14 @@ export class CloudJudge {
     const briefBlock = sessionBrief ? `\n\n<session-brief>\n${sessionBrief}\n</session-brief>` : '';
     const globalKnowledge = loadGlobalKnowledge();
     const globalBlock = globalKnowledge ? `\n\n<global-knowledge>\n${globalKnowledge}\n</global-knowledge>` : '';
-    const userContent = masked + piiNote + (extraContext || '') + secCtxBlock + briefBlock + globalBlock;
+    // If we have a session brief, strip content it already covers (transcript, chain history, session signals)
+    const trimmed = sessionBrief
+      ? masked
+          .replace(/<transcript>[\s\S]*?<\/transcript>[^\n]*\n?/g, '')
+          .replace(/<chain_history>[\s\S]*?<\/chain_history>[\s\S]*?(?=\n(?:TOOL|USER|PARAMS|FILE|$))/g, '')
+          .replace(/\nSESSION STATE \(accumulated[\s\S]*?Use this to assess multi-step risk[^\n]*/g, '')
+      : masked;
+    const userContent = trimmed + piiNote + (extraContext || '') + secCtxBlock + briefBlock + globalBlock;
 
     try {
       // ── Two-Stage Classifier ──────────────────────────────────────────────

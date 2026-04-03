@@ -309,9 +309,9 @@ export class SafeguardService {
       let result = { ...cached, cached: true };
       // In mixed mode, escalate to cloud judge if cached result is local and score >= 4
       if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured && !result.backend?.startsWith('cloud:')) {
-        const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
+        const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command, sessionKey: this._currentSessionKey });
         if (cloudResult) {
-          this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command });
+          this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command, sessionKey: this._currentSessionKey });
           result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
         }
       }
@@ -1181,17 +1181,17 @@ Use this to assess multi-step risk. If sensitive data was accessed and current t
     if (action.tool === 'canvas') {
       const js = input.javaScript ?? action.javaScript ?? action.params?.javaScript ?? '';
       if (js) {
-        const snippet = js.length > 1000 ? js.substring(0, 1000) + '\n…[truncated]' : js;
+        const snippet = js.length > 8000 ? js.substring(0, 8000) + '\n…[truncated]' : js;
         detailSection = `\nJAVASCRIPT CODE:\n${snippet}`;
       }
     } else if (action.tool === 'edit') {
       const filePath = input.file_path || input.path || '';
-      const oldStr = (input.old_string || input.oldText || '').substring(0, 500);
-      const newStr = (input.new_string || input.newText || '').substring(0, 500);
+      const oldStr = (input.old_string || input.oldText || '').substring(0, 4000);
+      const newStr = (input.new_string || input.newText || '').substring(0, 4000);
       detailSection = `\nFILE: ${filePath}\nOLD_STRING:\n${oldStr}\nNEW_STRING:\n${newStr}`;
     } else if (action.tool === 'write') {
       const filePath = input.file_path || input.path || '';
-      const content = (input.content || '').substring(0, 800);
+      const content = (input.content || '').substring(0, 8000);
       detailSection = `\nFILE: ${filePath}\nCONTENT:\n${content}`;
     } else if (action.tool === 'grep' || action.tool === 'glob') {
       const pattern = input.pattern || '';

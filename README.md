@@ -13,8 +13,8 @@
 
 <p align="center">
   <a href="#the-problem">The Problem</a> ·
-  <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
+  <a href="#quick-start">Quick Start</a> ·
   <a href="#product-tour">Product Tour</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
@@ -34,74 +34,6 @@ GuardClaw sits between the agent and tools, scores each action with a local or c
 
 - safe actions continue without friction
 - suspicious actions are surfaced for approval
-
-### GuardClaw vs Claude Code Auto Mode
-
-Both use a two-stage LLM judge. CC auto mode adds an OS-level sandbox (Seatbelt). GuardClaw adds:
-
-- **Security memory** — 4-level memory that persists across sessions and projects, detects long-range attacks
-- **Multi-agent** — 7 agents go through the same safety pipeline
-- **Dashboard** — real-time web dashboard, macOS menu bar app, mobile push notifications (Telegram/Discord/WhatsApp)
-- **Adaptive learning** — remembers user approve/deny decisions, reduces repeated prompts over time
-- **Proactive intervention** — injects safety guidance into agent context before risky operations
-- **DTrace monitoring** — OS-level syscall monitoring for MCP servers
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 22.x (LTS)
-- `nvm` recommended (or install Node 22.21.1 manually)
-- One or more supported agents (see [Supported Agents](#supported-agents) below)
-
-### 1) Install and start
-
-```bash
-git clone https://github.com/TobyGE/GuardClaw.git
-cd GuardClaw
-nvm use || nvm install
-npm ci
-npm ci --prefix client
-npm run verify:native
-npm run build
-npm link
-guardclaw start
-```
-
-### 2) Run onboarding in the dashboard (`localhost:3002`)
-
-The onboarding flow walks through setup in order:
-
-1. **Judge** — choose a backend and activate a model
-2. **Connections** — install hooks/plugin for your agent
-3. **Security Check** — scan for MCP servers, secrets, hooks, and plugin code
-4. **Protection** — choose `Strict` (recommended), `Balanced`, or `Monitor`
-
-Restart the target agent after installing hooks/plugin.
-
-### Judge backends
-
-GuardClaw supports three judge modes: **local-only**, **cloud-only**, and **mixed** (default — local judge first, cloud as fallback or for high-risk confirmation).
-
-| Backend | Mode | Description |
-| ------- | ---- | ----------- |
-| **Built-in (MLX)** | local | Bundled engine using Apple Silicon MLX. Downloads and runs the model locally — no external server needed. |
-| **LM Studio** | local | Connect to [LM Studio](https://lmstudio.ai) running locally. Recommended model: `qwen/qwen3-4b-2507` |
-| **Ollama** | local | Connect to [Ollama](https://ollama.ai) running locally |
-| **Claude (Anthropic)** | cloud | Uses Claude Haiku via Anthropic API or Claude Code OAuth — no API key required if Claude Code is installed |
-| **Fallback** | local | Deterministic rule-based scoring only, no LLM |
-
-## Supported Agents
-
-| Agent | Integration | Pre-tool blocking | Approval flow | Notes |
-|-------|------------|:-----------------:|:-------------:|-------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | HTTP hooks | ✅ | ✅ | Full support |
-| [Codex CLI](https://github.com/openai/codex) | Command hooks | ✅ | ✅ | Full support |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | HTTP hooks | ✅ | ✅ | Full support |
-| [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
-| [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
-| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
-| [GitHub Copilot CLI](https://github.com/github/copilot-sdk) | Extension | ❌ | ❌ | Not functional — waiting on stable extension SDK |
 
 ## How It Works
 
@@ -169,6 +101,63 @@ When risk is detected, GuardClaw doesn't just score — it acts:
 - **Prompt injection detection** — UserPromptSubmit hook catches common injection patterns
 - **Skill security review** — LLM reviews `/skill` file contents for instruction injection
 - **DTrace syscall monitoring** — OS-level monitoring of MCP server system calls (file, network, process) on macOS
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 22.x (LTS)
+- `nvm` recommended (or install Node 22.21.1 manually)
+- One or more supported agents (see [Supported Agents](#supported-agents) below)
+
+### 1) Install and start
+
+```bash
+git clone https://github.com/TobyGE/GuardClaw.git
+cd GuardClaw
+nvm use || nvm install
+npm ci
+npm ci --prefix client
+npm run verify:native
+npm run build
+npm link
+guardclaw start
+```
+
+### 2) Run onboarding in the dashboard (`localhost:3002`)
+
+The onboarding flow walks through setup in order:
+
+1. **Judge** — choose a backend and activate a model
+2. **Connections** — install hooks/plugin for your agent
+3. **Security Check** — scan for MCP servers, secrets, hooks, and plugin code
+4. **Protection** — choose `Strict` (recommended), `Balanced`, or `Monitor`
+
+Restart the target agent after installing hooks/plugin.
+
+### Judge backends
+
+GuardClaw supports three judge modes: **local-only**, **cloud-only**, and **mixed** (default — local judge first, cloud as fallback or for high-risk confirmation).
+
+| Backend | Mode | Description |
+| ------- | ---- | ----------- |
+| **Built-in (MLX)** | local | Bundled engine using Apple Silicon MLX. Downloads and runs the model locally — no external server needed. |
+| **LM Studio** | local | Connect to [LM Studio](https://lmstudio.ai) running locally. Recommended model: `qwen/qwen3-4b-2507` |
+| **Ollama** | local | Connect to [Ollama](https://ollama.ai) running locally |
+| **Claude (Anthropic)** | cloud | Uses Claude Haiku via Anthropic API or Claude Code OAuth — no API key required if Claude Code is installed |
+| **Fallback** | local | Deterministic rule-based scoring only, no LLM |
+
+## Supported Agents
+
+| Agent | Integration | Pre-tool blocking | Approval flow | Notes |
+|-------|------------|:-----------------:|:-------------:|-------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | HTTP hooks | ✅ | ✅ | Full support |
+| [Codex CLI](https://github.com/openai/codex) | Command hooks | ✅ | ✅ | Full support |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | HTTP hooks | ✅ | ✅ | Full support |
+| [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
+| [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
+| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
+| [GitHub Copilot CLI](https://github.com/github/copilot-sdk) | HTTP hooks (shared with CC) | ✅ | ✅ | Full support via Claude Code hook endpoint |
 
 ## Product Tour
 

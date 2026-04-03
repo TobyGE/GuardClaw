@@ -15,6 +15,7 @@ const COMPRESSION_THRESHOLD_TOKENS = 60_000;
 const BRIEF_MAX_TOKENS = 8_000; // truncate brief if exceeds this
 const RAW_KEEPALIVE = 10; // keep last N raw events after compression
 const MAX_SESSIONS = 200;
+const MAX_DIGEST_CHARS = 20_000; // cap per-event digest to prevent memory bloat
 
 // ─── Data Flow Tagger (lightweight, no LLM) ────────────────────────────────
 
@@ -25,13 +26,20 @@ function buildParamsDigest(toolName, params) {
   if (!params) return toolName;
   switch (toolName) {
     case 'exec': case 'Bash': case 'terminal':
-      return (params.command || '').slice(0, 500);
+      return params.command || '';
     case 'read': case 'Read':
       return params.file_path || params.path || '';
-    case 'write': case 'Write':
-      return params.file_path || '';
-    case 'edit': case 'Edit':
-      return params.file_path || '';
+    case 'write': case 'Write': {
+      const fp = params.file_path || params.path || '';
+      const content = params.content || '';
+      return fp + (content ? `\n${content}` : '');
+    }
+    case 'edit': case 'Edit': {
+      const fp = params.file_path || params.path || '';
+      const old_s = params.old_string || params.oldText || '';
+      const new_s = params.new_string || params.newText || '';
+      return `${fp}\n--- old\n${old_s}\n+++ new\n${new_s}`;
+    }
     case 'web_fetch': case 'WebFetch':
       return params.url || '';
     case 'web_search': case 'WebSearch':
@@ -41,7 +49,7 @@ function buildParamsDigest(toolName, params) {
     case 'grep': case 'Grep':
       return `${params.path || '.'} ${params.pattern || ''}`;
     default:
-      return JSON.stringify(params).slice(0, 200);
+      return JSON.stringify(params);
   }
 }
 
@@ -191,11 +199,12 @@ export class SecurityMemory {
   appendRawEvent(sessionKey, { toolName, params, riskScore, verdict, allowed, flags, resultDigest }) {
     const state = this._getState(sessionKey);
     const seq = state.nextSeq++;
+    const rawDigest = buildParamsDigest(toolName, params);
     state.rawBuffer.push({
       seq,
       timestamp: Date.now(),
       toolName,
-      paramsDigest: buildParamsDigest(toolName, params),
+      paramsDigest: rawDigest.length > MAX_DIGEST_CHARS ? rawDigest.slice(0, MAX_DIGEST_CHARS) + '\n...[truncated]' : rawDigest,
       resultDigest: resultDigest || '',
       riskScore: riskScore || 0,
       verdict: verdict || 'unknown',
@@ -217,14 +226,19 @@ export class SecurityMemory {
     const entry = state.rawBuffer.find(e => e.seq === seq);
     if (entry) {
       entry.isComplete = true;
-      if (resultDigest) entry.resultDigest = resultDigest.slice(0, 600);
+      if (resultDigest) entry.resultDigest = resultDigest.length > MAX_DIGEST_CHARS ? resultDigest.slice(0, MAX_DIGEST_CHARS) + '\n...[truncated]' : resultDigest;
     }
-    // Fire pending compression if threshold was crossed mid-tool-call
-    if (state.compressionPending && this.isCompressionSafe(sessionKey)) {
-      state.compressionPending = false;
-      this.triggerCompression(sessionKey, 'deferred-threshold').catch(e =>
-        console.error(`[SecurityMemory] Deferred compression failed: ${e.message}`)
-      );
+    // Check compression: either deferred (pending from mid-tool-call) or fresh threshold hit
+    const wasPending = state.compressionPending;
+    if (this.shouldCompress(sessionKey) || wasPending) {
+      if (this.isCompressionSafe(sessionKey)) {
+        state.compressionPending = false;
+        this.triggerCompression(sessionKey, wasPending ? 'deferred-threshold' : 'token-threshold').catch(e =>
+          console.error(`[SecurityMemory] Compression failed: ${e.message}`)
+        );
+      } else {
+        state.compressionPending = true;
+      }
     }
   }
 

@@ -132,7 +132,7 @@ const securityMemory = new SecurityMemory(cloudJudge, sessionSignals, eventStore
 cloudJudge.sessionBriefProvider = (sessionKey) => securityMemory.getBriefForJudge(sessionKey);
 
 // Track pending raw event seq numbers: PreToolUse → PostToolUse handoff
-// Key: `${sessionKey}:${toolName}:${digest.slice(0,100)}`, Value: seq number
+// Key: `${sessionKey}:${toolName}:${digest.slice(0,100)}`, Value: array of seq numbers (stack)
 const pendingRawSeqs = new Map();
 
 /** Append a raw event to SecurityMemory and store seq for PostToolUse handoff. */
@@ -147,9 +147,18 @@ function recordRawEvent(sessionKey, gcToolName, gcParams, analysis) {
   });
   const digest = buildParamsDigest(gcToolName, gcParams);
   const seqKey = `${sessionKey}:${gcToolName}:${digest.slice(0, 100)}`;
-  pendingRawSeqs.set(seqKey, seq);
+  // Use array (stack) to handle concurrent identical tool calls
+  if (!pendingRawSeqs.has(seqKey)) pendingRawSeqs.set(seqKey, []);
+  pendingRawSeqs.get(seqKey).push(seq);
   // Auto-expire after 5 min to prevent leaks
-  setTimeout(() => pendingRawSeqs.delete(seqKey), 300_000);
+  setTimeout(() => {
+    const arr = pendingRawSeqs.get(seqKey);
+    if (arr) {
+      const idx = arr.indexOf(seq);
+      if (idx >= 0) arr.splice(idx, 1);
+      if (arr.length === 0) pendingRawSeqs.delete(seqKey);
+    }
+  }, 300_000);
   return seq;
 }
 
@@ -157,16 +166,12 @@ function recordRawEvent(sessionKey, gcToolName, gcParams, analysis) {
 function completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet) {
   const digest = buildParamsDigest(gcToolName, gcParams);
   const seqKey = `${sessionKey}:${gcToolName}:${digest.slice(0, 100)}`;
-  const seq = pendingRawSeqs.get(seqKey);
-  if (seq == null) return;
-  pendingRawSeqs.delete(seqKey);
+  const arr = pendingRawSeqs.get(seqKey);
+  if (!arr || arr.length === 0) return;
+  // FIFO: complete the oldest pending call first
+  const seq = arr.shift();
+  if (arr.length === 0) pendingRawSeqs.delete(seqKey);
   securityMemory.markToolComplete(sessionKey, seq, resultSnippet);
-  // Check if compression should fire
-  if (securityMemory.shouldCompress(sessionKey) && securityMemory.isCompressionSafe(sessionKey)) {
-    securityMemory.triggerCompression(sessionKey, 'token-threshold').catch(e =>
-      console.error(`[SecurityMemory] Compression failed: ${e.message}`)
-    );
-  }
 }
 
 // ─── DTrace Watcher: alert handler ─────────────────────────────────────────
@@ -1422,12 +1427,6 @@ app.post('/api/evaluate', async (req, res) => {
     // Record + immediately complete for SecurityMemory (no PostToolUse for OpenClaw)
     const evalSeq = securityMemory.appendRawEvent(sessionKey, { toolName, params, riskScore: analysis.riskScore, verdict: analysis.riskScore >= 8 ? 'ask' : 'auto-approved', allowed: analysis.riskScore < 8 ? true : null, flags: sessionSignals.getFlags(sessionKey) });
     securityMemory.markToolComplete(sessionKey, evalSeq, '');
-    // Check compression
-    if (securityMemory.shouldCompress(sessionKey) && securityMemory.isCompressionSafe(sessionKey)) {
-      securityMemory.triggerCompression(sessionKey, 'token-threshold').catch(e =>
-        console.error(`[SecurityMemory] Compression failed: ${e.message}`)
-      );
-    }
 
     // Cache result so streaming processor can skip duplicate storage
     setCachedEvaluation(sessionKey, toolName, params, analysis);
@@ -2311,8 +2310,9 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
     : JSON.stringify(output || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
 
-  // Complete raw event in SecurityMemory (Level 0)
-  completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet);
+  // Complete raw event in SecurityMemory (Level 0) — pass full output, not truncated snippet
+  const ccFullOutput = typeof output === 'string' ? output : JSON.stringify(output || '');
+  completeRawEvent(sessionKey, gcToolName, gcParams, ccFullOutput);
 
   // Scan Read + Bash output for credentials / secrets
   if ((gcToolName === 'read' || gcToolName === 'exec') && output) {
@@ -2602,8 +2602,9 @@ app.post('/api/hooks/gemini/post-tool-use', rateLimit(60_000, 120), (req, res) =
     : JSON.stringify(toolOutput || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
 
-  // Complete raw event in SecurityMemory (Level 0)
-  completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet);
+  // Complete raw event in SecurityMemory (Level 0) — pass full output
+  const geminiFullOutput = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput || '');
+  completeRawEvent(sessionKey, gcToolName, gcParams, geminiFullOutput);
 
   // Scan output for credentials
   if ((gcToolName === 'read' || gcToolName === 'exec') && toolOutput) {
@@ -2773,8 +2774,9 @@ app.post('/api/hooks/codex/post-tool-use', rateLimit(60_000, 120), (req, res) =>
   const resultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
 
-  // Complete raw event in SecurityMemory (Level 0)
-  completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet);
+  // Complete raw event in SecurityMemory (Level 0) — pass full output
+  const codexFullOutput = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput || '');
+  completeRawEvent(sessionKey, gcToolName, gcParams, codexFullOutput);
 
   res.json({ decision: 'allow' });
 });
@@ -4172,9 +4174,9 @@ app.post('/api/hooks/cursor/post-tool-use', rateLimit(60_000, 120), (req, res) =
   // Chain tracking
   addToChainHistory(sessionKey, gcToolName, gcParams, toolOutput);
 
-  // Complete raw event in SecurityMemory (Level 0)
-  const cursorResultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
-  completeRawEvent(sessionKey, gcToolName, gcParams, cursorResultSnippet);
+  // Complete raw event in SecurityMemory (Level 0) — pass full output
+  const cursorFullOutput = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput || '');
+  completeRawEvent(sessionKey, gcToolName, gcParams, cursorFullOutput);
 
   // Credential scanning on output
   if (toolOutput && typeof toolOutput === 'string') {
@@ -4589,9 +4591,9 @@ app.post('/api/hooks/opencode/post-tool-use', rateLimit(60_000, 120), (req, res)
   // Chain tracking
   addToToolHistory(sessionKey, gcToolName, gcParams, toolOutput);
 
-  // Complete raw event in SecurityMemory (Level 0)
-  const ocResultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
-  completeRawEvent(sessionKey, gcToolName, gcParams, ocResultSnippet);
+  // Complete raw event in SecurityMemory (Level 0) — pass full output
+  const ocFullOutput = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput || '');
+  completeRawEvent(sessionKey, gcToolName, gcParams, ocFullOutput);
 
   // Credential scanning on output
   if (toolOutput && typeof toolOutput === 'string') {
