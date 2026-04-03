@@ -201,6 +201,13 @@ guardclaw plugin status
 guardclaw help
 ```
 
+## TODO
+
+- [ ] Publish to npm registry — enable `npx guardclaw start` one-command install
+- [ ] Auto-detect installed agents on first start (scan `~/.claude/`, `~/.gemini/`, etc.)
+- [ ] One-click hook installation for detected agents in dashboard onboarding
+- [ ] OAuth authorization flow for cloud judge (reuse Claude Code token if available)
+
 ## Links
 
 - [Roadmap](docs/ROADMAP.md)
