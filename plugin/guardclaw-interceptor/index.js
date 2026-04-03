@@ -15,6 +15,10 @@ export default function (api) {
   // after_tool_call (sessionKey is undefined in context).
   const pendingResultKeys = new Map();
 
+  // Queue for GuardClaw messages (security briefs, verdicts) to inject into agent context
+  // via before_prompt_build → prependContext
+  const pendingMessages = [];
+
   // ─── Fail-closed: heartbeat state ────────────────────────────────────────
   let guardclawAvailable = true;
   let guardclawPid = null;
@@ -126,6 +130,10 @@ export default function (api) {
       }
 
       // 'allow' — pass through (server already handled approval if needed)
+      // Queue message (security brief or verdict) for injection into agent context
+      if (result.message) {
+        pendingMessages.push(result.message);
+      }
       return {};
     } catch (err) {
       const msg = err.message || String(err);
@@ -260,6 +268,14 @@ export default function (api) {
     } catch (err) {
       api.logger.warn(`[GuardClaw] Failed to store tool result: ${err.message}`);
     }
+  });
+
+  // ─── before_prompt_build: inject queued GuardClaw messages into agent context
+  api.on('before_prompt_build', async (_event, _context) => {
+    if (pendingMessages.length === 0) return {};
+    const messages = pendingMessages.splice(0);
+    const combined = messages.join('\n\n');
+    return { prependContext: `⛨ GuardClaw Security Context:\n${combined}` };
   });
 
   // ─── Approval commands: forward to GuardClaw server ──────────────────────

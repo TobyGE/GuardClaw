@@ -35,6 +35,17 @@ GuardClaw sits between the agent and tools, scores each action with a local or c
 - safe actions continue without friction
 - suspicious actions are surfaced for approval
 
+### GuardClaw vs Claude Code Auto Mode
+
+Both use a two-stage LLM judge. CC auto mode adds an OS-level sandbox (Seatbelt). GuardClaw adds:
+
+- **Security memory** — 4-level memory that persists across sessions and projects, detects long-range attacks
+- **Multi-agent** — 7 agents go through the same safety pipeline
+- **Dashboard** — real-time web dashboard, macOS menu bar app, mobile push notifications (Telegram/Discord/WhatsApp)
+- **Adaptive learning** — remembers user approve/deny decisions, reduces repeated prompts over time
+- **Proactive intervention** — injects safety guidance into agent context before risky operations
+- **DTrace monitoring** — OS-level syscall monitoring for MCP servers
+
 ## Quick Start
 
 ### Prerequisites
@@ -107,12 +118,57 @@ GuardClaw supports three judge modes: **local-only**, **cloud-only**, and **mixe
 | 4-7 | WARNING | Runs with stronger audit signal |
 | 8-10 | HIGH RISK | Requires approval / blocking |
 
-### Key capabilities
+### Architecture
 
-- **Rule-based fast path** — obvious safe/dangerous cases skip the LLM entirely
-- **Chain analysis** — tracks tool call history per session to detect multi-step attacks (e.g. read credentials then exfiltrate)
-- **Adaptive memory** — learns from user approve/deny decisions to reduce repeated prompts
-- **Context-aware scoring** — considers user intent, working directory, and tool history
+GuardClaw is built from four core subsystems that work together:
+
+#### 1. Two-Stage Judge
+
+Every tool call goes through a two-stage evaluation pipeline:
+
+| Stage | Engine | Latency | When |
+|-------|--------|---------|------|
+| **Local Judge** | Qwen3-4B via LM Studio / Ollama / MLX | <100ms | Every tool call |
+| **Cloud Judge** | Claude (Anthropic) | ~1s | High-risk only (score >= 8) |
+
+Before hitting the LLM, three fast paths run first:
+- **High-risk patterns** — regex match (e.g. `curl | bash`, `nc -e`) → instant score 9
+- **Safe fast-path** — known safe commands (git status, npm test) → instant score 1
+- **Agent permissions (Layer 1)** — reads each agent's own config, auto-allows if the agent already permits it
+
+The cloud judge receives richer context: the session security brief, project-level security context, and global knowledge — enabling it to detect attacks that span many tool calls.
+
+#### 2. Multi-Level Security Memory
+
+A four-level memory hierarchy designed to detect long-range attacks that unfold over hundreds of tool calls:
+
+| Level | What | Storage | Lifecycle |
+|-------|------|---------|-----------|
+| **L0 — Raw Buffer** | Every tool call with data flow tags (`reads:.env`, `fetches:evil.com`, `sends-file:/tmp/x`) | In-memory | Per session |
+| **L1 — AI Brief** | Rolling AI summary of the session. Triggered when L0 hits 60K tokens. `new_brief = AI(old_brief + new_events)` — early signals survive multiple compressions | In-memory | Per session |
+| **L2 — Project Context** | AI-generated security baseline for this project (safe patterns, trusted domains, known risks). Updated at session end | `~/.guardclaw/security-context.md` | Persistent, cross-session |
+| **L3 — Global Knowledge** | Cross-project intelligence (malicious domains, attack patterns, dangerous MCP servers). Updated only when L1 brief contains high-severity findings | `~/.guardclaw/global-knowledge.md` | Persistent, cross-project |
+
+Data flows upward: L0 → compress → L1 → session end → L2 → high-severity → L3. The cloud judge sees L1 + L2 + L3 in its prompt, so it can catch attacks that no single tool call reveals.
+
+#### 3. Adaptive Memory & Chain Analysis
+
+- **Adaptive memory** (`memory.db`) — SQLite-backed pattern learning from user approve/deny decisions. Repeated approvals → auto-approve, reducing friction over time
+- **Chain analysis** — tracks tool call sequences per session to detect multi-step exfiltration (read `~/.ssh/id_rsa` → `curl evil.com`)
+- **Intent classification** — LLM classifies user prompt intent; deviations raise risk floors (agent doing something the user didn't ask for)
+- **Session signals** — cumulative session state: credential reads, network usage, sensitive file access, risk budget with decay
+
+#### 4. Active Intervention & Approval
+
+When risk is detected, GuardClaw doesn't just score — it acts:
+
+- **Proactive intervention** — injects safety guidance into the agent's context via `systemMessage` before the tool runs (e.g. "credentials were read earlier — network operations will be scrutinized")
+- **Dual-channel approval** — high-risk operations trigger both the agent's native dialog AND the GuardClaw dashboard/menu bar, plus optional push notifications (Telegram, Discord, WhatsApp)
+- **Circuit breaker** — too many consecutive denials → degrades to ask mode, preventing agent deadlocks
+- **Credential scanning** — PostToolUse output scanned for leaked secrets (API keys, tokens, private keys)
+- **Prompt injection detection** — UserPromptSubmit hook catches common injection patterns
+- **Skill security review** — LLM reviews `/skill` file contents for instruction injection
+- **DTrace syscall monitoring** — OS-level monitoring of MCP server system calls (file, network, process) on macOS
 
 ## Product Tour
 

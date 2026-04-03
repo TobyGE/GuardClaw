@@ -24,18 +24,8 @@ function App() {
   const [sessions, setSessions] = useState([]); // list of { key, label, parent, isSubagent, eventCount }
   const [selectedSession, setSelectedSession] = useState(null); // null = all sessions
 
-  // Stats derived from current events (updates when events change via tab/filter)
-  const stats = useMemo(() => events.reduce(
-    (acc, event) => {
-      acc.totalEvents++;
-      const score = event.safeguard?.riskScore;
-      if (score != null && score <= 3) acc.safeCommands++;
-      else if (score != null && score <= 7) acc.warnings++;
-      else if (score != null && score >= 9) acc.blocked++;
-      return acc;
-    },
-    { totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 }
-  ), [events]);
+  // Stats from server-side SQL aggregation (fast, covers all events regardless of limit)
+  const [stats, setStats] = useState({ totalEvents: 0, safeCommands: 0, warnings: 0, blocked: 0 });
 
   const [memoryStats, setMemoryStats] = useState(null);
   const [showGatewayModal, setShowGatewayModal] = useState(false);
@@ -99,6 +89,15 @@ function App() {
           setDtraceStatus(data.dtrace || null);
           if (typeof data.failClosed === 'boolean') setFailClosed(data.failClosed);
           setSystemWarnings(data.warnings || []);
+          if (data.eventCounts) {
+            const ec = data.eventCounts;
+            setStats({
+              totalEvents: ec.total || 0,
+              safeCommands: ec.safe || 0,
+              warnings: ec.warn || 0,
+              blocked: ec.blocked || 0,
+            });
+          }
           fetchEvents(null, backendFilterRef.current);
           fetchSessions();
           fetch('/api/memory/stats').then(r => r.json()).then(setMemoryStats).catch(() => {});
@@ -126,7 +125,7 @@ function App() {
         const filterParam = filter ? `&filter=${filter}` : '';
         const backendParam = backend !== 'all' ? `&backend=${backend}` : '';
         const sessionParam = session ? `&session=${encodeURIComponent(session)}` : '';
-        const response = await fetch(`/api/events/history?limit=999999${filterParam}${backendParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=200${filterParam}${backendParam}${sessionParam}`);
         if (response.ok) {
           const data = await response.json();
           setEvents(data.events || []);
@@ -180,6 +179,16 @@ function App() {
           || (eventSessionKey2.startsWith(ss + ':') && (bf === 'claude-code' || !eventSessionKey2.includes(':subagent:')));
         if (matchesBackend && matchesSession) {
           setEvents((prev) => [newEvent, ...prev]);
+        }
+        // Increment server-side stats for new events
+        const score = newEvent.safeguard?.riskScore;
+        if (score != null) {
+          setStats(prev => ({
+            totalEvents: prev.totalEvents + 1,
+            safeCommands: prev.safeCommands + (score <= 3 ? 1 : 0),
+            warnings: prev.warnings + (score > 3 && score <= 7 ? 1 : 0),
+            blocked: prev.blocked + (score >= 9 ? 1 : 0),
+          }));
         }
         // If this event has a new sessionKey, refresh sessions list
         const eventSessionKey = newEvent.sessionKey;
@@ -254,7 +263,7 @@ function App() {
       try {
         const backendParam = backendFilter !== 'all' ? `&backend=${backendFilter}` : '';
         const sessionParam = selectedSession ? `&session=${encodeURIComponent(selectedSession)}` : '';
-        const response = await fetch(`/api/events/history?limit=999999${backendParam}${sessionParam}`);
+        const response = await fetch(`/api/events/history?limit=200${backendParam}${sessionParam}`);
         if (response.ok && !cancelled) {
           const data = await response.json();
           setEvents(data.events || []);

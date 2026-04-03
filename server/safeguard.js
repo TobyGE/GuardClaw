@@ -275,6 +275,7 @@ export class SafeguardService {
 
   async analyzeCommand(command, chainHistory = null, memoryContext = null, taskContext = null, judgeMeta = null) {
     this._currentJudgeMeta = judgeMeta;
+    this._currentSessionKey = judgeMeta?.sessionKey || null;
 
     const judgeMode = cloudJudge.judgeMode ?? 'mixed';
 
@@ -352,7 +353,7 @@ export class SafeguardService {
 
     // Stage 2: cloud judge escalation (mixed mode only)
     if (judgeMode === 'mixed' && result.riskScore >= 4 && cloudJudge.isConfigured) {
-      const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command });
+      const cloudResult = await cloudJudge.analyze(command, { tool: 'exec', summary: command, sessionKey: this._currentSessionKey });
       if (cloudResult) {
         this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command });
         result = { ...cloudResult, localRiskScore: result.riskScore, localReasoning: result.reasoning };
@@ -368,6 +369,8 @@ export class SafeguardService {
 
   async analyzeToolAction(action, chainHistory = null, memoryContext = null, taskContext = null, judgeMeta = null) {
     this._currentJudgeMeta = judgeMeta;
+    this._currentSessionKey = judgeMeta?.sessionKey || null;
+    if (this._currentSessionKey && !action.sessionKey) action.sessionKey = this._currentSessionKey;
     // Handle chat content separately
     if (action.type === 'chat-update' || action.type === 'agent-message') {
       return this.analyzeChatContent(action);

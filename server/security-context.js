@@ -7,10 +7,11 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { updateGlobalKnowledge } from './global-knowledge.js';
 
 const CONTEXT_DIR = path.join(os.homedir(), '.guardclaw');
 const CONTEXT_FILE = path.join(CONTEXT_DIR, 'security-context.md');
-const MAX_CONTEXT_SIZE = 5000; // chars, ~1.2K tokens
+const MAX_CONTEXT_SIZE = 10000; // chars, ~2.5K tokens
 
 // ─── Read / Write ──────────────────────────────────────────────────────────
 
@@ -75,28 +76,38 @@ Use this structure:
 - patterns to watch out for`;
 
 /**
- * Summarize a session's tool calls and update security-context.md.
+ * Summarize a session and update security-context.md.
  * Called at session end (stop hook).
  *
- * @param {Array} events - tool call events from this session
+ * @param {string|Array} briefOrEvents - Level 1 AI brief (string) or raw events (Array, fallback)
  * @param {object} cloudJudge - CloudJudge instance for LLM call
  * @param {object} sessionSignals - signals for this session
  */
-export async function summarizeSession(events, cloudJudge, sessionSignals) {
-  if (!events || events.length < 3) return; // too few events to learn from
+export async function summarizeSession(briefOrEvents, cloudJudge, sessionSignals) {
+  if (!briefOrEvents) return;
   if (!cloudJudge?.isConfigured) return;
 
   const currentContext = loadSecurityContext() || '(empty — first session)';
+  let sessionContent;
 
-  // Format events into a compact summary
-  const eventSummary = events.slice(-100).map(e => {
-    const tool = e.toolName || e.tool || '?';
-    const score = e.safeguard?.riskScore ?? e.riskScore ?? '?';
-    const verdict = e.safeguard?.verdict || (score >= 8 ? 'BLOCK' : score >= 4 ? 'WARNING' : 'SAFE');
-    const desc = (e.description || e.command || '').slice(0, 120);
-    const approved = e.safeguard?.allowed === true ? '' : e.safeguard?.allowed === false ? ' [DENIED]' : ' [USER-APPROVED]';
-    return `- [${verdict} ${score}] ${tool}: ${desc}${approved}`;
-  }).join('\n');
+  if (typeof briefOrEvents === 'string') {
+    // Level 1 brief (preferred path)
+    sessionContent = `Session security brief (AI-generated):\n${briefOrEvents}`;
+  } else if (Array.isArray(briefOrEvents)) {
+    // Fallback: raw events array
+    if (briefOrEvents.length < 3) return;
+    const eventSummary = briefOrEvents.slice(-100).map(e => {
+      const tool = e.toolName || e.tool || '?';
+      const score = e.safeguard?.riskScore ?? e.riskScore ?? '?';
+      const verdict = e.safeguard?.verdict || (score >= 8 ? 'BLOCK' : score >= 4 ? 'WARNING' : 'SAFE');
+      const desc = (e.description || e.command || '').slice(0, 120);
+      const approved = e.safeguard?.allowed === true ? '' : e.safeguard?.allowed === false ? ' [DENIED]' : ' [USER-APPROVED]';
+      return `- [${verdict} ${score}] ${tool}: ${desc}${approved}`;
+    }).join('\n');
+    sessionContent = `Session tool calls (${briefOrEvents.length} total):\n${eventSummary}`;
+  } else {
+    return;
+  }
 
   // Add session signals summary
   let signalsSummary = '';
@@ -114,8 +125,7 @@ export async function summarizeSession(events, cloudJudge, sessionSignals) {
 ${currentContext}
 ---
 
-Session tool calls (${events.length} total):
-${eventSummary}
+${sessionContent}
 ${signalsSummary}
 
 Update the security-context.md based on this session.`;
@@ -142,6 +152,13 @@ Update the security-context.md based on this session.`;
     }
 
     saveSecurityContext(cleaned);
+
+    // Promote high-severity findings to global knowledge (Level 3)
+    if (typeof briefOrEvents === 'string') {
+      updateGlobalKnowledge(briefOrEvents, cloudJudge).catch(e => {
+        console.error(`[SecurityContext] Global knowledge update failed: ${e.message}`);
+      });
+    }
   } catch (e) {
     console.error(`[SecurityContext] Summarization failed: ${e.message}`);
   }

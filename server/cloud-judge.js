@@ -21,6 +21,7 @@ import http from 'http';
 import path from 'path';
 import os from 'os';
 import { loadSecurityContext } from './security-context.js';
+import { loadGlobalKnowledge } from './global-knowledge.js';
 
 // ─── Provider configs ────────────────────────────────────────────────────────
 
@@ -665,7 +666,12 @@ export class CloudJudge {
     // Inject learned security rules from previous sessions
     const secCtx = loadSecurityContext();
     const secCtxBlock = secCtx ? `\n\n<security-context>\n${secCtx}\n</security-context>` : '';
-    const userContent = masked + piiNote + (extraContext || '') + secCtxBlock;
+    // Inject session brief (Level 1) and global knowledge (Level 3)
+    const sessionBrief = this.sessionBriefProvider?.(action?.sessionKey);
+    const briefBlock = sessionBrief ? `\n\n<session-brief>\n${sessionBrief}\n</session-brief>` : '';
+    const globalKnowledge = loadGlobalKnowledge();
+    const globalBlock = globalKnowledge ? `\n\n<global-knowledge>\n${globalKnowledge}\n</global-knowledge>` : '';
+    const userContent = masked + piiNote + (extraContext || '') + secCtxBlock + briefBlock + globalBlock;
 
     try {
       // ── Two-Stage Classifier ──────────────────────────────────────────────

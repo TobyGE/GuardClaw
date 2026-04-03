@@ -334,6 +334,24 @@ export class SessionSignalTracker {
   }
 
   /**
+   * Get active flag names for a session (for SecurityMemory raw events).
+   * @returns {string[]} e.g. ['credential_read', 'network', 'sensitive_file', 'destructive']
+   */
+  getFlags(sessionKey) {
+    if (!sessionKey) return [];
+    const sig = this.sessions.get(sessionKey);
+    if (!sig) return [];
+    const flags = [];
+    if (sig.credentialRead) flags.push('credential_read');
+    if (sig.sensitiveDataAccessed) flags.push('sensitive_file');
+    if (sig.networkUsed) flags.push('network');
+    if (sig.destructiveActionTaken) flags.push('destructive');
+    if (sig.escalationAttempted) flags.push('escalation');
+    if (sig.budgetExhausted) flags.push('budget_exhausted');
+    return flags;
+  }
+
+  /**
    * Clear signals for a session (e.g., session ended).
    */
   clear(sessionKey) {

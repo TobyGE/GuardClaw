@@ -88,17 +88,22 @@ user_message = d.get('user_message', '')
 hook_event = hook_input.get('hook_event_name', '')
 command = hook_input.get('command', '')
 
-# macOS notification for every analysis
+# macOS notification only for risky operations (score >= 4)
 if user_message:
-    try:
-        safe_msg = user_message[:200].replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"')
-        title = 'GuardClaw BLOCK' if permission == 'deny' else 'GuardClaw'
-        subprocess.Popen([
-            'osascript', '-e',
-            'display notification \"' + safe_msg + '\" with title \"' + title + '\"'
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except:
-        pass
+    import re
+    score_match = re.search(r'score (\d+)', user_message)
+    score = int(score_match.group(1)) if score_match else 0
+    if score >= 4 or permission == 'deny':
+        try:
+            safe_msg = user_message[:200].replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"')
+            level = 'BLOCK' if permission == 'deny' else ('HIGH RISK' if score >= 8 else 'WARNING')
+            sound = 'Basso' if score >= 7 else 'Pop'
+            subprocess.Popen([
+                'osascript', '-e',
+                'display notification \"' + safe_msg + '\" with title \"⛨ GuardClaw ' + level + '\" sound name \"' + sound + '\"'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except:
+            pass
 
 if permission == 'deny':
     out = {'permission': 'deny'}
@@ -110,14 +115,11 @@ if permission == 'deny':
 
 out = {'permission': 'allow'}
 if user_message:
-    out['userMessage'] = user_message
-    out['agentMessage'] = user_message
-
-    # For shell hooks: inject analysis into command output via modified_command
-    if command and hook_event == 'beforeShellExecution':
-        # Escape single quotes for shell
+    # Only inject into shell output for risky operations (score >= 4)
+    if command and hook_event == 'beforeShellExecution' and score >= 4:
         esc = user_message.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))
-        out['modifiedCommand'] = \"printf '%%s\\\\n' '\" + esc + \"'; \" + command
+        color = '31' if score >= 8 else '33'
+        out['modifiedCommand'] = \"printf '\\033[\" + color + \"m%%s\\033[0m\\\\n' '\" + esc + \"'; \" + command
 
 print(json.dumps(out))
 " 2>/dev/null

@@ -34,6 +34,8 @@ import { classifyIntent, deviationFloorBoost } from './intent-tracker.js';
 import { generateIntervention } from './intervention.js';
 import { summarizeSession, loadSecurityContext } from './security-context.js';
 import { agentPermissions } from './agent-permissions.js';
+import { SecurityMemory, buildParamsDigest, buildDataFlowTag } from './security-memory.js';
+import { loadGlobalKnowledge, updateGlobalKnowledge } from './global-knowledge.js';
 
 dotenv.config();
 
@@ -125,6 +127,47 @@ const syscallJudge = new SyscallJudge(safeguardService);
 const eventStore = new EventStore();
 const memoryStore = new MemoryStore();
 const benchmarkStore = new BenchmarkStore();
+const securityMemory = new SecurityMemory(cloudJudge, sessionSignals, eventStore);
+// Wire up session brief provider for cloud judge prompt injection
+cloudJudge.sessionBriefProvider = (sessionKey) => securityMemory.getBriefForJudge(sessionKey);
+
+// Track pending raw event seq numbers: PreToolUse → PostToolUse handoff
+// Key: `${sessionKey}:${toolName}:${digest.slice(0,100)}`, Value: seq number
+const pendingRawSeqs = new Map();
+
+/** Append a raw event to SecurityMemory and store seq for PostToolUse handoff. */
+function recordRawEvent(sessionKey, gcToolName, gcParams, analysis) {
+  const seq = securityMemory.appendRawEvent(sessionKey, {
+    toolName: gcToolName,
+    params: gcParams,
+    riskScore: analysis.riskScore || 1,
+    verdict: analysis.verdict || (analysis.riskScore >= 8 ? 'ask' : 'auto-approved'),
+    allowed: analysis.allowed ?? (analysis.riskScore < 8 ? true : null),
+    flags: sessionSignals.getFlags(sessionKey),
+  });
+  const digest = buildParamsDigest(gcToolName, gcParams);
+  const seqKey = `${sessionKey}:${gcToolName}:${digest.slice(0, 100)}`;
+  pendingRawSeqs.set(seqKey, seq);
+  // Auto-expire after 5 min to prevent leaks
+  setTimeout(() => pendingRawSeqs.delete(seqKey), 300_000);
+  return seq;
+}
+
+/** Complete a raw event in SecurityMemory and trigger compression if needed. */
+function completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet) {
+  const digest = buildParamsDigest(gcToolName, gcParams);
+  const seqKey = `${sessionKey}:${gcToolName}:${digest.slice(0, 100)}`;
+  const seq = pendingRawSeqs.get(seqKey);
+  if (seq == null) return;
+  pendingRawSeqs.delete(seqKey);
+  securityMemory.markToolComplete(sessionKey, seq, resultSnippet);
+  // Check if compression should fire
+  if (securityMemory.shouldCompress(sessionKey) && securityMemory.isCompressionSafe(sessionKey)) {
+    securityMemory.triggerCompression(sessionKey, 'token-threshold').catch(e =>
+      console.error(`[SecurityMemory] Compression failed: ${e.message}`)
+    );
+  }
+}
 
 // ─── DTrace Watcher: alert handler ─────────────────────────────────────────
 // Immediate alerts from dtrace heuristics (sensitive file read, network connect, suspicious exec)
@@ -999,6 +1042,16 @@ app.get('/api/sessions', (req, res) => {
   res.json({ sessions });
 });
 
+app.get('/api/events/stats', (req, res) => {
+  const backend = req.query.backend || null;
+  if (backend && backend !== 'all') {
+    const byBackend = eventStore.getCountsByBackend();
+    res.json(byBackend[backend] || { total: 0, safe: 0, warn: 0, blocked: 0 });
+  } else {
+    res.json(eventStore.getCounts());
+  }
+});
+
 app.get('/api/events/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const filter = req.query.filter || null;   // 'safe', 'warning', 'blocked'
@@ -1216,16 +1269,26 @@ app.post('/api/evaluate', async (req, res) => {
   }
   
   try {
+    // Idle timer for compression fallback (OpenClaw has no native compression hook)
+
+    // Consume pending security brief (from compression/idle timeout)
+    const securityBrief = securityMemory.consumeBrief(sessionKey);
+
     // Layer 1: Agent permission check
     const agentAllow = agentPermissions.checkAllows(sessionKey, toolName, params);
     if (agentAllow.allowed) {
       console.log(`[GuardClaw] Layer 1 ALLOW (agent config): ${toolName} — ${agentAllow.reason}`);
       recordAllow(sessionKey);
-      return res.json({
+      const result = {
         action: 'allow', risk: 1, reason: `Agent allow: ${agentAllow.reason}`,
         details: 'Layer 1: agent config permits this tool call',
         backend: 'agent-config', autoApproved: true, blockingEnabled,
-      });
+      };
+      if (securityBrief) result.message = securityBrief;
+      // Record + immediately complete for SecurityMemory (no PostToolUse for OpenClaw)
+      const ocSeq = securityMemory.appendRawEvent(sessionKey, { toolName, params, riskScore: 1, verdict: 'auto-approved', allowed: true, flags: sessionSignals.getFlags(sessionKey) });
+      securityMemory.markToolComplete(sessionKey, ocSeq, '');
+      return res.json(result);
     }
 
     // Get chain history if applicable (exit-type tools with sensitive prior access)
@@ -1298,6 +1361,9 @@ app.post('/api/evaluate', async (req, res) => {
           payload: { toolName, params },
         });
 
+        // Record + immediately complete for SecurityMemory
+        const autoSeq = securityMemory.appendRawEvent(sessionKey, { toolName, params, riskScore: adjustedScore, verdict: 'auto-approved', allowed: true, flags: sessionSignals.getFlags(sessionKey) });
+        securityMemory.markToolComplete(sessionKey, autoSeq, '');
         return res.json(autoResult);
       }
     }
@@ -1352,6 +1418,16 @@ app.post('/api/evaluate', async (req, res) => {
 
     // Apply trait-based risk floor and record session signals
     applySignalsAndRecord(sessionKey, toolName, params, analysis);
+
+    // Record + immediately complete for SecurityMemory (no PostToolUse for OpenClaw)
+    const evalSeq = securityMemory.appendRawEvent(sessionKey, { toolName, params, riskScore: analysis.riskScore, verdict: analysis.riskScore >= 8 ? 'ask' : 'auto-approved', allowed: analysis.riskScore < 8 ? true : null, flags: sessionSignals.getFlags(sessionKey) });
+    securityMemory.markToolComplete(sessionKey, evalSeq, '');
+    // Check compression
+    if (securityMemory.shouldCompress(sessionKey) && securityMemory.isCompressionSafe(sessionKey)) {
+      securityMemory.triggerCompression(sessionKey, 'token-threshold').catch(e =>
+        console.error(`[SecurityMemory] Compression failed: ${e.message}`)
+      );
+    }
 
     // Cache result so streaming processor can skip duplicate storage
     setCachedEvaluation(sessionKey, toolName, params, analysis);
@@ -1482,7 +1558,7 @@ app.post('/api/evaluate', async (req, res) => {
       });
     }
 
-    res.json({
+    const evalResult = {
       action: 'allow',
       feedbackSample: undefined,
       risk: analysis.riskScore,
@@ -1494,7 +1570,9 @@ app.post('/api/evaluate', async (req, res) => {
       details: analysis.warnings?.join('; ') || analysis.reasoning || '',
       backend: analysis.backend,
       blockingEnabled,
-    });
+    };
+    if (securityBrief) evalResult.message = securityBrief;
+    res.json(evalResult);
   } catch (error) {
     console.error('[GuardClaw] /api/evaluate failed:', error);
     // On error, default to allow (fail-open for availability)
@@ -1654,7 +1732,16 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
   // Capture any assistant text output before this tool call (CC only)
   if (session_id && !isCopilot) emitIntermediateText(session_id);
 
+
+
+
   try {
+    // Consume any pending security brief from compression
+    const securityBrief = securityMemory.consumeBrief(sessionKey);
+    if (securityBrief) {
+      console.log(`[GuardClaw] Delivering security brief to ${sessionKey} (${securityBrief.length} chars)`);
+    }
+
     // Layer 1: Agent permission check — skip AI if agent already allows this tool
     const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
     if (agentAllow.allowed) {
@@ -1668,11 +1755,14 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
         timestamp: Date.now(),
       });
+      const allowMsg = `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)`;
+      recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: 1, verdict: 'auto-approved', allowed: true });
       return res.json({
+        systemMessage: securityBrief || undefined,
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
-          permissionDecisionReason: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)`,
+          permissionDecisionReason: allowMsg,
         },
       });
     }
@@ -1748,6 +1838,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         const allowReason = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${adjScore}, memory)`;
         const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
         console.log(`[GuardClaw] 🧠 ${allowReason}`);
+        recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: adjScore, verdict: 'auto-approved', allowed: true });
         return res.json({
           ...(emitNotice ? { systemMessage: allowReason } : {}),
           hookSpecificOutput: {
@@ -1796,6 +1887,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     // Apply trait-based risk floor and record session signals
     applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
+    // Record raw event for SecurityMemory (Level 0)
+    recordRawEvent(sessionKey, gcToolName, gcParams, analysis);
 
     // Store event
     const formatDisplayInput = (toolName, params) => {
@@ -1867,7 +1961,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       }
 
       return res.json({
-        systemMessage: intervention || (emitNotice ? msg : undefined),
+        systemMessage: securityBrief || intervention || (emitNotice ? msg : undefined),
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
@@ -1884,7 +1978,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         : `⛨ GuardClaw ASK (circuit breaker: too many denials): ${gcToolName}`;
       console.log(`[GuardClaw] ${reason}`);
       return res.json({
-        systemMessage: reason,
+        systemMessage: securityBrief ? `${securityBrief}\n\n${reason}` : reason,
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'ask',
@@ -1982,7 +2076,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
 
     // Return 'ask' immediately so CC shows its own allow/deny dialog
     return res.json({
-      systemMessage: askReason,
+      systemMessage: securityBrief ? `${securityBrief}\n\n${askReason}` : askReason,
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'ask',
@@ -2217,6 +2311,9 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
     : JSON.stringify(output || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
 
+  // Complete raw event in SecurityMemory (Level 0)
+  completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet);
+
   // Scan Read + Bash output for credentials / secrets
   if ((gcToolName === 'read' || gcToolName === 'exec') && output) {
     const content = typeof output === 'string' ? output : JSON.stringify(output);
@@ -2361,7 +2458,11 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
   const gcParams = mapGeminiParams(toolName, toolInput);
   const sessionKey = sessionId ? `gemini:${sessionId}` : 'gemini:default';
 
+
   try {
+    const securityBrief = securityMemory.consumeBrief(sessionKey);
+    if (securityBrief) console.log(`[GuardClaw] Delivering security brief to ${sessionKey} (${securityBrief.length} chars)`);
+
     // Layer 1: Agent permission check
     const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
     if (agentAllow.allowed) {
@@ -2374,7 +2475,9 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
         safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
         timestamp: Date.now(),
       });
-      return res.json({ decision: 'allow', message: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)` });
+      const msg = securityBrief || `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)`;
+      recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: 1, verdict: 'auto-approved', allowed: true });
+      return res.json({ decision: 'allow', message: msg });
     }
 
     const chainHistory = getChainHistory(sessionKey, gcToolName);
@@ -2394,6 +2497,7 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
       if (adjScore < 9) {
         console.log(`[GuardClaw] Gemini auto-approve (memory): ${gcToolName} score=${adjScore}`);
+        recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: adjScore, verdict: 'auto-approved', allowed: true });
         return res.json({ decision: 'allow' });
       }
     }
@@ -2425,6 +2529,9 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
 
     // Apply trait-based risk floor and record session signals
     applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
+    // Record raw event for SecurityMemory (Level 0)
+    recordRawEvent(sessionKey, gcToolName, gcParams, analysis);
 
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
@@ -2467,9 +2574,9 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
 
     recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
-    const message = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
+    const allowMsg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
     console.log(`[GuardClaw] Gemini ALLOW: ${compactInput} score=${analysis.riskScore}`);
-    return res.json({ decision: 'allow', message });
+    return res.json({ decision: 'allow', message: securityBrief || allowMsg });
 
   } catch (error) {
     console.error('[GuardClaw] Gemini hook error:', error.message);
@@ -2494,6 +2601,9 @@ app.post('/api/hooks/gemini/post-tool-use', rateLimit(60_000, 120), (req, res) =
     ? toolOutput.slice(0, 500)
     : JSON.stringify(toolOutput || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
+
+  // Complete raw event in SecurityMemory (Level 0)
+  completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet);
 
   // Scan output for credentials
   if ((gcToolName === 'read' || gcToolName === 'exec') && toolOutput) {
@@ -2548,7 +2658,11 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
   const gcParams = mapGeminiParams(toolName, toolInput);
   const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
 
+
   try {
+    const securityBrief = securityMemory.consumeBrief(sessionKey);
+    if (securityBrief) console.log(`[GuardClaw] Delivering security brief to ${sessionKey} (${securityBrief.length} chars)`);
+
     // Layer 1: Agent permission check
     const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
     if (agentAllow.allowed) {
@@ -2561,7 +2675,9 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
         safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
         timestamp: Date.now(),
       });
-      return res.json({ decision: 'allow', message: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)` });
+      const msg = securityBrief || `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)`;
+      recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: 1, verdict: 'auto-approved', allowed: true });
+      return res.json({ decision: 'allow', message: msg });
     }
 
     const chainHistory = getChainHistory(sessionKey, gcToolName);
@@ -2574,7 +2690,11 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
     }
     if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, 5);
-      if (Math.max(1, Math.min(10, 5 + adj)) < 9) return res.json({ decision: 'allow' });
+      const adjScore = Math.max(1, Math.min(10, 5 + adj));
+      if (adjScore < 9) {
+        recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: adjScore, verdict: 'auto-approved', allowed: true });
+        return res.json({ decision: 'allow' });
+      }
     }
 
     const userPrompt = lastOCPromptText.get(sessionKey);
@@ -2597,6 +2717,9 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
 
     // Apply trait-based risk floor and record session signals
     applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
+    // Record raw event for SecurityMemory (Level 0)
+    recordRawEvent(sessionKey, gcToolName, gcParams, analysis);
 
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
@@ -2625,8 +2748,9 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
 
     recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+    const allowMsg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
     console.log(`[GuardClaw] Codex ALLOW: ${compactInput} score=${analysis.riskScore}`);
-    return res.json({ decision: 'allow', message: `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}` });
+    return res.json({ decision: 'allow', message: securityBrief || allowMsg });
 
   } catch (error) {
     console.error('[GuardClaw] Codex hook error:', error.message);
@@ -2648,6 +2772,10 @@ app.post('/api/hooks/codex/post-tool-use', rateLimit(60_000, 120), (req, res) =>
 
   const resultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
   addToToolHistory(sessionKey, gcToolName, gcParams, resultSnippet);
+
+  // Complete raw event in SecurityMemory (Level 0)
+  completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet);
+
   res.json({ decision: 'allow' });
 });
 
@@ -2667,6 +2795,13 @@ app.post('/api/hooks/codex/stop', rateLimit(60_000, 30), (req, res) => {
   const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
   // Codex provides last_assistant_message directly — no transcript parsing needed
   if (lastMsg) lastOCPromptText.set(`${sessionKey}:reply`, lastMsg.slice(0, 2000));
+  // Final compression + session summarization
+  const codexBrief = securityMemory.getCurrentBrief(sessionKey);
+  if (codexBrief) {
+    summarizeSession(codexBrief, cloudJudge, sessionSignals.getSignals(sessionKey)).catch(() => {});
+  }
+  securityMemory.cleanup(sessionKey);
+  clearDenialCounter(sessionKey);
   res.json({});
 });
 
@@ -2821,20 +2956,30 @@ app.post('/api/hooks/stop', rateLimit(60_000, 30), async (req, res) => {
     }
   } catch {}
 
-  // ─── Summarize session into security-context.md (background, non-blocking) ──
+  // ─── Summarize session into security-context.md using Level 1 brief ──
   try {
-    const sessionEvents = eventStore.getFilteredEvents(100, null, sessionKey);
+    const brief = securityMemory.getCurrentBrief(sessionKey);
     const signals = sessionSignals.getSignals(sessionKey);
-    summarizeSession(sessionEvents, cloudJudge, signals).catch(e => {
-      console.error(`[Stop] Security context summarization failed: ${e.message}`);
-    });
+    if (brief) {
+      summarizeSession(brief, cloudJudge, signals).catch(e => {
+        console.error(`[Stop] Security context summarization failed: ${e.message}`);
+      });
+    } else {
+      // Fallback: use raw events if no brief exists yet
+      const sessionEvents = eventStore.getFilteredEvents(100, null, sessionKey);
+      summarizeSession(sessionEvents, cloudJudge, signals).catch(e => {
+        console.error(`[Stop] Security context summarization failed: ${e.message}`);
+      });
+    }
   } catch (e) {
     console.error(`[Stop] Failed to start session summarization: ${e.message}`);
   }
 
-  // Clean up session signals and denial counters
+  // Clean up
+  securityMemory.cleanup(sessionKey);
   sessionSignals.clear(sessionKey);
   clearDenialCounter(sessionKey);
+
 });
 
 // ─── SubagentStart / SubagentStop hooks ──────────────────────────────────────
@@ -3378,13 +3523,13 @@ app.post('/api/setup/claude-code', (req, res) => {
     const isGCHook = (g) => g?.hooks?.some(h => h.url?.includes('/api/hooks/'));
 
     // Remove existing GuardClaw hooks
-    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'UserPromptSubmit']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'UserPromptSubmit', 'PreCompact']) {
       if (Array.isArray(settings.hooks[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => !isGCHook(g));
       }
     }
 
-    // Add hooks
+    // Add hooks (PreCompact removed — SecurityMemory handles compression internally)
     const hooks = {
       PreToolUse: [{ matcher: '*', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/pre-tool-use`, timeout: 300, statusMessage: '⏳ GuardClaw evaluating...' }] }],
       PostToolUse: [{ matcher: '*', hooks: [{ type: 'http', url: `http://127.0.0.1:${port}/api/hooks/post-tool-use`, timeout: 10 }] }],
@@ -3429,7 +3574,7 @@ app.post('/api/setup/claude-code/uninstall', (req, res) => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     const isGCHook = (g) => g?.hooks?.some(h => h.url?.includes('/api/hooks/'));
 
-    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'UserPromptSubmit']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'UserPromptSubmit', 'PreCompact']) {
       if (Array.isArray(settings.hooks?.[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => !isGCHook(g));
         if (settings.hooks[event].length === 0) delete settings.hooks[event];
@@ -3681,7 +3826,7 @@ app.post('/api/setup/gemini-cli', (req, res) => {
     const isGCHook = (h) => h.command?.includes('gemini-hook.sh') || h.name === 'guardclaw';
 
     // Remove existing GuardClaw hooks
-    for (const event of ['BeforeTool', 'AfterTool']) {
+    for (const event of ['BeforeTool', 'AfterTool', 'PreCompress']) {
       if (Array.isArray(settings.hooks[event])) {
         settings.hooks[event] = settings.hooks[event].filter(g => {
           if (g.hooks) return !g.hooks.some(isGCHook);
@@ -3711,6 +3856,18 @@ app.post('/api/setup/gemini-cli', (req, res) => {
         type: 'command',
         command: hookCmd,
         timeout: 5000,
+      }],
+    });
+
+    // PreCompress: summarize security context before Gemini compresses
+    settings.hooks.PreCompress = settings.hooks.PreCompress || [];
+    settings.hooks.PreCompress.push({
+      matcher: '.*',
+      hooks: [{
+        name: 'guardclaw',
+        type: 'command',
+        command: hookCmd,
+        timeout: 10000,
       }],
     });
 
@@ -3841,7 +3998,11 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
   const gcParams = command ? { command } : mapCursorParams(toolName, toolInput);
   const sessionKey = sessionId ? `cursor:${sessionId}` : 'cursor:default';
 
+
   try {
+    const securityBrief = securityMemory.consumeBrief(sessionKey);
+    if (securityBrief) console.log(`[GuardClaw] Delivering security brief to ${sessionKey} (${securityBrief.length} chars)`);
+
     // Layer 1: Agent permission check
     const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
     if (agentAllow.allowed) {
@@ -3854,7 +4015,8 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
         safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
         timestamp: Date.now(),
       });
-      return res.json({ permission: 'allow' });
+      recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: 1, verdict: 'auto-approved', allowed: true });
+      return res.json({ permission: 'allow', user_message: securityBrief || undefined });
     }
 
     const chainHistory = getChainHistory(sessionKey, gcToolName);
@@ -3874,6 +4036,7 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
       if (adjScore < 9) {
         console.log(`[GuardClaw] Cursor auto-approve (memory): ${gcToolName} score=${adjScore}`);
+        recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: adjScore, verdict: 'auto-approved', allowed: true });
         return res.json({ permission: 'allow' });
       }
     }
@@ -3902,6 +4065,9 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
 
     // Apply trait-based risk floor and record session signals
     applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
+    // Record raw event for SecurityMemory (Level 0)
+    recordRawEvent(sessionKey, gcToolName, gcParams, analysis);
 
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
@@ -3983,7 +4149,7 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
     const userMsg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
     console.log(`[GuardClaw] Cursor ALLOW: ${compactInput} score=${analysis.riskScore}`);
-    return res.json({ permission: 'allow', user_message: userMsg });
+    return res.json({ permission: 'allow', user_message: securityBrief || userMsg });
 
   } catch (error) {
     console.error('[GuardClaw] Cursor hook error:', error.message);
@@ -4005,6 +4171,10 @@ app.post('/api/hooks/cursor/post-tool-use', rateLimit(60_000, 120), (req, res) =
 
   // Chain tracking
   addToChainHistory(sessionKey, gcToolName, gcParams, toolOutput);
+
+  // Complete raw event in SecurityMemory (Level 0)
+  const cursorResultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
+  completeRawEvent(sessionKey, gcToolName, gcParams, cursorResultSnippet);
 
   // Credential scanning on output
   if (toolOutput && typeof toolOutput === 'string') {
@@ -4245,7 +4415,11 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
   const gcParams = mapOpenCodeParams(toolName, toolInput);
   const sessionKey = sessionId ? `opencode:${sessionId}` : 'opencode:default';
 
+
   try {
+    const securityBrief = securityMemory.consumeBrief(sessionKey);
+    if (securityBrief) console.log(`[GuardClaw] Delivering security brief to ${sessionKey} (${securityBrief.length} chars)`);
+
     // Layer 1: Agent permission check
     const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
     if (agentAllow.allowed) {
@@ -4258,7 +4432,9 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
         safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
         timestamp: Date.now(),
       });
-      return res.json({ decision: 'allow', message: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)` });
+      const msg = securityBrief || `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)`;
+      recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: 1, verdict: 'auto-approved', allowed: true });
+      return res.json({ decision: 'allow', message: msg });
     }
 
     const chainHistory = getChainHistory(sessionKey, gcToolName);
@@ -4278,6 +4454,7 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
       if (adjScore < 9) {
         console.log(`[GuardClaw] OpenCode auto-approve (memory): ${gcToolName} score=${adjScore}`);
+        recordRawEvent(sessionKey, gcToolName, gcParams, { riskScore: adjScore, verdict: 'auto-approved', allowed: true });
         return res.json({ decision: 'allow' });
       }
     }
@@ -4306,6 +4483,9 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
 
     // Apply trait-based risk floor and record session signals
     applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
+    // Record raw event for SecurityMemory (Level 0)
+    recordRawEvent(sessionKey, gcToolName, gcParams, analysis);
 
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
@@ -4386,7 +4566,7 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
     recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
     console.log(`[GuardClaw] OpenCode ALLOW: ${compactInput} score=${analysis.riskScore}`);
-    return res.json({ decision: 'allow', reason: `score ${analysis.riskScore}`, message: `${analysis.reasoning || analysis.category}` });
+    return res.json({ decision: 'allow', reason: `score ${analysis.riskScore}`, message: securityBrief || `${analysis.reasoning || analysis.category}` });
 
   } catch (error) {
     console.error('[GuardClaw] OpenCode hook error:', error.message);
@@ -4408,6 +4588,10 @@ app.post('/api/hooks/opencode/post-tool-use', rateLimit(60_000, 120), (req, res)
 
   // Chain tracking
   addToToolHistory(sessionKey, gcToolName, gcParams, toolOutput);
+
+  // Complete raw event in SecurityMemory (Level 0)
+  const ocResultSnippet = typeof toolOutput === 'string' ? toolOutput.slice(0, 500) : JSON.stringify(toolOutput || '').slice(0, 500);
+  completeRawEvent(sessionKey, gcToolName, gcParams, ocResultSnippet);
 
   // Credential scanning on output
   if (toolOutput && typeof toolOutput === 'string') {

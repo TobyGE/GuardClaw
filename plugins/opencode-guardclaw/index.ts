@@ -61,8 +61,8 @@ const GuardClawPlugin: Plugin = async ({ project }) => {
           const color = score >= 7 ? "31" : score >= 4 ? "33" : "90"; // red / yellow / gray
           output.args.command = `printf '\\033[${color}m⛨ GuardClaw ${level} (score ${score})\\033[0m\\n'; ${output.args.command}`;
         }
-        // Cache for non-bash tools (after hook injection)
-        if (input.tool !== "bash" && data.message) {
+        // Cache message (verdict or security brief) for after-hook injection into agent context
+        if (data.message) {
           verdictCache.set(input.callID, data.message);
           setTimeout(() => verdictCache.delete(input.callID), 60000);
         }

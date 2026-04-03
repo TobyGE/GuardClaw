@@ -2,7 +2,7 @@
 // Reads each agent's own permission config to check if a tool call
 // is already allowed by the agent. If so, GuardClaw skips AI evaluation.
 //
-// Supported agents: Claude Code, Copilot CLI, Gemini CLI, Cursor, OpenCode, Codex
+// Supported agents: Claude Code, Copilot CLI, Gemini CLI, Cursor, OpenCode, Codex, OpenClaw
 
 import fs from 'fs';
 import path from 'path';
@@ -34,6 +34,7 @@ const CONFIG_PATHS = {
   'cursor':      () => path.join(os.homedir(), '.cursor', 'cli-config.json'),
   'opencode':    () => 'opencode.json', // project-local
   'codex':       () => path.join(os.homedir(), '.codex', 'config.toml'),
+  'openclaw':    () => path.join(os.homedir(), '.openclaw', 'openclaw.json'),
 };
 
 // ─── AgentPermissionChecker ────────────────────────────────────────────────
@@ -79,6 +80,7 @@ export class AgentPermissionChecker {
       'cursor': 'cursor',
       'opencode': 'opencode',
       'codex': 'codex',
+      'agent': 'openclaw',  // OpenClaw sessions use 'agent:' prefix
     };
     return map[prefix] || null;
   }
@@ -133,6 +135,8 @@ export class AgentPermissionChecker {
         return this._parseOpenCodeConfig(raw);
       case 'codex':
         return this._parseCodexConfig(raw);
+      case 'openclaw':
+        return this._parseOpenClawConfig(raw);
       default:
         return null;
     }
@@ -221,6 +225,22 @@ export class AgentPermissionChecker {
   _parseCodexConfig(_raw) {
     // Codex doesn't have per-tool allow patterns — always fall through to Layer 2/3
     return [];
+  }
+
+  /**
+   * OpenClaw: ~/.openclaw/openclaw.json
+   * { "plugins": { "guardclaw-interceptor": { "allowPatterns": ["Bash(git *)", "Read"] } } }
+   * Also supports top-level allowPatterns for convenience.
+   */
+  _parseOpenClawConfig(raw) {
+    try {
+      const config = JSON.parse(raw);
+      // Check guardclaw-interceptor plugin config first
+      const pluginConf = config?.plugins?.['guardclaw-interceptor'];
+      const allows = pluginConf?.allowPatterns || config?.allowPatterns;
+      if (Array.isArray(allows)) return allows.filter(a => typeof a === 'string');
+      return [];
+    } catch { return []; }
   }
 
   // ─── Pattern matching ─────────────────────────────────────────────────────
