@@ -1,10 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import llmEngine from './llm-engine.js';
 import { judgeStore } from './judge-store.js';
 import { cloudJudge } from './cloud-judge.js';
+import { traitBasedFloor, getToolTraits } from './tool-traits.js';
+import { loadSecurityContext } from './security-context.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPTS = JSON.parse(readFileSync(path.join(__dirname, 'system-prompts.json'), 'utf8'));
@@ -23,33 +24,6 @@ const DANGER_PATTERNS = [
   />\s*>\s*\(\s*(sh|bash|zsh|fish)\b/,                             // redirect to process substitution > >(bash)
   /<<<.*\$\(/,                                                     // here-string with command substitution
   /\|&\s*(sh|bash|zsh|fish)\b/,                                   // |& pipe to shell
-];
-
-// ---------------------------------------------------------------------------
-// Sensitive paths for the Read tool — files that should NOT be auto-safe.
-// Read of these paths scores 7 (warning) instead of 1 (safe).
-// ---------------------------------------------------------------------------
-const SENSITIVE_READ_PATHS = [
-  { re: /[/~]\.ssh\//, reason: 'SSH credentials / config' },
-  { re: /[/~]\.aws\//, reason: 'AWS credentials / config' },
-  { re: /[/~]\.gnupg\//, reason: 'GPG keyring' },
-  { re: /[/~]\.config\/gcloud\//, reason: 'Google Cloud credentials' },
-  { re: /[/~]\.azure\//, reason: 'Azure credentials' },
-  { re: /[/~]\.kube\/config/, reason: 'Kubernetes credentials' },
-  { re: /[/~]\.docker\/config\.json/, reason: 'Docker registry credentials' },
-  { re: /\/etc\/passwd/, reason: 'System user database' },
-  { re: /\/etc\/shadow/, reason: 'System password hashes' },
-  { re: /\/etc\/sudoers/, reason: 'Sudo configuration' },
-  { re: /[/~]\.env(?:\.|$)/, reason: 'Environment file (may contain secrets)' },
-  { re: /[/~]\.netrc/, reason: 'Network credentials file' },
-  { re: /[/~]\.npmrc/, reason: 'npm config (may contain auth token)' },
-  { re: /[/~]\.pypirc/, reason: 'PyPI config (may contain auth token)' },
-  { re: /[/~]\.gem\/credentials/, reason: 'RubyGems credentials' },
-  { re: /[/~]\.config\/gh\/hosts\.yml/, reason: 'GitHub CLI credentials' },
-  { re: /[/~]\.gitconfig/, reason: 'Git config (may contain credentials)' },
-  { re: /credentials\.json/, reason: 'Credentials file' },
-  { re: /service[_-]?account.*\.json/, reason: 'Service account key file' },
-  { re: /[/~]\.terraform\.d\/credentials/, reason: 'Terraform credentials' },
 ];
 
 // Safe base commands (read-only + no destructive side-effects)
@@ -127,33 +101,9 @@ function isClearlySafe(command) {
     return /^git\s+(add|commit|pull|merge|checkout|switch|restore|fetch|status|log|diff|branch|show|stash|tag|remote|describe|shortlog|blame|rev-parse|ls-files|ls-remote|submodule|config|init|clone)\b/.test(cmd);
   }
 
-  // npm / yarn / pnpm — normal dev commands (not publish/deploy)
-  // npx excluded — can download and execute arbitrary packages
-  if (/^(npm|yarn|pnpm)\s+/.test(cmd)) {
-    if (/\s(publish|deploy|exec\s|dlx\s)/.test(cmd)) return false;
-    return true;
-  }
-
-  // pip / pip3
-  if (/^pip[23]?\s+(install|show|list|freeze|check|download|uninstall)\b/.test(cmd)) return true;
-
-  // cargo
-  if (/^cargo\s+(build|test|check|run|fmt|clippy|doc|help|update|add)\b/.test(cmd)) return true;
-
-  // node / python / ruby / go running a script file or --version
-  // EXCLUDE -c (inline code) — can execute arbitrary logic, must go through LLM
-  if (/^(node|python[23]?|ruby|go|java|rustc|tsc|php|perl)\s+/.test(cmd) &&
-      !/^(node|python[23]?|ruby|perl|php)\s+-(c|e)\s/.test(cmd)) return true;
-
-  // vite / vitest / jest / mocha — dev tooling (build/test only)
-  // ts-node, tsx, deno excluded — can execute arbitrary code like node -e
-  if (/^(vite|vitest|jest|mocha)\s+/.test(cmd)) return true;
-
-  // Shell builtins: export / source removed — can modify env vars or execute arbitrary scripts
-  // Let LLM judge these.
-
-  // kill / pkill only when targeting a specific known process by name (not -9 to unknown PIDs)
-  // Don't fast-path — let LLM decide for kill commands.
+  // All execution commands (npm, pip, cargo, node, python, etc.) removed from safe fast-path.
+  // These can execute arbitrary code (postinstall scripts, setup.py, script files) and
+  // must go through AI evaluation. Only pure read-only commands are safe to fast-path.
 
   return false;
 }
@@ -192,25 +142,6 @@ function describeSafeRule(command) {
     return `"git ${sub}" is a standard local Git operation with no external communication`;
   }
 
-  // Package managers
-  if (/^(npm|yarn|pnpm)\s+/.test(cmd)) {
-    const sub = cmd.match(/^(?:npm|yarn|pnpm)\s+(\S+)/)?.[1] || '';
-    return `Package manager command "${base} ${sub}" runs locally within the project`;
-  }
-
-  // Python / pip
-  if (/^pip[23]?\s+/.test(cmd)) return `"${base}" package management command`;
-  if (/^python[23]?\s+\S+\.py/.test(cmd)) return `Running a local Python script file`;
-
-  // Node
-  if (/^node\s+\S+\.m?js/.test(cmd)) return `Running a local Node.js script file`;
-
-  // Build / test tools
-  if (['make','cmake','cargo','go','mvn','gradle'].includes(base))
-    return `Build tool "${base}" runs locally within the project`;
-  if (['vite','vitest','jest','mocha'].includes(base))
-    return `Test/dev server "${base}" runs locally`;
-
   // Directory operations
   if (['cd','mkdir','touch'].includes(base))
     return `"${base}" is a basic filesystem operation with minimal risk`;
@@ -238,10 +169,7 @@ export class SafeguardService {
     this.cacheStats = { hits: 0, misses: 0, aiCalls: 0, ruleCalls: 0 };
 
     // Initialize backend
-    if (this.backend === 'anthropic' && apiKey) {
-      this.client = new Anthropic({ apiKey });
-      this.enabled = true;
-    } else if (this.backend === 'built-in') {
+    if (this.backend === 'built-in') {
       this.enabled = true;
     } else if (this.backend === 'lmstudio' || this.backend === 'ollama') {
       this.enabled = true;
@@ -313,6 +241,28 @@ export class SafeguardService {
     return this._llmClient || null;
   }
 
+  /**
+   * Apply trait-based risk floor to a scoring result.
+   * If the tool's traits + session signals demand a higher minimum score,
+   * raise riskScore (never lower it).
+   */
+  applyTraitFloor(toolName, sessionSignals, result) {
+    if (!result) return result;
+    const floor = traitBasedFloor(toolName, sessionSignals || {});
+    if (floor > result.riskScore) {
+      result.traitFloor = floor;
+      result.originalRiskScore = result.originalRiskScore || result.riskScore;
+      result.riskScore = floor;
+      result.allowed = floor < 8;
+      if (sessionSignals?.sensitiveDataAccessed && getToolTraits(toolName).canExfiltrate) {
+        result.reasoning += ` [ELEVATED: sensitive data accessed earlier in session → floor ${floor}]`;
+        result.warnings = result.warnings || [];
+        result.warnings.push('Session has accessed sensitive data — elevated risk for network-capable tool');
+      }
+    }
+    return result;
+  }
+
   async analyzeAction(action) {
     // Wrapper for different action types
     if (action.type === 'exec' || action.tool === 'exec') {
@@ -328,29 +278,8 @@ export class SafeguardService {
 
     const judgeMode = cloudJudge.judgeMode ?? 'mixed';
 
-    // cloud-only: skip local LLM entirely; cloud judge must succeed or we block
-    if (judgeMode === 'cloud-only') {
-      const cloudResult = cloudJudge.isConfigured
-        ? await cloudJudge.analyze(command, { tool: 'exec', summary: command })
-        : null;
-      if (cloudResult) { this._recordJudgeCall(cloudResult, { tool: 'exec', summary: command }); return cloudResult; }
-      const warning = cloudJudge.isConfigured
-        ? 'Cloud judge call failed — check provider connection in Dashboard → Judge → Cloud'
-        : 'Cloud judge is not configured — connect a provider in Dashboard → Judge → Cloud';
-      // Cloud unavailable or not configured — do NOT fall back to local LLM in cloud-only mode
-      return {
-        riskScore: 9,
-        category: 'dangerous',
-        reasoning: 'Cloud judge unavailable (cloud-only mode). Blocking to stay safe.',
-        allowed: false,
-        warnings: [warning],
-        backend: 'cloud-only-error',
-        verdict: 'BLOCK',
-      };
-    }
-
-    // Safe fast-path: obviously safe commands skip LLM entirely
-    // (bypass fast-path if chain history exists — a "safe" command can be dangerous in context)
+    // Layer 2: Safe fast-path for read-only commands (applies to ALL modes including cloud-only)
+    // Bypass fast-path if chain history exists — a "safe" command can be dangerous in context
     if (isClearlySafe(command) && !chainHistory) {
       this.cacheStats.ruleCalls++;
       return {
@@ -361,6 +290,15 @@ export class SafeguardService {
         warnings: [],
         backend: 'rules',
       };
+    }
+
+    // cloud-only: route to cloud judge (Layer 3); fail-open if unavailable
+    if (judgeMode === 'cloud-only') {
+      const prompt = this.createAnalysisPrompt(command)
+        + (taskContext ? this.buildTaskContextSection(taskContext) : '')
+        + ((chainHistory && !taskContext?.sessionTranscript) ? this.buildChainContextSection(chainHistory) : '')
+        + this.buildMemoryContextSection(memoryContext);
+      return this.runLLMPrompt(prompt, { tool: 'exec', summary: command }, judgeMeta);
     }
 
     // Check cache first
@@ -386,16 +324,14 @@ export class SafeguardService {
     if (!this.enabled) {
       result = this.fallbackAnalysis(command);
     } else {
-      const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+      const hasTranscript = !!taskContext?.sessionTranscript;
+      const chainSection = (chainHistory && !hasTranscript) ? this.buildChainContextSection(chainHistory) : '';
       const memorySection = this.buildMemoryContextSection(memoryContext);
       const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
       const prompt = this.createAnalysisPrompt(command) + taskSection + chainSection + memorySection;
 
       {
         switch (this.backend) {
-          case 'anthropic':
-            result = await this.analyzeWithClaudePrompt(prompt, command);
-            break;
           case 'built-in':
             result = await this.analyzeWithBuiltIn(prompt, { tool: 'exec', summary: command });
             break;
@@ -451,7 +387,38 @@ export class SafeguardService {
       };
     };
 
-    // cloud-only: every tool action goes to cloud judge (or blocks if unavailable).
+    // Layer 2: Safe tools fast-path (applies to ALL modes including cloud-only)
+    const SAFE_TOOLS = new Set([
+      'read',           // reading files is safe (sensitive path detection moved to AI)
+      'glob',           // file pattern matching (read-only)
+      'grep',           // content search (read-only)
+      'memory_search',  // semantic search over local memory files
+      'memory_get',     // read snippet from memory file
+      'web_search',     // search query (read-only)
+      'lsp',            // language server protocol (read-only)
+      'session_status', // status info
+      'sessions_list',  // list sessions
+      'sessions_history', // read session history
+      'image',          // image analysis
+      'process',        // OpenClaw internal process manager (not Unix kill)
+      'tts',            // text-to-speech
+      'plan_mode',      // entering/exiting plan mode (no side effects)
+      'task',           // task management (no side effects)
+      'ask_user',       // asking user a question (no side effects)
+    ]);
+    if (SAFE_TOOLS.has(action.tool)) {
+      this.cacheStats.ruleCalls++;
+      return {
+        riskScore: 1,
+        category: 'safe',
+        reasoning: `Read-only tool: ${action.tool}`,
+        allowed: true,
+        warnings: [],
+        backend: 'rules',
+      };
+    }
+
+    // cloud-only: route to cloud judge (Layer 3) for non-safe tools; fail-open if unavailable
     if (judgeMode === 'cloud-only') {
       if (action.tool === 'write' || action.tool === 'edit') {
         return this.analyzeWriteAction(action, chainHistory, taskContext, judgeMeta);
@@ -460,72 +427,13 @@ export class SafeguardService {
       return this.runLLMPrompt(prompt, action, judgeMeta);
     }
 
-    // Fast-path: clearly safe tools — no side effects, no writes, no network posts
-    const SAFE_TOOLS = new Set([
-      // NOTE: 'read' removed — handled separately below with sensitive path detection
-      'memory_search',  // semantic search over local memory files
-      'memory_get',     // read snippet from memory file
-      'web_search',     // search query (read-only)
-      // NOTE: 'web_fetch' removed — handled separately below (URL can carry exfiltrated data)
-      'session_status', // status info
-      'sessions_list',  // list sessions
-      'sessions_history', // read session history
-      'image',          // image analysis
-      'process',        // OpenClaw internal process manager (not Unix kill)
-      'tts',            // text-to-speech
-      // canvas: only non-eval actions are safe (eval handled separately below)
-    ]);
-    if (SAFE_TOOLS.has(action.tool)) {
-      this.cacheStats.ruleCalls++;
-      return mixedEscalate({
-        riskScore: 1,
-        category: 'safe',
-        reasoning: `Read-only tool: ${action.tool}`,
-        allowed: true,
-        warnings: [],
-        backend: 'rules',
-      });
-    }
-
     // Read tool: no longer fast-pathed — let LLM judge all reads
     // (sensitive paths like .ssh/, .aws/, .env are in the system prompt rules)
 
-    // WebFetch: URL can carry exfiltrated data in query params or path
+    // WebFetch: always let AI judge (URL can carry exfiltrated data, embedded secrets, etc.)
     if (action.tool === 'web_fetch') {
-      const url = action.url || action.parsedInput?.url || action.summary || '';
-      // If there's chain history (prior reads), the URL could carry stolen data
-      if (chainHistory && chainHistory.length > 0) {
-        // Let LLM judge whether this is exfiltration given the chain context
-        const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
-        return this.runLLMPrompt(prompt, action, judgeMeta);
-      }
-      // No chain — check URL for embedded secrets patterns
-      const SECRET_IN_URL = [
-        { re: /[?&](?:key|token|secret|password|credential|api_key)=/i, reason: 'URL query parameter contains credential-like key' },
-        { re: /(?:sk-ant-|sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|github_pat_)/, reason: 'URL contains embedded API key or token' },
-        { re: /-----BEGIN/, reason: 'URL contains embedded certificate/key data' },
-      ];
-      const urlMatch = SECRET_IN_URL.find(({ re }) => re.test(url));
-      if (urlMatch) {
-        this.cacheStats.ruleCalls++;
-        return mixedEscalate({
-          riskScore: 9,
-          category: 'data-exfiltration',
-          reasoning: `Potential data exfiltration via WebFetch: ${urlMatch.reason} — ${url.slice(0, 120)}`,
-          allowed: false,
-          warnings: [urlMatch.reason],
-          backend: 'rules',
-        });
-      }
-      this.cacheStats.ruleCalls++;
-      return mixedEscalate({
-        riskScore: 1,
-        category: 'safe',
-        reasoning: `WebFetch to ${url.slice(0, 80)} — no chain history, no embedded secrets`,
-        allowed: true,
-        warnings: [],
-        backend: 'rules',
-      });
+      const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
+      return this.runLLMPrompt(prompt, action, judgeMeta);
     }
 
     // Glob/Grep: check if searching for sensitive patterns or paths
@@ -668,9 +576,6 @@ export class SafeguardService {
       const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
       
       switch (this.backend) {
-        case 'anthropic':
-          result = await this.analyzeWithClaudePrompt(prompt);
-          break;
         case 'built-in':
           result = await this.analyzeWithBuiltIn(prompt, action);
           break;
@@ -707,7 +612,8 @@ export class SafeguardService {
     const oldStr = input.old_string || action.old_string || '';
     const judgeMode = cloudJudge.judgeMode ?? 'mixed';
     const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
-    const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+    const hasTranscript = !!taskContext?.sessionTranscript;
+    const chainSection = (chainHistory && !hasTranscript) ? this.buildChainContextSection(chainHistory) : '';
     const writePrompt = this.createWriteAnalysisPrompt(filePath, content, oldStr, action.tool, taskSection + chainSection);
     const mixedEscalateWrite = async (result) => {
       if (judgeMode !== 'mixed') return result;
@@ -736,78 +642,9 @@ export class SafeguardService {
       `${process.env.HOME}/Desktop`,
       `/tmp/`,
     ];
-    // Persistence / backdoor paths — rule-based fast path, no LLM needed.
-    // Writing to these is high-risk regardless of content.
-    const PERSISTENCE_PATHS = [
-      { re: /\/\.ssh\/authorized_keys$/, reason: 'SSH authorized_keys — backdoor risk' },
-      { re: /\/\.ssh\/(config|id_rsa|id_ed25519)/, reason: 'SSH credentials or config' },
-      { re: /\/\.aws\/credentials/, reason: 'AWS credentials file' },
-      { re: /\/\.(bashrc|zshrc|bash_profile|zprofile|profile|bash_login)$/, reason: 'Shell startup file — persistent code execution' },
-      { re: /\/etc\/(?:passwd|shadow|sudoers|crontab|hosts)/, reason: 'Critical system file' },
-      { re: /\/var\/spool\/cron|\/etc\/cron/, reason: 'Cron job — persistent execution' },
-      { re: /\/Library\/Launch(Agents|Daemons)\//, reason: 'macOS LaunchAgent/Daemon — persistent execution' },
-      { re: /\/\.git\/hooks\//, reason: 'Git hook — executes on git operations' },
-      { re: /^\/(usr|bin|sbin|System)\//, reason: 'System binary path' },
-    ];
-
-    for (const { re, reason } of PERSISTENCE_PATHS) {
-      if (re.test(filePath)) {
-        this.cacheStats.ruleCalls++;
-        return mixedEscalateWrite({
-          riskScore: 9,
-          category: 'file-write',
-          reasoning: `${reason}: ${filePath}`,
-          allowed: false,
-          warnings: [reason],
-          backend: 'rules',
-        });
-      }
-    }
-
-    // Content: detect high-signal danger patterns fast (skip LLM for obvious cases)
-    const DANGER_CONTENT = [
-      // ── Credentials & API keys ──────────────────────────────────────────────
-      // OpenAI / generic sk- keys
-      { re: /sk-[a-zA-Z0-9]{32,}/, reason: 'OpenAI API key in file content' },
-      // Anthropic
-      { re: /sk-ant-[a-zA-Z0-9\-]{20,}/, reason: 'Anthropic API key in file content' },
-      // AWS access key ID
-      { re: /AKIA[A-Z0-9]{16}/, reason: 'AWS access key ID in file content' },
-      // GitHub tokens
-      { re: /ghp_[a-zA-Z0-9]{36}/, reason: 'GitHub personal access token in file content' },
-      { re: /github_pat_[a-zA-Z0-9_]{82}/, reason: 'GitHub fine-grained token in file content' },
-      { re: /ghs_[a-zA-Z0-9]{36}/, reason: 'GitHub Actions secret in file content' },
-      // Slack tokens
-      { re: /xox[baprs]-[a-zA-Z0-9\-]{10,}/, reason: 'Slack token in file content' },
-      // Stripe live keys
-      { re: /sk_live_[a-zA-Z0-9]{24,}/, reason: 'Stripe live secret key in file content' },
-      // SendGrid
-      { re: /SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}/, reason: 'SendGrid API key in file content' },
-      // Google API key
-      { re: /AIza[a-zA-Z0-9_\-]{35}/, reason: 'Google API key in file content' },
-      // JWT tokens (3-part base64url)
-      { re: /eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+/, reason: 'JWT token in file content' },
-      // ── Private keys & certificates ──────────────────────────────────────────
-      { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, reason: 'Private key in file content' },
-      { re: /-----BEGIN CERTIFICATE-----/, reason: 'Certificate in file content (possible credential)' },
-      // ── Dangerous shell patterns ──────────────────────────────────────────────
-      { re: /curl\s+.*\|\s*(bash|sh)/, reason: 'Remote code execution in script' },
-      { re: /:\(\)\s*\{.*;\s*\}/, reason: 'Fork bomb pattern' },
-    ];
-    for (const { re, reason } of DANGER_CONTENT) {
-      if (re.test(content)) {
-        return mixedEscalateWrite({
-          riskScore: 8,
-          category: 'file-write',
-          reasoning: reason,
-          allowed: false,
-          warnings: [reason],
-          backend: 'rules',
-        });
-      }
-    }
-
-    // Safe path + no dangerous content — build LLM prompt with content snippet
+    // All write/edit actions go through AI evaluation.
+    // Rule-based deny (PERSISTENCE_PATHS, DANGER_CONTENT) removed — AI handles these better
+    // with fewer false positives (e.g., test files containing mock API keys).
     return this.runLLMPrompt(writePrompt, action, judgeMeta);
   }
 
@@ -837,13 +674,14 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
         : 'Cloud judge is not configured — connect a provider in Dashboard → Judge → Cloud';
       // Cloud unavailable or not configured — do NOT fall back to local LLM in cloud-only mode
       return {
-        riskScore: 9,
-        category: 'dangerous',
-        reasoning: 'Cloud judge unavailable (cloud-only mode). Blocking to stay safe.',
-        allowed: false,
+        riskScore: 5,
+        category: 'unknown',
+        reasoning: 'Cloud judge unavailable — asking user to confirm.',
+        allowed: true,
         warnings: [warning],
-        backend: 'cloud-only-error',
-        verdict: 'BLOCK',
+        backend: 'cloud-only-failopen',
+        verdict: 'ASK',
+        failOpen: true,
       };
     }
 
@@ -868,7 +706,6 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
       result = this.fallbackToolAnalysis(action);
     } else {
       switch (this.backend) {
-        case 'anthropic':   result = await this.analyzeWithClaudePrompt(prompt); break;
         case 'built-in':    result = await this.analyzeWithBuiltIn(prompt, action); break;
         case 'lmstudio':    result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
         case 'ollama':      result = await this.analyzeWithOllamaPrompt(prompt); break;
@@ -982,9 +819,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
       const prompt = this.createChatAnalysisPrompt(text);
       
       switch (this.backend) {
-        case 'anthropic':
-          result = await this.analyzeWithClaudePrompt(prompt);
-          break;
+
         case 'built-in':
           result = await this.analyzeWithBuiltIn(prompt);
           break;
@@ -1058,9 +893,7 @@ Respond ONLY with valid JSON:
       result = { riskScore: 1, category: 'safe', reasoning: 'No analysis backend', allowed: true, warnings: [], backend: 'fallback' };
     } else {
       switch (this.backend) {
-        case 'anthropic':
-          result = await this.analyzeWithClaudePrompt(prompt);
-          break;
+
         case 'built-in':
           result = await this.analyzeWithBuiltIn(prompt, action);
           break;
@@ -1264,9 +1097,22 @@ Use this to calibrate your judgment — if the user consistently marks a pattern
     if (taskContext.cwd) {
       parts.push(`WORKING DIR: ${taskContext.cwd}`);
     }
-    if (taskContext.recentTools && taskContext.recentTools.length > 0) {
-      parts.push(`RECENT TOOLS IN THIS TURN:\n${taskContext.recentTools.join('\n')}`);
+    // Include session transcript (full conversation history) if available
+    // recentTools is always redundant (subset of transcript or chainHistory), so skip it
+    if (taskContext.sessionTranscript) {
+      parts.push(`<transcript>\n${taskContext.sessionTranscript}\n</transcript>\nThe action to evaluate is the agent's most recent action (last entry above).`);
     }
+    // Include session signals if provided in taskContext
+    if (taskContext.sessionSignals) {
+      const sigSection = this.buildSessionSignalsSection(taskContext.sessionSignals);
+      if (sigSection) parts.push(sigSection.trim());
+    }
+    // Load learned security rules from previous sessions
+    const secCtx = loadSecurityContext();
+    if (secCtx) {
+      parts.push(`<security-context>\n${secCtx}\n</security-context>\nThese are learned security rules from previous sessions. Use them to calibrate your judgment.`);
+    }
+
     if (parts.length === 0) return '';
     return `
 
@@ -1274,8 +1120,55 @@ TASK CONTEXT (what the user asked the agent to do):
 ${parts.join('\n')}`;
   }
 
+  /**
+   * Build a session signals section for the LLM prompt.
+   * Gives the LLM awareness of accumulated security state.
+   */
+  buildSessionSignalsSection(signals) {
+    if (!signals) return '';
+    const flags = [];
+    if (signals.sensitiveDataAccessed) {
+      flags.push(`⚠️ SENSITIVE DATA ACCESSED: ${signals.sensitiveFiles.slice(0, 5).join(', ')}`);
+    }
+    if (signals.credentialRead) {
+      flags.push(`⚠️ CREDENTIALS READ in this session`);
+    }
+    if (signals.networkUsed) {
+      flags.push(`Network tools used in this session`);
+    }
+    if (signals.destructiveActionTaken) {
+      flags.push(`Destructive actions taken in this session`);
+    }
+    if (signals.escalationAttempted) {
+      flags.push(`⚠️ PRIVILEGE ESCALATION attempted in this session`);
+    }
+    if (signals.budgetExhausted) {
+      flags.push(`⚠️ SESSION RISK BUDGET EXHAUSTED (${signals.cumulativeRisk}/${signals.riskBudget}) — be strict`);
+    } else if (signals.cumulativeRisk >= signals.riskBudget * 0.8) {
+      flags.push(`Session risk budget nearly exhausted (${signals.cumulativeRisk}/${signals.riskBudget}) — be cautious`);
+    }
+    if (signals.intent) {
+      const cats = signals.intent.categories?.map(c => c.id).join(', ');
+      const summary = signals.intent.summary || signals.intent.raw?.slice(0, 80);
+      if (cats) flags.push(`User intent: [${cats}]${summary ? ` — "${summary}"` : ''}`);
+      if (signals.intent.explicitSensitive) {
+        flags.push(`User EXPLICITLY requested sensitive operations`);
+      }
+    }
+    flags.push(`Tool calls in session: ${signals.toolCount}, high-risk: ${signals.highRiskCount}`);
+
+    if (flags.length <= 1) return ''; // only toolCount, nothing interesting
+    return `
+
+SESSION STATE (accumulated across ${signals.toolCount} tool calls in this session):
+${flags.join('\n')}
+Use this to assess multi-step risk. If sensitive data was accessed and current tool is network-capable, treat as potential exfiltration.`;
+  }
+
   createToolAnalysisPrompt(action, chainHistory = null, memoryContext = null, taskContext = null) {
-    const chainSection = chainHistory ? this.buildChainContextSection(chainHistory) : '';
+    // Skip chain history when full transcript is available (it's redundant)
+    const hasTranscript = !!taskContext?.sessionTranscript;
+    const chainSection = (chainHistory && !hasTranscript) ? this.buildChainContextSection(chainHistory) : '';
     const memorySection = this.buildMemoryContextSection(memoryContext);
     const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
 
@@ -1310,25 +1203,6 @@ ${parts.join('\n')}`;
 PARAMS: ${action.summary}${detailSection}${taskSection}${chainSection}${memorySection}`;
   }
 
-  async analyzeWithClaudePrompt(prompt, rawCommand) {
-    try {
-      const response = await this.client.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 800,
-        messages: [{
-          role: 'user',
-          content: prompt
-        }]
-      });
-
-      const content = response.content[0].text;
-      return this.parseAnalysisResponse(content, prompt, rawCommand);
-    } catch (error) {
-      console.error('[SafeguardService] Claude analysis failed:', error);
-      return this.fallbackToolAnalysis({ summary: rawCommand || 'unknown' });
-    }
-  }
-
   // ─── Per-model configurations ───────────────────────────────────────────────
   // Each entry: { system, temperature, max_tokens, promptStyle }
   // promptStyle: 'full' | 'minimal'
@@ -1352,7 +1226,7 @@ Format: {"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences: what the comman
     // qwen3-4b: capable thinking model — full rules in system prompt
     'qwen/qwen3-4b-2507': {
       temperature: 0.05,
-      max_tokens: 250,
+      max_tokens: 300,
       promptStyle: 'full',
       system: SYSTEM_PROMPTS['qwen3-4b']
     },
@@ -1753,27 +1627,6 @@ ACTION: ${action.summary}${detailSection}`;
     };
   }
 
-  async analyzeWithClaude(command) {
-    const prompt = this.createAnalysisPrompt(command);
-
-    try {
-      const response = await this.client.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 800,
-        messages: [{
-          role: 'user',
-          content: prompt
-        }]
-      });
-
-      const content = response.content[0].text;
-      return this.parseAnalysisResponse(content, command);
-    } catch (error) {
-      console.error('[SafeguardService] Claude analysis failed:', error);
-      return this.fallbackAnalysis(command);
-    }
-  }
-
   // Expanded pre-filter for small models — catches obvious safe + dangerous cases
   // before wasting LLM inference on them.
   quickAnalysisExpanded(command) {
@@ -2037,11 +1890,19 @@ ACTION: ${action.summary}${detailSection}`;
           }
         }
 
+        // Use LLM-provided riskScore if present and valid, otherwise use verdict mapping
+        let finalScore = mapped.riskScore;
+        if (typeof analysis.riskScore === 'number' && analysis.riskScore >= 1 && analysis.riskScore <= 10) {
+          finalScore = analysis.riskScore;
+        }
+        const finalCategory = finalScore >= 8 ? 'dangerous' : finalScore >= 4 ? 'warning' : 'safe';
+        const finalAllowed = finalScore < 8;
+
         return {
-          riskScore: mapped.riskScore,
-          category: mapped.category,
+          riskScore: finalScore,
+          category: finalCategory,
           reasoning: reason,
-          allowed: mapped.allowed,
+          allowed: finalAllowed,
           warnings: Array.isArray(analysis.warnings) ? analysis.warnings : [],
           backend: this.backend,
           verdict,
@@ -2299,13 +2160,6 @@ ACTION: ${action.summary}${detailSection}`;
         return ollamaResult;
       }
 
-      if (this.backend === 'anthropic') {
-        const anthropicResult = { connected: !!this.client, backend: 'anthropic', message: this.client ? 'API key configured' : 'API key missing' };
-        this._connCacheResult = anthropicResult;
-        this._connCacheTime = now;
-        return anthropicResult;
-      }
-
       if (this.backend === 'openrouter') {
         if (!this.config.openrouterApiKey) {
           const r = { connected: false, backend: 'openrouter', message: 'OPENROUTER_API_KEY not set' };
@@ -2398,9 +2252,7 @@ Output ONLY ONE JSON object:
       };
     } else {
       switch (this.backend) {
-        case 'anthropic':
-          result = await this.analyzeWithClaudePrompt(prompt);
-          break;
+
         case 'built-in':
           result = await this.analyzeWithBuiltIn(prompt, action);
           break;

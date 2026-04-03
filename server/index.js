@@ -29,6 +29,11 @@ import { getDataDir, getGuardClawDir } from './data-dir.js';
 import { ApprovalNotifier } from './channels/notifier.js';
 import { dtraceWatcher } from './dtrace-watcher.js';
 import { SyscallJudge } from './syscall-judge.js';
+import { sessionSignals } from './session-signals.js';
+import { classifyIntent, deviationFloorBoost } from './intent-tracker.js';
+import { generateIntervention } from './intervention.js';
+import { summarizeSession, loadSecurityContext } from './security-context.js';
+import { agentPermissions } from './agent-permissions.js';
 
 dotenv.config();
 
@@ -219,6 +224,35 @@ const PENDING_ASK_TIMEOUT_MS = 15_000; // fallback: infer denial after 15s with 
 const ccAllowNoticeCache = new Map(); // key -> last emitted timestamp
 const CC_ALLOW_NOTICE_TTL_MS = 12_000;
 
+// ─── Denial Circuit Breaker ──────────────────────────────────────────────────
+// Tracks consecutive and total denials per session. When thresholds are exceeded,
+// degrade to 'ask' (CC) or 'allow + warning' (other agents) instead of blocking.
+const denialCounters = new Map(); // sessionKey → { consecutive, total }
+const DENIAL_MAX_CONSECUTIVE = 3;
+const DENIAL_MAX_TOTAL = 20;
+
+function recordDenial(sessionKey) {
+  const c = denialCounters.get(sessionKey) || { consecutive: 0, total: 0 };
+  c.consecutive++;
+  c.total++;
+  denialCounters.set(sessionKey, c);
+}
+
+function recordAllow(sessionKey) {
+  const c = denialCounters.get(sessionKey);
+  if (c) c.consecutive = 0;
+}
+
+function isDenialCircuitOpen(sessionKey) {
+  const c = denialCounters.get(sessionKey);
+  if (!c) return false;
+  return c.consecutive >= DENIAL_MAX_CONSECUTIVE || c.total >= DENIAL_MAX_TOTAL;
+}
+
+function clearDenialCounter(sessionKey) {
+  denialCounters.delete(sessionKey);
+}
+
 // Infer denials for pending asks in a session.
 // Called on each new hook — if a new hook arrives and the pending ask wasn't cleared
 // by PostToolUse (approve), it means the user denied it.
@@ -391,11 +425,156 @@ function addToToolHistory(sessionKey, toolName, params, result) {
   toolHistoryStore.set(sessionKey, history);
 }
 
+/**
+ * Read CC transcript file and format as condensed timeline for cloud judge.
+ * Similar to CC auto mode's <transcript> but condensed to stay within token limits.
+ * Returns null if transcript unavailable or too short to be useful.
+ */
+function readTranscriptForJudge(sessionId) {
+  if (!sessionId) return null;
+  const txPath = ccTranscriptPaths.get(sessionId);
+  if (!txPath) return null;
+
+  try {
+    const raw = fs.readFileSync(txPath, 'utf8').trim();
+    if (!raw) return null;
+    const lines = raw.split('\n').filter(Boolean);
+    if (lines.length < 2) return null;
+
+    const timeline = [];
+    let totalChars = 0;
+    const MAX_CHARS = 30000; // ~7.5K tokens, safe for Haiku's 200K context
+
+    for (const line of lines) {
+      if (totalChars >= MAX_CHARS) {
+        timeline.push('[...earlier messages truncated...]');
+        break;
+      }
+      try {
+        const entry = JSON.parse(line);
+
+        if (entry.type === 'user' && entry.message?.role === 'user') {
+          // User message
+          const content = entry.message.content;
+          let text = '';
+          if (typeof content === 'string') {
+            text = content.trim();
+          } else if (Array.isArray(content)) {
+            text = content.filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
+          }
+          if (text) {
+            const snippet = text.length > 500 ? text.slice(0, 500) + '...' : text;
+            timeline.push(`[User] ${snippet}`);
+            totalChars += snippet.length + 10;
+          }
+        } else if (entry.type === 'assistant' && entry.message?.role === 'assistant') {
+          // Assistant message — extract tool_use calls
+          const content = entry.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'tool_use') {
+                const inputStr = JSON.stringify(block.input || {});
+                const snippet = inputStr.length > 300 ? inputStr.slice(0, 300) + '...' : inputStr;
+                timeline.push(`[Agent Tool] ${block.name}: ${snippet}`);
+                totalChars += snippet.length + 20;
+              } else if (block.type === 'text' && block.text?.trim()) {
+                const text = block.text.trim();
+                const snippet = text.length > 200 ? text.slice(0, 200) + '...' : text;
+                timeline.push(`[Agent] ${snippet}`);
+                totalChars += snippet.length + 10;
+              }
+            }
+          }
+        } else if (entry.type === 'tool_result') {
+          // Tool results — just note them briefly
+          const resultContent = entry.message?.content;
+          let resultText = '';
+          if (typeof resultContent === 'string') {
+            resultText = resultContent;
+          } else if (Array.isArray(resultContent)) {
+            resultText = resultContent.filter(b => b.type === 'text').map(b => b.text).join(' ');
+          }
+          if (resultText) {
+            const snippet = resultText.length > 150 ? resultText.slice(0, 150) + '...' : resultText;
+            timeline.push(`[Result] ${snippet}`);
+            totalChars += snippet.length + 10;
+          }
+        }
+      } catch {}
+    }
+
+    return timeline.length > 2 ? timeline.join('\n') : null;
+  } catch {
+    return null;
+  }
+}
+
 function getChainHistory(sessionKey, currentTool) {
   if (!sessionKey) return null;
   const history = toolHistoryStore.get(sessionKey) || [];
   // Always send chain history to LLM — multi-step attacks can only be caught with full context
   return history.length > 0 ? history : null;
+}
+
+/**
+ * Apply trait-based risk floor + intent deviation and record signals.
+ * Call this after LLM/rule scoring + memory adjustment, before storing the event.
+ */
+function applySignalsAndRecord(sessionKey, toolName, params, analysis) {
+  const signals = sessionSignals.getSignals(sessionKey);
+
+  // 1. Apply trait-based floor (from signal accumulation)
+  safeguardService.applyTraitFloor(toolName, signals, analysis);
+
+  // 2. Apply intent deviation boost
+  const intent = sessionSignals.getIntent(sessionKey);
+  if (intent && intent.categories.length > 0) {
+    const boost = deviationFloorBoost(toolName, params, intent, signals);
+    if (boost > 0) {
+      const newScore = Math.min(10, analysis.riskScore + boost);
+      if (newScore > analysis.riskScore) {
+        analysis.intentDeviation = true;
+        analysis.deviationBoost = boost;
+        analysis.originalRiskScore = analysis.originalRiskScore || analysis.riskScore;
+        analysis.riskScore = newScore;
+        analysis.allowed = newScore < 8;
+        const catLabels = intent.categories.map(c => c.id).join(', ');
+        analysis.reasoning += ` [DEVIATION: tool "${toolName}" unexpected for intent [${catLabels}], +${boost}]`;
+        analysis.warnings = analysis.warnings || [];
+        analysis.warnings.push(`Tool deviates from user intent: ${catLabels}`);
+        console.log(`[GuardClaw] 🎯 Intent deviation: ${toolName} vs [${catLabels}], boost +${boost} → score ${analysis.riskScore}`);
+      }
+    }
+  }
+
+  // 3. Risk budget: when cumulative risk is high, boost score of non-trivial tools
+  if (signals.budgetExhausted && analysis.riskScore >= 3 && analysis.riskScore < 8) {
+    // Budget used up → any non-trivial tool gets +2
+    const budgetBoost = 2;
+    const newScore = Math.min(10, analysis.riskScore + budgetBoost);
+    analysis.originalRiskScore = analysis.originalRiskScore || analysis.riskScore;
+    analysis.riskScore = newScore;
+    analysis.allowed = newScore < 8;
+    analysis.budgetExhausted = true;
+    analysis.reasoning += ` [BUDGET: session risk ${signals.cumulativeRisk}/${signals.riskBudget} exhausted, +${budgetBoost}]`;
+    analysis.warnings = analysis.warnings || [];
+    analysis.warnings.push(`Session risk budget exhausted (${signals.cumulativeRisk}/${signals.riskBudget})`);
+    console.log(`[GuardClaw] 💰 Risk budget exhausted: ${signals.cumulativeRisk}/${signals.riskBudget}, ${toolName} +${budgetBoost} → score ${analysis.riskScore}`);
+  } else if (signals.cumulativeRisk >= signals.riskBudget * 0.8 && analysis.riskScore >= 4) {
+    // Budget nearly exhausted (80%) → warning-level tools get +1
+    const newScore = Math.min(10, analysis.riskScore + 1);
+    if (newScore > analysis.riskScore) {
+      analysis.originalRiskScore = analysis.originalRiskScore || analysis.riskScore;
+      analysis.riskScore = newScore;
+      analysis.allowed = newScore < 8;
+      analysis.reasoning += ` [BUDGET: session risk ${signals.cumulativeRisk}/${signals.riskBudget} nearly exhausted, +1]`;
+      console.log(`[GuardClaw] 💰 Risk budget 80%: ${signals.cumulativeRisk}/${signals.riskBudget}, ${toolName} +1 → score ${analysis.riskScore}`);
+    }
+  }
+
+  // 4. Record this tool call for future signal accumulation
+  sessionSignals.recordToolCall(sessionKey, toolName, params, analysis);
+  return analysis;
 }
 
 // ─── Multi-backend client setup ──────────────────────────────────────────────
@@ -1037,6 +1216,18 @@ app.post('/api/evaluate', async (req, res) => {
   }
   
   try {
+    // Layer 1: Agent permission check
+    const agentAllow = agentPermissions.checkAllows(sessionKey, toolName, params);
+    if (agentAllow.allowed) {
+      console.log(`[GuardClaw] Layer 1 ALLOW (agent config): ${toolName} — ${agentAllow.reason}`);
+      recordAllow(sessionKey);
+      return res.json({
+        action: 'allow', risk: 1, reason: `Agent allow: ${agentAllow.reason}`,
+        details: 'Layer 1: agent config permits this tool call',
+        backend: 'agent-config', autoApproved: true, blockingEnabled,
+      });
+    }
+
     // Get chain history if applicable (exit-type tools with sensitive prior access)
     const chainHistory = getChainHistory(sessionKey, toolName);
     if (chainHistory) {
@@ -1158,6 +1349,9 @@ app.post('/api/evaluate', async (req, res) => {
         console.log(`[GuardClaw] 🧠 Memory adjusted score: ${originalScore} -> ${analysis.riskScore} (${adjustment > 0 ? '+' : ''}${adjustment})`);
       }
     }
+
+    // Apply trait-based risk floor and record session signals
+    applySignalsAndRecord(sessionKey, toolName, params, analysis);
 
     // Cache result so streaming processor can skip duplicate storage
     setCachedEvaluation(sessionKey, toolName, params, analysis);
@@ -1461,6 +1655,28 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
   if (session_id && !isCopilot) emitIntermediateText(session_id);
 
   try {
+    // Layer 1: Agent permission check — skip AI if agent already allows this tool
+    const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
+    if (agentAllow.allowed) {
+      const compactInput = compactToolInput(gcToolName, gcParams);
+      console.log(`[GuardClaw] Layer 1 ALLOW (agent config): ${gcToolName}: ${compactInput} — ${agentAllow.reason}`);
+      recordAllow(sessionKey);
+      eventStore.addEvent({
+        type: isCopilot ? 'copilot-tool' : 'claude-code-tool',
+        tool: gcToolName, description: compactInput, sessionKey,
+        riskScore: 1, category: 'safe', allowed: 1,
+        safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
+        timestamp: Date.now(),
+      });
+      return res.json({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+          permissionDecisionReason: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)`,
+        },
+      });
+    }
+
     // Get chain history
     const chainHistory = getChainHistory(sessionKey, gcToolName);
 
@@ -1499,8 +1715,19 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     const sessionHistory = toolHistoryStore.get(sessionKey) || [];
     const recentTools = sessionHistory.slice(-5).map(h => `${h.toolName}: ${(h.resultSnippet || '').slice(0, 80)}`);
 
-    const taskContext = (userPrompt || cwd || recentTools.length > 0)
-      ? { userPrompt: userPrompt || null, cwd: cwd || null, recentTools: recentTools.length > 0 ? recentTools : null }
+    // Build session transcript for LLM context
+    // Prefer full CC transcript file (like CC auto mode), fall back to our sliding window
+    const fullTranscript = !isCopilot ? readTranscriptForJudge(session_id) : null;
+    const sessionTranscript = fullTranscript || sessionSignals.getSessionContext(sessionKey, toolHistoryStore);
+
+    // Session signals for LLM prompt enrichment (only when there's something interesting)
+    const currentSignalsForLLM = sessionSignals.getSignals(sessionKey);
+    const signalsForPrompt = (currentSignalsForLLM.sensitiveDataAccessed || currentSignalsForLLM.credentialRead ||
+      currentSignalsForLLM.budgetExhausted || currentSignalsForLLM.intent || currentSignalsForLLM.toolCount > 3)
+      ? currentSignalsForLLM : null;
+
+    const taskContext = (userPrompt || cwd || recentTools.length > 0 || sessionTranscript || signalsForPrompt)
+      ? { userPrompt: userPrompt || null, cwd: cwd || null, recentTools: recentTools.length > 0 ? recentTools : null, sessionTranscript: sessionTranscript || null, sessionSignals: signalsForPrompt || null }
       : null;
 
     // Memory lookup
@@ -1567,6 +1794,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
       }
     }
 
+    // Apply trait-based risk floor and record session signals
+    applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
     // Store event
     const formatDisplayInput = (toolName, params) => {
       switch(toolName) {
@@ -1620,13 +1850,24 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
     const CC_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_CC_PASS_THRESHOLD || '8', 10);
 
     if (analysis.riskScore < CC_PASS_THRESHOLD) {
+      recordAllow(sessionKey);
       const compactInput = compactToolInput(gcToolName, gcParams);
       const reason = analysis.reasoning || analysis.category || '';
       const msg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${reason}`;
       const emitNotice = shouldEmitAllowNotice(sessionKey, gcToolName, gcParams);
-      console.log(`[GuardClaw] ${msg}`);
+
+      // Active intervention: inject safety guidance for agent (CC only)
+      const currentSignals = sessionSignals.getSignals(sessionKey);
+      const intervention = !isCopilot ? generateIntervention(analysis, currentSignals, gcToolName, gcParams) : null;
+
+      if (intervention) {
+        console.log(`[GuardClaw] 🛡️ Intervention injected for ${gcToolName}: ${intervention.slice(0, 100)}`);
+      } else {
+        console.log(`[GuardClaw] ${msg}`);
+      }
+
       return res.json({
-        ...(emitNotice ? { systemMessage: msg } : {}),
+        systemMessage: intervention || (emitNotice ? msg : undefined),
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
@@ -1634,6 +1875,25 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
         },
       });
     }
+
+    // Fail-open: if cloud judge was unavailable, degrade to 'ask' instead of blocking
+    // Circuit breaker: if too many consecutive denials, degrade to 'ask' as well
+    if (analysis.failOpen || isDenialCircuitOpen(sessionKey)) {
+      const reason = analysis.failOpen
+        ? `⛨ GuardClaw ASK (fail-open, cloud unavailable): ${gcToolName}`
+        : `⛨ GuardClaw ASK (circuit breaker: too many denials): ${gcToolName}`;
+      console.log(`[GuardClaw] ${reason}`);
+      return res.json({
+        systemMessage: reason,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'ask',
+          permissionDecisionReason: reason,
+        },
+      });
+    }
+
+    recordDenial(sessionKey);
 
     // High risk → dual-channel: CC dialog + Bar approval
     // Return 'ask' to CC immediately so it shows its own allow/deny dialog,
@@ -1771,6 +2031,8 @@ app.post('/api/approvals/:id/approve', (req, res) => {
     const result = memoryStore.recordDecision(entry.toolName, entry.displayInput, entry.riskScore, 'approve', entry.sessionKey);
     if (result.commandPattern) memoryStore.setPatternAction(result.commandPattern, 'auto-approve');
   }
+  // Refund risk budget — user approved
+  sessionSignals.recordApproval(entry.sessionKey, entry.riskScore);
   eventStore.notifyListeners({ type: 'approval-resolved', data: JSON.stringify({ id: req.params.id, decision: 'approve' }) });
   approvalNotifier.notifyApprovalResolved(req.params.id, 'approve').catch(() => {});
   console.log(`[GuardClaw] Approved: ${entry.originalToolName} (#${req.params.id}) [${entry.backend || 'claude-code'}]`);
@@ -1927,6 +2189,8 @@ app.post('/api/hooks/post-tool-use', rateLimit(60_000, 120), (req, res) => {
   if (pendingAsk) {
     ccPendingAsks.delete(askKey);
     memoryStore.recordDecision(pendingAsk.toolName, pendingAsk.displayInput, pendingAsk.riskScore, 'approve', sessionKey);
+    // Refund risk budget — user approved, so they're aware of the risk
+    sessionSignals.recordApproval(sessionKey, pendingAsk.riskScore);
     // Update the stored event to reflect user's actual approval
     if (pendingAsk.eventId) {
       eventStore.updateEvent(pendingAsk.eventId, { safeguard: { riskScore: pendingAsk.riskScore, allowed: true, verdict: 'user-approved' } });
@@ -2098,6 +2362,21 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
   const sessionKey = sessionId ? `gemini:${sessionId}` : 'gemini:default';
 
   try {
+    // Layer 1: Agent permission check
+    const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
+    if (agentAllow.allowed) {
+      const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+      console.log(`[GuardClaw] Gemini Layer 1 ALLOW (agent config): ${compactInput} — ${agentAllow.reason}`);
+      recordAllow(sessionKey);
+      eventStore.addEvent({
+        type: 'gemini-tool', tool: gcToolName, description: compactInput, sessionKey,
+        riskScore: 1, category: 'safe', allowed: 1,
+        safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
+        timestamp: Date.now(),
+      });
+      return res.json({ decision: 'allow', message: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)` });
+    }
+
     const chainHistory = getChainHistory(sessionKey, gcToolName);
     const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
 
@@ -2144,6 +2423,9 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
       }
     }
 
+    // Apply trait-based risk floor and record session signals
+    applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
@@ -2170,14 +2452,20 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, re
     const GEMINI_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_GEMINI_PASS_THRESHOLD || '8', 10);
 
     if (analysis.riskScore >= GEMINI_PASS_THRESHOLD && blockingEnabled) {
-      // High risk: immediately block (no pending approval wait)
-      // LLM analysis is already recorded in judge.db — Gemini will skip this tool and continue
+      // Fail-open / circuit breaker: degrade to allow + warning instead of blocking
+      if (analysis.failOpen || isDenialCircuitOpen(sessionKey)) {
+        const reason = analysis.failOpen ? 'fail-open (cloud unavailable)' : 'circuit breaker (too many denials)';
+        console.log(`[GuardClaw] Gemini ALLOW (${reason}): ${gcToolName}`);
+        return res.json({ decision: 'allow', message: `⛨ GuardClaw ALLOW (${reason}): ${gcToolName} — manual review recommended` });
+      }
+      recordDenial(sessionKey);
       const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
       console.log(`[GuardClaw] Gemini BLOCK: ${gcToolName} — ${blockReason}`);
       const message = `⛨ GuardClaw BLOCK ${gcToolName}: ${displayInput.slice(0, 80)} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
       return res.json({ decision: 'block', reason: blockReason, message });
     }
 
+    recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
     const message = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
     console.log(`[GuardClaw] Gemini ALLOW: ${compactInput} score=${analysis.riskScore}`);
@@ -2261,6 +2549,21 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
   const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
 
   try {
+    // Layer 1: Agent permission check
+    const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
+    if (agentAllow.allowed) {
+      const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+      console.log(`[GuardClaw] Codex Layer 1 ALLOW (agent config): ${compactInput} — ${agentAllow.reason}`);
+      recordAllow(sessionKey);
+      eventStore.addEvent({
+        type: 'codex-tool', tool: gcToolName, description: compactInput, sessionKey,
+        riskScore: 1, category: 'safe', allowed: 1,
+        safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
+        timestamp: Date.now(),
+      });
+      return res.json({ decision: 'allow', message: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)` });
+    }
+
     const chainHistory = getChainHistory(sessionKey, gcToolName);
     const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
 
@@ -2292,6 +2595,9 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
       if (adj !== 0) { analysis.originalRiskScore = analysis.riskScore; analysis.riskScore = Math.max(1, Math.min(10, analysis.riskScore + adj)); }
     }
 
+    // Apply trait-based risk floor and record session signals
+    applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
     eventStore.addEvent({
@@ -2306,11 +2612,18 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res
     });
 
     if (analysis.riskScore >= 8 && blockingEnabled) {
+      if (analysis.failOpen || isDenialCircuitOpen(sessionKey)) {
+        const reason = analysis.failOpen ? 'fail-open (cloud unavailable)' : 'circuit breaker (too many denials)';
+        console.log(`[GuardClaw] Codex ALLOW (${reason}): ${gcToolName}`);
+        return res.json({ decision: 'allow', message: `⛨ GuardClaw ALLOW (${reason}): ${gcToolName} — manual review recommended` });
+      }
+      recordDenial(sessionKey);
       const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
       console.log(`[GuardClaw] Codex BLOCK: ${gcToolName} — ${blockReason}`);
       return res.json({ decision: 'block', reason: blockReason, message: `⛨ GuardClaw BLOCK ${gcToolName}: ${displayInput.slice(0, 80)} (score ${analysis.riskScore})` });
     }
 
+    recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
     console.log(`[GuardClaw] Codex ALLOW: ${compactInput} score=${analysis.riskScore}`);
     return res.json({ decision: 'allow', message: `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}` });
@@ -2419,7 +2732,28 @@ app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
   });
   lastCCPromptId.set(sessionKey, promptId);   // track for stop-hook reply linking
   lastCCPromptText.set(sessionKey, promptText.slice(0, 500)); // cache for LLM context in pre-tool-use
+
+  // Record prompt to session history (before responding)
+  sessionSignals.addPrompt(sessionKey, promptText);
+  // Decay risk budget — user is engaged, partially reset accumulated risk
+  sessionSignals.decayBudgetOnNewPrompt(sessionKey);
+
+  // Respond immediately — intent classification runs in background
   res.json({});
+
+  // Build session context (previous prompts + tool history timeline)
+  const sessionContext = sessionSignals.getSessionContext(sessionKey, toolHistoryStore);
+
+  // Classify user intent via LLM with full context (async, non-blocking)
+  classifyIntent(promptText, safeguardService, sessionContext).then(intent => {
+    sessionSignals.setIntent(sessionKey, intent);
+    if (intent.categories.length > 0) {
+      const summary = intent.summary ? ` — "${intent.summary}"` : '';
+      console.log(`[GuardClaw] 🎯 Intent [${intent.source}]: [${intent.categories.map(c => c.id).join(', ')}]${intent.explicitSensitive ? ' (explicit sensitive)' : ''}${summary}`);
+    }
+  }).catch(e => {
+    console.log(`[GuardClaw] Intent classification error: ${e.message}`);
+  });
 });
 
 app.post('/api/hooks/stop', rateLimit(60_000, 30), async (req, res) => {
@@ -2486,6 +2820,21 @@ app.post('/api/hooks/stop', rateLimit(60_000, 30), async (req, res) => {
       } catch {}
     }
   } catch {}
+
+  // ─── Summarize session into security-context.md (background, non-blocking) ──
+  try {
+    const sessionEvents = eventStore.getFilteredEvents(100, null, sessionKey);
+    const signals = sessionSignals.getSignals(sessionKey);
+    summarizeSession(sessionEvents, cloudJudge, signals).catch(e => {
+      console.error(`[Stop] Security context summarization failed: ${e.message}`);
+    });
+  } catch (e) {
+    console.error(`[Stop] Failed to start session summarization: ${e.message}`);
+  }
+
+  // Clean up session signals and denial counters
+  sessionSignals.clear(sessionKey);
+  clearDenialCounter(sessionKey);
 });
 
 // ─── SubagentStart / SubagentStop hooks ──────────────────────────────────────
@@ -3493,6 +3842,21 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
   const sessionKey = sessionId ? `cursor:${sessionId}` : 'cursor:default';
 
   try {
+    // Layer 1: Agent permission check
+    const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
+    if (agentAllow.allowed) {
+      const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+      console.log(`[GuardClaw] Cursor Layer 1 ALLOW (agent config): ${compactInput} — ${agentAllow.reason}`);
+      recordAllow(sessionKey);
+      eventStore.addEvent({
+        type: 'cursor-tool', tool: gcToolName, description: compactInput, sessionKey,
+        riskScore: 1, category: 'safe', allowed: 1,
+        safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
+        timestamp: Date.now(),
+      });
+      return res.json({ permission: 'allow' });
+    }
+
     const chainHistory = getChainHistory(sessionKey, gcToolName);
     const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
 
@@ -3536,6 +3900,9 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
       }
     }
 
+    // Apply trait-based risk floor and record session signals
+    applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
@@ -3562,6 +3929,13 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
     const CURSOR_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_CURSOR_PASS_THRESHOLD || '8', 10);
 
     if (analysis.riskScore >= CURSOR_PASS_THRESHOLD && blockingEnabled) {
+      // Fail-open / circuit breaker
+      if (analysis.failOpen || isDenialCircuitOpen(sessionKey)) {
+        const reason = analysis.failOpen ? 'fail-open (cloud unavailable)' : 'circuit breaker (too many denials)';
+        console.log(`[GuardClaw] Cursor ALLOW (${reason}): ${gcToolName}`);
+        return res.json({ permission: 'allow', user_message: `⛨ GuardClaw ALLOW (${reason}): ${gcToolName} — manual review recommended` });
+      }
+      recordDenial(sessionKey);
       // High risk: create pending approval and wait
       const approvalId = `cursor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
@@ -3605,6 +3979,7 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, re
       return res.json({ permission: 'allow', user_message: `⛨ GuardClaw APPROVED: ${gcToolName} (score ${analysis.riskScore})` });
     }
 
+    recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
     const userMsg = `⛨ GuardClaw ALLOW ${gcToolName}: ${compactInput} (score ${analysis.riskScore}) — ${analysis.reasoning || analysis.category}`;
     console.log(`[GuardClaw] Cursor ALLOW: ${compactInput} score=${analysis.riskScore}`);
@@ -3871,6 +4246,21 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
   const sessionKey = sessionId ? `opencode:${sessionId}` : 'opencode:default';
 
   try {
+    // Layer 1: Agent permission check
+    const agentAllow = agentPermissions.checkAllows(sessionKey, gcToolName, gcParams);
+    if (agentAllow.allowed) {
+      const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
+      console.log(`[GuardClaw] OpenCode Layer 1 ALLOW (agent config): ${compactInput} — ${agentAllow.reason}`);
+      recordAllow(sessionKey);
+      eventStore.addEvent({
+        type: 'opencode-tool', tool: gcToolName, description: compactInput, sessionKey,
+        riskScore: 1, category: 'safe', allowed: 1,
+        safeguard: { riskScore: 1, reasoning: `Agent allow: ${agentAllow.reason}`, verdict: 'auto-approved', allowed: true, backend: 'agent-config' },
+        timestamp: Date.now(),
+      });
+      return res.json({ decision: 'allow', message: `⛨ GuardClaw Layer 1 ALLOW: ${compactInput} (agent config)` });
+    }
+
     const chainHistory = getChainHistory(sessionKey, gcToolName);
     const commandStr = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
 
@@ -3914,6 +4304,9 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
       }
     }
 
+    // Apply trait-based risk floor and record session signals
+    applySignalsAndRecord(sessionKey, gcToolName, gcParams, analysis);
+
     // Store event
     const displayInput = gcToolName === 'exec' ? (gcParams.command || '') : JSON.stringify(gcParams);
     const verdict = analysis.riskScore >= 8 ? (blockingEnabled ? 'block' : 'pass-through') : 'auto-approved';
@@ -3940,6 +4333,13 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
     const OPENCODE_PASS_THRESHOLD = parseInt(process.env.GUARDCLAW_OPENCODE_PASS_THRESHOLD || '8', 10);
 
     if (analysis.riskScore >= OPENCODE_PASS_THRESHOLD && blockingEnabled) {
+      // Fail-open / circuit breaker
+      if (analysis.failOpen || isDenialCircuitOpen(sessionKey)) {
+        const reason = analysis.failOpen ? 'fail-open (cloud unavailable)' : 'circuit breaker (too many denials)';
+        console.log(`[GuardClaw] OpenCode ALLOW (${reason}): ${gcToolName}`);
+        return res.json({ decision: 'allow', message: `⛨ GuardClaw ALLOW (${reason}): ${gcToolName} — manual review recommended` });
+      }
+      recordDenial(sessionKey);
       // High risk: create pending approval and wait
       const approvalId = `opencode-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const blockReason = `GuardClaw: score ${analysis.riskScore} — ${analysis.reasoning || analysis.category}`;
@@ -3983,6 +4383,7 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, 
       return res.json({ decision: 'allow', reason: `\u26E8 GuardClaw APPROVED: ${gcToolName} (score ${analysis.riskScore})`, message: `Approved by user` });
     }
 
+    recordAllow(sessionKey);
     const compactInput = gcToolName === 'exec' ? (gcParams.command || '').slice(0, 80) : gcToolName;
     console.log(`[GuardClaw] OpenCode ALLOW: ${compactInput} score=${analysis.riskScore}`);
     return res.json({ decision: 'allow', reason: `score ${analysis.riskScore}`, message: `${analysis.reasoning || analysis.category}` });
