@@ -1485,6 +1485,26 @@ async function cmdMemory() {
   }
 }
 
+async function cmdBrief() {
+  const data = await gcApi('/api/security-memory');
+  if (!data?.sessions || Object.keys(data.sessions).length === 0) {
+    console.log('⛨  Security Memory — no active sessions');
+    return;
+  }
+  console.log(`⛨  Security Memory — ${data.totalSessions} active session(s)\n`);
+  for (const [key, s] of Object.entries(data.sessions)) {
+    const isSub = key.includes(':subagent:');
+    const label = isSub
+      ? key.replace(/.*:subagent:/, '↳ subagent:').slice(0, 40)
+      : (key.length > 40 ? key.slice(0, 37) + '...' : key);
+    const pct = ((s.bufferTokens / 60000) * 100).toFixed(1);
+    console.log(`  ${label}`);
+    console.log(`    Raw events: ${s.rawEvents}  Buffer: ${s.bufferTokens.toLocaleString()} / 60,000 tokens (${pct}%)`);
+    console.log(`    Compressions: ${s.compressionCount}  Brief: ${s.briefTokens ? s.briefTokens.toLocaleString() + ' tokens' : 'none'}`);
+    console.log();
+  }
+}
+
 // ─── Command router ───────────────────────────────────────────────────────────
 
 switch (command) {
@@ -1496,6 +1516,7 @@ switch (command) {
   case 'check':   case 'analyze':   cmdCheck(); break;
   case 'approvals': case 'pending': cmdApprovals(); break;
   case 'memory':  case 'patterns':  cmdMemory(); break;
+  case 'brief':   case 'buffer':    cmdBrief(); break;
   case 'hooks':                     cmdHooks(); break;
   case 'start':                     startServer(); break;
   case 'stop':                      stopServer(); break;

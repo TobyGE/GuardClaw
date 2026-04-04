@@ -17,6 +17,30 @@ const RAW_KEEPALIVE = 10; // keep last N raw events after compression
 const MAX_SESSIONS = 200;
 const MAX_DIGEST_CHARS = 20_000; // cap per-event digest to prevent memory bloat
 
+// Per-tool result storage limits — security-relevant tools get full output, others get minimal
+const RESULT_LIMITS = {
+  'exec': MAX_DIGEST_CHARS,     // full — commands are the most dangerous
+  'Bash': MAX_DIGEST_CHARS,
+  'terminal': MAX_DIGEST_CHARS,
+  'write': MAX_DIGEST_CHARS,    // full — need to see what was written
+  'Write': MAX_DIGEST_CHARS,
+  'edit': MAX_DIGEST_CHARS,     // full — need to see code changes
+  'Edit': MAX_DIGEST_CHARS,
+  'read': 200,                  // path only, content not dangerous
+  'Read': 200,
+  'web_fetch': 200,             // URL enough, full page wastes tokens
+  'WebFetch': 200,
+  'web_search': 200,
+  'WebSearch': 200,
+  'grep': 500,                  // matched lines can reveal intent
+  'Grep': 500,
+  'glob': 500,
+  'Glob': 500,
+  'agent': 200,                 // subagent calls tracked separately
+  'Agent': 200,
+  '_default': 2000,
+};
+
 // ─── Data Flow Tagger (lightweight, no LLM) ────────────────────────────────
 
 const CREDENTIAL_PATTERNS = /\b(api[_-]?key|secret|token|password|private[_-]?key|auth|bearer)\b/i;
@@ -48,6 +72,10 @@ function buildParamsDigest(toolName, params) {
       return `${params.path || '.'} ${params.pattern || ''}`;
     case 'grep': case 'Grep':
       return `${params.path || '.'} ${params.pattern || ''}`;
+    case 'agent': case 'Agent': {
+      const prompt = params.prompt || '';
+      return `spawn subagent: ${prompt.slice(0, 100)}`;
+    }
     default:
       return JSON.stringify(params);
   }
@@ -226,7 +254,10 @@ export class SecurityMemory {
     const entry = state.rawBuffer.find(e => e.seq === seq);
     if (entry) {
       entry.isComplete = true;
-      if (resultDigest) entry.resultDigest = resultDigest.length > MAX_DIGEST_CHARS ? resultDigest.slice(0, MAX_DIGEST_CHARS) + '\n...[truncated]' : resultDigest;
+      if (resultDigest) {
+        const limit = RESULT_LIMITS[entry.toolName] ?? RESULT_LIMITS['_default'];
+        entry.resultDigest = resultDigest.length > limit ? resultDigest.slice(0, limit) + '\n...[truncated]' : resultDigest;
+      }
     }
     // Check compression: either deferred (pending from mid-tool-call) or fresh threshold hit
     const wasPending = state.compressionPending;

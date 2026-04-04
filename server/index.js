@@ -3326,6 +3326,23 @@ app.get('/api/approval/pending', (req, res) => {
   res.json({ approvals, count: approvals.length });
 });
 
+// ─── Security Memory APIs ────────────────────────────────────────────────────
+
+app.get('/api/security-memory', (req, res) => {
+  const allStats = {};
+  for (const [key, _state] of securityMemory.sessions) {
+    allStats[key] = securityMemory.getStats(key);
+  }
+  res.json({ sessions: allStats, totalSessions: Object.keys(allStats).length });
+});
+
+app.get('/api/security-memory/:sessionKey', (req, res) => {
+  const stats = securityMemory.getStats(req.params.sessionKey);
+  const brief = securityMemory.getCurrentBrief(req.params.sessionKey);
+  const full = req.query.full === '1';
+  res.json({ ...stats, brief: brief ? (full ? brief : brief.slice(0, 500)) : null });
+});
+
 // ─── Memory APIs ─────────────────────────────────────────────────────────────
 
 app.get('/api/memory/stats', (req, res) => {
