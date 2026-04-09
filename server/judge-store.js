@@ -1,9 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getDataDir } from './data-dir.js';
 
 /**
  * JudgeStore — records every LLM judge call (prompt + response) for training data.
@@ -16,7 +14,10 @@ class JudgeStore {
   }
 
   init() {
-    const loraDir = path.join(__dirname, '..', 'lora');
+    // Store training data alongside the user's other GuardClaw data so it
+    // (a) doesn't pollute the install dir and (b) actually works under
+    // `npm i -g`, where the install dir is read-only on most systems.
+    const loraDir = path.join(getDataDir(), '.guardclaw', 'lora');
     if (!fs.existsSync(loraDir)) {
       fs.mkdirSync(loraDir, { recursive: true });
     }

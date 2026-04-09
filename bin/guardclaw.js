@@ -6,6 +6,8 @@ import { createInterface } from 'readline';
 import fs from 'fs';
 import os from 'os';
 
+import { getMenuPageSize, getMenuViewport } from './select-menu.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(__dirname, '..');
@@ -16,15 +18,37 @@ const GC_BASE = `http://127.0.0.1:${GC_PORT}`;
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 
-async function gcApi(path, method = 'GET', body) {
+async function gcApi(path, method = 'GET', body, { silent = false } = {}) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   try {
     const res = await fetch(`${GC_BASE}${path}`, opts);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // Try to surface the server's error message instead of just "HTTP 400".
+      let detail = `HTTP ${res.status}`;
+      try {
+        const text = await res.text();
+        if (text) {
+          try {
+            const j = JSON.parse(text);
+            detail = j.error || j.message || text.substring(0, 200);
+          } catch {
+            detail = text.substring(0, 200);
+          }
+        }
+      } catch {}
+      throw new Error(detail);
+    }
     return await res.json();
   } catch (err) {
-    if (err.cause?.code === 'ECONNREFUSED') {
+    const offline = err.cause?.code === 'ECONNREFUSED' || err.code === 'ECONNREFUSED';
+    if (silent) {
+      // Caller is happy to proceed without the server — just signal absence.
+      const e = new Error(offline ? 'server-offline' : err.message);
+      e.offline = offline;
+      throw e;
+    }
+    if (offline) {
       console.error(`❌ GuardClaw is not running (port ${GC_PORT})`);
       console.error('   Start it with: guardclaw start');
     } else {
@@ -51,13 +75,26 @@ function ask(rl, question) {
 function select(options, { title, defaultIndex = 0 } = {}) {
   return new Promise((resolve) => {
     let cursor = defaultIndex;
+    let offset = 0;
     const { stdin, stdout } = process;
     const wasRaw = stdin.isRaw;
+    const titleLines = title ? title.split('\n').length : 0;
+    const pageSize = getMenuPageSize(options.length, stdout.rows, titleLines);
+    const hasOverflow = options.length > pageSize;
+    const renderLines = pageSize + 1 + (hasOverflow ? 2 : 0);
 
     function render() {
-      // Move up to clear previous render (except first time)
-      stdout.write(`\x1b[${options.length}A`);
-      for (let i = 0; i < options.length; i++) {
+      const viewport = getMenuViewport(options.length, cursor, pageSize, offset);
+      offset = viewport.offset;
+
+      stdout.write(`\x1b[${renderLines}A`);
+
+      if (hasOverflow) {
+        const topLine = viewport.above ? `  \x1b[90m↑ ${viewport.above} more\x1b[0m` : '';
+        stdout.write(`\x1b[2K${topLine}\n`);
+      }
+
+      for (let i = viewport.start; i < viewport.end; i++) {
         const opt = options[i];
         const selected = i === cursor;
         const pointer = selected ? '\x1b[36m❯\x1b[0m' : ' ';
@@ -65,11 +102,18 @@ function select(options, { title, defaultIndex = 0 } = {}) {
         const hint = opt.hint ? `  \x1b[90m${opt.hint}\x1b[0m` : '';
         stdout.write(`\x1b[2K  ${pointer} ${label}${hint}\n`);
       }
+
+      if (hasOverflow) {
+        const bottomLine = viewport.below ? `  \x1b[90m↓ ${viewport.below} more\x1b[0m` : '';
+        stdout.write(`\x1b[2K${bottomLine}\n`);
+      }
+
+      const footer = `  \x1b[90m${cursor + 1}/${options.length} · ↑↓ to scroll · Enter to select\x1b[0m`;
+      stdout.write(`\x1b[2K${footer}\n`);
     }
 
     if (title) stdout.write(`${title}\n`);
-    // Print initial lines so render() can overwrite them
-    for (let i = 0; i < options.length; i++) stdout.write('\n');
+    for (let i = 0; i < renderLines; i++) stdout.write('\n');
     render();
 
     stdin.setRawMode(true);
@@ -174,30 +218,57 @@ function getEnvVar(env, key) {
 
 // ─── Install / onboarding state ───────────────────────────────────────────────
 
-function getInstallJsonPath() {
-  return join(process.cwd(), '.guardclaw', 'install.json');
+// Onboarding marker lives in ~/.guardclaw/ (global), NOT in the project
+// directory. Otherwise every new project would re-trigger the wizard, which
+// is annoying and pointless — onboarding configures user-level preferences,
+// not per-project state.
+function getGlobalInstallJsonPath() {
+  return join(os.homedir(), '.guardclaw', 'install.json');
 }
 
 function isOnboardingDone() {
-  // 1. 明确标记过
+  // 1. Explicit global marker
   try {
-    if (JSON.parse(fs.readFileSync(getInstallJsonPath(), 'utf8')).onboardingCompleted) return true;
+    if (JSON.parse(fs.readFileSync(getGlobalInstallJsonPath(), 'utf8')).onboardingCompleted) return true;
   } catch {}
-  // 2. .env 已有核心配置 → 老用户，跳过 onboarding
+  // 2. Legacy: project-local marker from older versions
+  try {
+    const legacy = join(process.cwd(), '.guardclaw', 'install.json');
+    if (JSON.parse(fs.readFileSync(legacy, 'utf8')).onboardingCompleted) return true;
+  } catch {}
+  // 3. .env 已有核心配置 → 老用户，跳过 onboarding
   const env = readEnvFile();
   if (getEnvVar(env, 'SAFEGUARD_BACKEND')) return true;
   return false;
 }
 
 function markOnboardingDone() {
-  const p = getInstallJsonPath();
-  fs.mkdirSync(join(process.cwd(), '.guardclaw'), { recursive: true });
+  const p = getGlobalInstallJsonPath();
+  fs.mkdirSync(join(os.homedir(), '.guardclaw'), { recursive: true });
   let d = {};
   try { d = JSON.parse(fs.readFileSync(p, 'utf8')); } catch {}
   d.onboardingCompleted = true;
   d.onboardingAt = d.onboardingAt || new Date().toISOString();
   if (!d.installedAt) d.installedAt = d.onboardingAt;
   fs.writeFileSync(p, JSON.stringify(d, null, 2));
+}
+
+// ─── Cloud-judge persisted config ─────────────────────────────────────────────
+// Mirrors server/cloud-judge.js CONFIG_FILE so onboarding can seed config
+// before the server is even running.
+
+const CLOUD_JUDGE_CONFIG_FILE = join(os.homedir(), '.guardclaw', 'cloud-judge-config.json');
+
+function writePersistedCloudJudgeConfig(patch) {
+  try {
+    fs.mkdirSync(join(os.homedir(), '.guardclaw'), { recursive: true });
+    let existing = {};
+    try { existing = JSON.parse(fs.readFileSync(CLOUD_JUDGE_CONFIG_FILE, 'utf8')); } catch {}
+    const merged = { ...existing, ...patch };
+    fs.writeFileSync(CLOUD_JUDGE_CONFIG_FILE, JSON.stringify(merged, null, 2), { mode: 0o600 });
+  } catch (e) {
+    console.error(`  ⚠️  Could not save cloud-judge config: ${e.message}`);
+  }
 }
 
 // ─── Claude Code hook helpers ─────────────────────────────────────────────────
@@ -386,7 +457,11 @@ async function fetchModels(backend, baseUrl, apiKey) {
       return (data.models || []).map(m => m.name);
     }
     if (backend === 'built-in') {
-      const res = await fetch(`${GC_BASE}/api/models`, { signal: AbortSignal.timeout(4000) });
+      // Built-in models are managed by the GuardClaw server itself. If the
+      // server isn't running yet (e.g. during the start-time onboarding),
+      // we can't enumerate them — return [] and let the caller handle it.
+      const res = await fetch(`${GC_BASE}/api/models`, { signal: AbortSignal.timeout(2000) });
+      if (!res.ok) return [];
       const data = await res.json();
       return (data.models || []).filter(m => m.downloaded || m.loaded).map(m => m.id);
     }
@@ -551,6 +626,19 @@ async function runOnboarding() {
       rl2.close();
       env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
     }
+  } else if (backend === 'built-in') {
+    // The built-in MLX engine is managed by the GuardClaw server itself, so
+    // we cannot download or load a model from inside onboarding (the server
+    // isn't up yet — that's the chicken-and-egg the user reported). Just save
+    // the backend choice and direct the user to the dashboard for the
+    // one-click model setup once the server is running.
+    console.log('');
+    console.log('  ℹ️  Built-in models are downloaded after the server starts.');
+    console.log('     After setup finishes, open the dashboard → Settings → Built-in');
+    console.log('     to download and load a model. GuardClaw will fall back to');
+    console.log('     rule-based scoring until a model is loaded.\n');
+  } else if (backend === 'fallback') {
+    console.log('  ℹ️  Rule-based only — no LLM calls. You can switch later via `guardclaw config llm`.\n');
   }
 
   // Pick cloud provider (for mixed + cloud-only)
@@ -563,45 +651,62 @@ async function runOnboarding() {
     }
 
     cloudProvider = await select([
-      { label: 'Anthropic Claude',  value: 'claude',      hint: 'OAuth login or API key' },
-      { label: 'OpenRouter',        value: 'openrouter',  hint: '400+ models, API key' },
-      { label: 'Google Gemini',     value: 'gemini',      hint: 'API key' },
-      { label: 'OpenAI',            value: 'openai',      hint: 'API key' },
+      { label: 'Anthropic Claude',          value: 'claude',        hint: 'OAuth login or API key' },
+      { label: 'OpenAI Codex (ChatGPT)',    value: 'openai-codex',  hint: 'OAuth login (ChatGPT Plus/Pro)' },
+      { label: 'MiniMax',                   value: 'minimax',       hint: 'OAuth login or API key' },
+      { label: 'Kimi (Moonshot)',           value: 'kimi',          hint: 'API key' },
+      { label: 'OpenRouter',                value: 'openrouter',    hint: '400+ models, API key' },
+      { label: 'Google Gemini',             value: 'gemini',        hint: 'API key' },
+      { label: 'OpenAI',                    value: 'openai',        hint: 'API key' },
     ]);
     console.log(`  → cloud: ${cloudProvider}\n`);
 
-    // Get API key for non-OAuth providers (or optionally for Claude)
-    if (cloudProvider !== 'claude') {
+    // Get API key for non-OAuth providers (or optionally for Claude/OpenAI Codex)
+    const oauthProviders = new Set(['claude', 'openai-codex', 'minimax']);
+    if (!oauthProviders.has(cloudProvider)) {
       const rl = createPrompt();
       const key = await ask(rl, `  ${cloudProvider} API key: `);
       rl.close();
       cloudApiKey = key || '';
       if (!key) console.log('  (skipped — configure later in Settings)\n');
     } else {
-      console.log('  Claude supports OAuth login — configure in Settings dashboard.\n');
+      const label = cloudProvider === 'openai-codex' ? 'OpenAI Codex' : 'Claude';
+      console.log(`  ${label} supports OAuth login — configure in Settings dashboard.\n`);
       const rl = createPrompt();
       const key = await ask(rl, '  Or paste API key now (Enter to skip): ');
       rl.close();
       cloudApiKey = key || '';
     }
 
-    // Apply cloud judge config via API
+    // Apply cloud judge config via API (silent: server may not be up yet
+    // during the start-time onboarding — that's the whole point of running
+    // this wizard before the server spawns).
     try {
       await gcApi('/api/config/cloud-judge', 'POST', {
         enabled: true,
         judgeMode,
         provider: cloudProvider,
         ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
-      });
+      }, { silent: true });
       console.log('  ✅ Cloud judge configured\n');
-    } catch {
-      console.log('  ⚠️  Server not running — cloud judge will be configured on next start.\n');
+    } catch (e) {
+      // Server isn't up yet — write the persisted config file directly so it
+      // takes effect the moment the server boots.
+      writePersistedCloudJudgeConfig({
+        enabled: true,
+        judgeMode,
+        provider: cloudProvider,
+        ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
+      });
+      console.log('  ✅ Cloud judge saved (will activate on server start)\n');
     }
   } else {
     // local-only: disable cloud judge
     try {
-      await gcApi('/api/config/cloud-judge', 'POST', { enabled: false, judgeMode: 'local-only' });
-    } catch { /* server may not be running */ }
+      await gcApi('/api/config/cloud-judge', 'POST', { enabled: false, judgeMode: 'local-only' }, { silent: true });
+    } catch {
+      writePersistedCloudJudgeConfig({ enabled: false, judgeMode: 'local-only' });
+    }
   }
 
   // ── Step 3: Approval mode ────────────────────────────────────────────────────
@@ -866,11 +971,16 @@ async function configEvalMode() {
 
   let currentMode = 'mixed';
   try {
-    const cfg = await gcApi('/api/config/cloud-judge');
-    currentMode = cfg.judgeMode || 'mixed';
+    const cfg = await gcApi('/api/config/cloud-judge', 'GET', undefined, { silent: true });
+    currentMode = cfg?.judgeMode || 'mixed';
     console.log(`  Current: ${currentMode}\n`);
   } catch {
-    console.log('  Current: unknown (server not running)\n');
+    // Fall back to persisted config if server isn't up.
+    try {
+      const persisted = JSON.parse(fs.readFileSync(CLOUD_JUDGE_CONFIG_FILE, 'utf8'));
+      if (persisted.judgeMode) currentMode = persisted.judgeMode;
+    } catch {}
+    console.log(`  Current: ${currentMode} (server not running)\n`);
   }
 
   const modes = [
@@ -881,12 +991,13 @@ async function configEvalMode() {
   const defaultIdx = Math.max(0, modes.findIndex(m => m.value === currentMode));
   const mode = await select(modes, { defaultIndex: defaultIdx });
 
+  const enabled = mode !== 'local-only';
   try {
-    const enabled = mode !== 'local-only';
-    await gcApi('/api/config/cloud-judge', 'POST', { enabled, judgeMode: mode });
+    await gcApi('/api/config/cloud-judge', 'POST', { enabled, judgeMode: mode }, { silent: true });
     console.log(`\n✅ Evaluation mode set to: ${mode}\n`);
   } catch {
-    console.log(`\n⚠️  Could not apply (server not running?). Start server first.\n`);
+    writePersistedCloudJudgeConfig({ enabled, judgeMode: mode });
+    console.log(`\n✅ Evaluation mode saved: ${mode}  (will activate on next start)\n`);
   }
 }
 
@@ -932,6 +1043,7 @@ Usage:
 
   guardclaw start [options]          Start the GuardClaw server
   guardclaw stop                     Stop the GuardClaw server
+  guardclaw restart [options]        Restart the GuardClaw server
   guardclaw config [command]         Configuration (interactive menu if no command)
   guardclaw hooks [command]          Manage Claude Code / Codex hook integrations
   guardclaw plugin [command]         Manage OpenClaw interceptor plugin
@@ -942,6 +1054,7 @@ Config Commands:
   guardclaw config                   Interactive menu
   guardclaw config show              Show all settings
   guardclaw config set <KEY> <VAL>   Set any variable
+  guardclaw config eval              Change evaluation mode (local/mixed/cloud)
   guardclaw config llm               Change LLM backend
   guardclaw config mode              Change approval mode
   guardclaw config thresholds        Change risk thresholds
@@ -976,22 +1089,63 @@ function showVersion() {
 
 function stopServer() {
   console.log('🛑 Stopping GuardClaw...\n');
-  try {
-    const result = execSync('ps aux | grep "[n]ode.*guardclaw.*server/index.js"',
-      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-    if (!result) { console.log('ℹ️  GuardClaw is not running.'); return; }
+  const pids = new Set();
 
-    let stopped = 0;
-    for (const line of result.split('\n').filter(Boolean)) {
-      const pid = line.trim().split(/\s+/)[1];
-      try { process.kill(pid, 'SIGKILL'); stopped++; console.log(`✅ Stopped PID ${pid}`); }
-      catch (e) { if (e.code !== 'ESRCH') console.error(`⚠️  Could not stop ${pid}:`, e.message); }
+  // Primary: inspect process table directly (case-insensitive "guardclaw").
+  try {
+    const out = execSync('ps ax -o pid= -o command=', {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    for (const line of out.split('\n').filter(Boolean)) {
+      const m = line.match(/^\s*(\d+)\s+(.+)$/);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      const cmd = m[2];
+      if (Number.isNaN(pid)) continue;
+      if (!cmd.includes('server/index.js')) continue;
+      if (!/guardclaw/i.test(cmd) && !cmd.includes(`${rootDir}/server/index.js`)) continue;
+      pids.add(pid);
     }
-    if (stopped) console.log(`\n✅ Stopped ${stopped} process(es)`);
-  } catch (e) {
-    if (e.status === 1) console.log('ℹ️  GuardClaw is not running.');
-    else { console.error('❌ Error:', e.message); process.exit(1); }
+  } catch {}
+
+  // Fallback: find listener on GuardClaw port and validate command.
+  try {
+    const out = execSync(`lsof -ti tcp:${GC_PORT} -sTCP:LISTEN`, {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    for (const rawPid of out.split('\n').filter(Boolean)) {
+      const pid = Number(rawPid.trim());
+      if (Number.isNaN(pid)) continue;
+      try {
+        const cmd = execSync(`ps -p ${pid} -o command=`, {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        }).trim();
+        if (!cmd.includes('server/index.js')) continue;
+        if (!/guardclaw/i.test(cmd) && !cmd.includes(`${rootDir}/server/index.js`)) continue;
+        pids.add(pid);
+      } catch {}
+    }
+  } catch {}
+
+  if (!pids.size) {
+    console.log('ℹ️  GuardClaw is not running.');
+    return;
   }
+
+  let stopped = 0;
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+      stopped++;
+      console.log(`✅ Stopped PID ${pid}`);
+    } catch (e) {
+      if (e.code !== 'ESRCH') console.error(`⚠️  Could not stop ${pid}:`, e.message);
+    }
+  }
+  if (stopped) console.log(`\n✅ Stopped ${stopped} process(es)`);
 }
 
 // ─── Config commands ──────────────────────────────────────────────────────────
@@ -1064,6 +1218,15 @@ function configShow() {
       ['ANTHROPIC_API_KEY',   'Anthropic API key'],
       ['OPENROUTER_API_KEY',  'OpenRouter API key'],
       ['OPENROUTER_MODEL',    'OpenRouter model'],
+      ['OPENAI_API_KEY',      'OpenAI API key'],
+      ['GEMINI_API_KEY',      'Google Gemini API key'],
+      ['KIMI_API_KEY',        'Kimi (Moonshot) API key'],
+      ['MINIMAX_API_KEY',     'MiniMax API key'],
+    ]},
+    { title: 'Cloud Judge', vars: [
+      ['CLOUD_JUDGE_ENABLED',  'Cloud judge on/off'],
+      ['CLOUD_JUDGE_MODE',     'Mode (local-only/mixed/cloud-only)'],
+      ['CLOUD_JUDGE_PROVIDER', 'Provider (claude/openai-codex/minimax/kimi/openrouter/gemini/openai)'],
     ]},
     { title: 'Approval Policy', vars: [
       ['GUARDCLAW_APPROVAL_MODE',         'Mode (auto/prompt/monitor-only)'],
@@ -1120,6 +1283,8 @@ async function handleConfigCommand() {
     case undefined:
     case 'menu':       await runInteractiveConfig(); break;
     case 'setup':      await runOnboarding(); break;
+    case 'eval':
+    case 'evaluation': await configEvalMode(); break;
     case 'llm':        await configLLM(); break;
     case 'mode':       await configMode(); break;
     case 'thresholds': await configThresholds(); break;
@@ -1294,7 +1459,7 @@ function openBrowser(url) {
 async function startServer() {
   const args = process.argv.slice(3);
   const env = { ...process.env };
-  let noOpen = false, noOnboarding = false;
+  let noOpen = false, noOnboarding = false, foreground = false;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -1306,6 +1471,8 @@ async function startServer() {
       case '--anthropic-key':  env.ANTHROPIC_API_KEY = args[++i]; break;
       case '--no-open':        noOpen = true; break;
       case '--no-onboarding':  noOnboarding = true; break;
+      case '-f':
+      case '--foreground':     foreground = true; break;
     }
   }
 
@@ -1313,21 +1480,77 @@ async function startServer() {
     await runOnboarding();
   }
 
-  const port = env.PORT || 3002;
+  // Resolve the actual port the server will listen on. Order:
+  //   1. --port flag (already in env.PORT)
+  //   2. PORT in user's .env (the server reads this via dotenv, but the CLI
+  //      needs to know it too so the printed dashboard URL matches reality)
+  //   3. inherited process.env.PORT
+  //   4. default 3002
+  let port = env.PORT;
+  if (!port) {
+    const fileEnv = readEnvFile();
+    const envPort = getEnvVar(fileEnv, 'PORT');
+    if (envPort) port = envPort;
+  }
+  port = port || 3002;
   const url  = `http://localhost:${port}`;
 
   console.log('🛡️  Starting GuardClaw...');
   console.log(`🌐 Dashboard: ${url}\n`);
 
+  // Spawn the server in the user's current working directory, NOT the
+  // package install directory. This ensures:
+  //   • dotenv reads `<user-cwd>/.env`, so per-project config works
+  //   • getDataDir() resolves to `<user-cwd>/.guardclaw`, so events.db /
+  //     memory.db are project-local instead of leaking into the global npm
+  //     install directory (which is often non-writable for `npm i -g`).
+  if (foreground) {
+    const child = spawn('node', [join(rootDir, 'server', 'index.js')], {
+      stdio: 'inherit', env, cwd: process.cwd(),
+    });
+
+    if (!noOpen) setTimeout(() => { openBrowser(url); }, 2000);
+
+    child.on('error', e => { console.error('❌ Failed to start:', e.message); process.exit(1); });
+    child.on('exit', (code, signal) => {
+      if (code === 0 || code === null) return;
+      console.error(`❌ Exited with code ${code}${signal ? ` (signal ${signal})` : ''}`);
+      process.exit(code);
+    });
+    process.on('SIGINT', () => { console.log('\n👋 Shutting down...'); child.kill('SIGINT'); });
+    return;
+  }
+
+  // Default: daemonize so Ctrl-C in this terminal does NOT stop the server.
+  // Use `guardclaw stop` to terminate.
+  const logDir = join(process.cwd(), '.guardclaw');
+  try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+  const logPath = join(logDir, 'server.log');
+  const out = fs.openSync(logPath, 'a');
+  const errOut = fs.openSync(logPath, 'a');
+
   const child = spawn('node', [join(rootDir, 'server', 'index.js')], {
-    stdio: 'inherit', env, cwd: rootDir,
+    stdio: ['ignore', out, errOut],
+    env,
+    cwd: process.cwd(),
+    detached: true,
   });
-
-  if (!noOpen) setTimeout(() => { openBrowser(url); }, 2000);
-
   child.on('error', e => { console.error('❌ Failed to start:', e.message); process.exit(1); });
-  child.on('exit', code => { if (code !== 0) { console.error(`❌ Exited with code ${code}`); process.exit(code); } });
-  process.on('SIGINT', () => { console.log('\n👋 Shutting down...'); child.kill('SIGINT'); });
+  child.unref();
+
+  console.log(`✅ GuardClaw running in background (PID ${child.pid})`);
+  console.log(`📜 Logs: ${logPath}`);
+  console.log(`🛑 Stop with: guardclaw stop`);
+
+  if (!noOpen) setTimeout(() => { openBrowser(url); process.exit(0); }, 2000);
+  else process.exit(0);
+}
+
+async function restartServer() {
+  stopServer();
+  // Give the OS a brief moment to release sockets/PIDs before spawning again.
+  await new Promise(resolve => setTimeout(resolve, 300));
+  await startServer();
 }
 
 // ─── Query commands ───────────────────────────────────────────────────────────
@@ -1354,7 +1577,9 @@ async function cmdStatus() {
 
   if (status.eventCounts) {
     const ec = status.eventCounts;
-    console.log(`\n  Events: ${ec.total} total  🟢 ${ec.safe} safe  🟡 ${ec.warn} warn  🔴 ${ec.blocked} blocked`);
+    // The server returns null for individual buckets when no events exist;
+    // coerce to 0 instead of printing literal "null".
+    console.log(`\n  Events: ${ec.total ?? 0} total  🟢 ${ec.safe ?? 0} safe  🟡 ${ec.warn ?? 0} warn  🔴 ${ec.blocked ?? 0} blocked`);
   }
   if (status.safeguardCache) {
     const c = status.safeguardCache;
@@ -1381,7 +1606,17 @@ async function cmdStats() {
 }
 
 async function cmdHistory() {
-  const limit = parseInt(process.argv[3]) || 20;
+  const raw = process.argv[3];
+  let limit = 20;
+  if (raw !== undefined) {
+    const n = parseInt(raw, 10);
+    if (Number.isNaN(n) || n <= 0) {
+      console.error(`❌ Invalid limit: "${raw}" (must be a positive integer)`);
+      console.error('   Usage: guardclaw history [n]');
+      process.exit(1);
+    }
+    limit = Math.min(n, 1000);
+  }
   const data = await gcApi(`/api/events/history?limit=${limit}&filter=tool`);
   const events = data.events || data || [];
 
@@ -1436,6 +1671,11 @@ async function cmdBlocking() {
     console.log(`⛨  Blocking ${action === 'on' ? '🔴 ENABLED' : '🟢 DISABLED'}`);
     return;
   }
+  if (action !== undefined && action !== 'status') {
+    console.error(`❌ Unknown blocking action: "${action}"`);
+    console.error('   Usage: guardclaw blocking [on|off|status]');
+    process.exit(1);
+  }
   const data = await gcApi('/api/blocking/status');
   console.log('⛨  Blocking\n');
   console.log(`  Enabled: ${data.enabled ? '🔴 ON' : '🟢 OFF'}`);
@@ -1448,7 +1688,9 @@ async function cmdCheck() {
   if (!cmd) { console.error('Usage: guardclaw check <command>'); process.exit(1); }
 
   console.log(`⛨  Analyzing: ${cmd}\n`);
-  const r = await gcApi('/api/safeguard/analyze', 'POST', { command: cmd });
+  // persist:true → server records this as a `cli-check` event so it shows up
+  // in `guardclaw history` and the dashboard.
+  const r = await gcApi('/api/safeguard/analyze', 'POST', { command: cmd, persist: true });
   const score = r.riskScore ?? '?';
   const icon  = score <= 3 ? '🟢' : score <= 6 ? '🟡' : score <= 8 ? '🟠' : '🔴';
 
@@ -1520,6 +1762,7 @@ switch (command) {
   case 'hooks':                     cmdHooks(); break;
   case 'start':                     startServer(); break;
   case 'stop':                      stopServer(); break;
+  case 'restart': case 'rs': case 'r': restartServer(); break;
   case 'config':                    handleConfigCommand(); break;
   case 'plugin':                    handlePluginCommand(); break;
   case 'update':  case 'upgrade':   updateGuardClaw(); break;

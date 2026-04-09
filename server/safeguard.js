@@ -1979,7 +1979,7 @@ ACTION: ${action.summary}${detailSection}`;
         return {
           riskScore: score,
           category,
-          reasoning: `LLM response parse failed — fallback pattern match: ${warning}`,
+          reasoning: `Rule-based pattern match: ${warning}`,
           allowed: score < 8,
           warnings: [warning],
           backend: 'fallback'
@@ -1991,7 +1991,7 @@ ACTION: ${action.summary}${detailSection}`;
     return {
       riskScore: 2,
       category: 'safe',
-      reasoning: 'LLM response parse failed — no dangerous patterns detected',
+      reasoning: 'Rule-based: no dangerous patterns detected',
       allowed: true,
       warnings: [],
       backend: 'fallback'

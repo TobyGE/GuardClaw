@@ -630,8 +630,29 @@ function applySignalsAndRecord(sessionKey, toolName, params, analysis) {
 const activeClients = []; // { client, name }
 
 // OpenClaw client (only for openclaw or auto mode)
+// In auto mode, skip if no token is configured AND no openclaw config is discoverable —
+// otherwise a fresh install spams "gateway token missing" reconnect errors.
+function hasOpenClawConfig() {
+  if (process.env.OPENCLAW_TOKEN || process.env.CLAWDBOT_TOKEN) return true;
+  try {
+    const p = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (!fs.existsSync(p)) return false;
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return Boolean(cfg?.gateway?.auth?.token);
+  } catch { return false; }
+}
+function hasQclawConfig() {
+  if (process.env.QCLAW_TOKEN) return true;
+  try {
+    const p = path.join(os.homedir(), '.qclaw', 'openclaw.json');
+    if (!fs.existsSync(p)) return false;
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return Boolean(cfg?.gateway?.auth?.token);
+  } catch { return false; }
+}
+
 let openclawClient = null;
-if (BACKEND === 'openclaw' || BACKEND === 'auto') {
+if (BACKEND === 'openclaw' || (BACKEND === 'auto' && hasOpenClawConfig())) {
   openclawClient = new ClawdbotClient(
     process.env.OPENCLAW_URL || process.env.CLAWDBOT_URL || 'ws://127.0.0.1:18789',
     process.env.OPENCLAW_TOKEN || process.env.CLAWDBOT_TOKEN,
@@ -657,7 +678,7 @@ if (BACKEND === 'openclaw' || BACKEND === 'auto') {
 
 // Qclaw client (only for qclaw or auto mode)
 let qclawClient = null;
-if (BACKEND === 'qclaw' || BACKEND === 'auto') {
+if (BACKEND === 'qclaw' || (BACKEND === 'auto' && hasQclawConfig())) {
   qclawClient = new QclawClient(
     process.env.QCLAW_URL || 'ws://127.0.0.1:28789',
     process.env.QCLAW_TOKEN,
@@ -1108,9 +1129,35 @@ app.get('/api/streaming/session/:sessionKey', (req, res) => {
 });
 
 app.post('/api/safeguard/analyze', async (req, res) => {
-  const { command } = req.body;
+  const { command, persist } = req.body;
   try {
     const analysis = await safeguardService.analyzeCommand(command);
+    // When the caller asks for it (e.g. `guardclaw check`), record this as
+    // a tool-call event so it shows up in `guardclaw history` and the
+    // dashboard. Without this, manual analyses were invisible.
+    if (persist) {
+      try {
+        eventStore.addEvent({
+          type: 'tool-call',
+          tool: 'cli-check',
+          toolName: 'cli-check',
+          summary: command?.substring(0, 200) || '',
+          command,
+          sessionKey: 'cli',
+          riskScore: analysis.riskScore,
+          safeguard: {
+            riskScore: analysis.riskScore,
+            category: analysis.category,
+            verdict: analysis.allowed ? 'allowed' : 'blocked',
+            reasoning: analysis.reasoning,
+            backend: analysis.backend,
+          },
+          timestamp: Date.now(),
+        });
+      } catch (e) {
+        console.error('[analyze] persist failed:', e.message);
+      }
+    }
     res.json(analysis);
   } catch (error) {
     res.status(500).json({ error: error.message });

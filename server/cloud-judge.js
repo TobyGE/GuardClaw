@@ -37,7 +37,7 @@ const PROVIDERS = {
     defaultModel: 'claude-haiku-4-5-20251001',
     oauthSupported: true,
   },
-  // Gemini & OpenAI: API key only (no public OAuth client)
+  // Gemini & OpenRouter: API key only
   gemini: {
     displayName: 'Google Gemini',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -50,10 +50,44 @@ const PROVIDERS = {
     defaultModel: 'gpt-4o-mini',
     oauthSupported: false,
   },
+  // OpenAI Codex: OAuth via ChatGPT Plus/Pro subscription (same flow as OpenClaw)
+  'openai-codex': {
+    displayName: 'OpenAI Codex (ChatGPT)',
+    authURL: 'https://auth.openai.com/oauth/authorize',
+    tokenURL: 'https://auth.openai.com/oauth/token',
+    clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+    scopes: ['openid', 'profile', 'email', 'offline_access'],
+    callbackPort: 1455,
+    callbackPath: '/auth/callback',
+    baseURL: 'https://chatgpt.com/backend-api',
+    defaultModel: 'gpt-4o-mini',
+    oauthSupported: true,
+  },
   openrouter: {
     displayName: 'OpenRouter',
     baseURL: 'https://openrouter.ai/api/v1',
     defaultModel: 'anthropic/claude-haiku-4-5-20251001',
+    oauthSupported: false,
+  },
+  // Minimax: OAuth via device code flow, Anthropic Messages API format
+  minimax: {
+    displayName: 'MiniMax',
+    // OAuth device code endpoints (global region)
+    oauthCodeURL: 'https://api.minimax.io/oauth/code',
+    tokenURL: 'https://api.minimax.io/oauth/token',
+    clientId: '78257093-7e40-4613-99e0-527b14b39113',
+    scopes: ['group_id', 'profile', 'model.completion'],
+    // API: Anthropic Messages format with Bearer auth
+    baseURL: 'https://api.minimax.io/anthropic',
+    defaultModel: 'MiniMax-M2.7',
+    oauthSupported: true,
+    oauthFlow: 'device_code',
+  },
+  // Kimi (Moonshot AI): OpenAI-compatible API, API key only
+  kimi: {
+    displayName: 'Kimi (Moonshot)',
+    baseURL: 'https://api.moonshot.ai/v1',
+    defaultModel: 'kimi-k2.5',
     oauthSupported: false,
   },
 };
@@ -138,19 +172,27 @@ function generateState() {
 
 // ─── Local callback server ───────────────────────────────────────────────────
 
-const CALLBACK_PORT = 54321;
-const CALLBACK_PATH = '/callback';
-const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
+const DEFAULT_CALLBACK_PORT = 54321;
+const DEFAULT_CALLBACK_PATH = '/callback';
+const REDIRECT_URI = `http://localhost:${DEFAULT_CALLBACK_PORT}${DEFAULT_CALLBACK_PATH}`;
+
+function getRedirectURI(provider) {
+  const cfg = PROVIDERS[provider];
+  if (cfg?.callbackPort) {
+    return `http://localhost:${cfg.callbackPort}${cfg.callbackPath ?? '/callback'}`;
+  }
+  return REDIRECT_URI;
+}
 
 /**
  * Start a temporary local HTTP server to receive the OAuth callback.
  * Resolves with { code, state } or rejects on timeout.
  */
-function waitForCallback(timeoutMs = 120000) {
+function waitForCallback(timeoutMs = 120000, port = DEFAULT_CALLBACK_PORT, callbackPath = DEFAULT_CALLBACK_PATH) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url, `http://localhost:${CALLBACK_PORT}`);
-      if (url.pathname !== CALLBACK_PATH) {
+      const url = new URL(req.url, `http://localhost:${port}`);
+      if (url.pathname !== callbackPath) {
         res.writeHead(404);
         res.end();
         return;
@@ -172,8 +214,8 @@ function waitForCallback(timeoutMs = 120000) {
       else resolve({ code, state });
     });
 
-    server.listen(CALLBACK_PORT, () => {
-      console.log(`[CloudJudge] OAuth callback server listening on port ${CALLBACK_PORT}`);
+    server.listen(port, '127.0.0.1', () => {
+      console.log(`[CloudJudge] OAuth callback server listening on port ${port}`);
     });
 
     setTimeout(() => {
@@ -187,17 +229,16 @@ function waitForCallback(timeoutMs = 120000) {
 
 async function exchangeCode(provider, code, verifier, state) {
   const cfg = PROVIDERS[provider];
+  const redirectURI = getRedirectURI(provider);
+
+  // OpenAI Codex uses form-urlencoded; Claude uses JSON
+  const useFormEncoded = provider === 'openai-codex';
   const resp = await fetch(cfg.tokenURL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: cfg.clientId,
-      code_verifier: verifier,
-      state,
-    }),
+    headers: { 'Content-Type': useFormEncoded ? 'application/x-www-form-urlencoded' : 'application/json' },
+    body: useFormEncoded
+      ? new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectURI, client_id: cfg.clientId, code_verifier: verifier })
+      : JSON.stringify({ grant_type: 'authorization_code', code, redirect_uri: redirectURI, client_id: cfg.clientId, code_verifier: verifier, state }),
   });
 
   if (!resp.ok) {
@@ -594,18 +635,31 @@ export class CloudJudge {
     if (!cfg) throw new Error(`Unknown provider: ${provider}`);
     if (!cfg.oauthSupported) throw new Error(`${cfg.displayName} does not support OAuth — use an API key instead`);
 
+    // Minimax uses device code flow (polling), not PKCE redirect
+    if (cfg.oauthFlow === 'device_code') {
+      return this._startDeviceCodeOAuth(provider);
+    }
+
     const { verifier, challenge } = generatePKCE();
     const state = generateState();
 
+    const redirectURI = getRedirectURI(provider);
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: cfg.clientId,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirectURI,
       scope: cfg.scopes.join(' '),
       code_challenge: challenge,
       code_challenge_method: 'S256',
       state,
     });
+
+    // OpenAI Codex needs extra params
+    if (provider === 'openai-codex') {
+      params.set('id_token_add_organizations', 'true');
+      params.set('codex_cli_simplified_flow', 'true');
+      params.set('originator', 'guardclaw');
+    }
 
     const authURL = `${cfg.authURL}?${params}`;
     console.log(`[CloudJudge] Opening browser for ${cfg.displayName} OAuth...`);
@@ -615,9 +669,11 @@ export class CloudJudge {
     const { exec } = await import('child_process');
     exec(`open "${authURL}"`);
 
-    // Wait for callback
-    const { code, state: returnedState } = await waitForCallback();
-    if (returnedState !== state) throw new Error('OAuth state mismatch (possible CSRF)');
+    // Wait for callback (use provider-specific port/path)
+    const callbackPort = cfg.callbackPort ?? DEFAULT_CALLBACK_PORT;
+    const callbackPath = cfg.callbackPath ?? DEFAULT_CALLBACK_PATH;
+    const { code, state: returnedState } = await waitForCallback(120000, callbackPort, callbackPath);
+    if (provider !== 'openai-codex' && returnedState !== state) throw new Error('OAuth state mismatch (possible CSRF)');
     console.log(`[CloudJudge] Callback received, exchanging code...`);
 
     // Exchange code for tokens
@@ -638,6 +694,90 @@ export class CloudJudge {
 
     console.log(`[CloudJudge] ${cfg.displayName} OAuth connected successfully`);
     return { ok: true, provider };
+  }
+
+  /**
+   * Minimax device code OAuth flow: POST for user_code, open browser, poll until done.
+   */
+  async _startDeviceCodeOAuth(provider) {
+    const cfg = PROVIDERS[provider];
+    const { verifier, challenge } = generatePKCE();
+    const state = generateState();
+
+    // Step 1: request device/user code
+    const codeResp = await fetch(cfg.oauthCodeURL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: new URLSearchParams({
+        response_type: 'code',
+        client_id: cfg.clientId,
+        scope: cfg.scopes.join(' '),
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        state,
+      }),
+    });
+
+    if (!codeResp.ok) {
+      const err = await codeResp.text();
+      throw new Error(`${cfg.displayName} OAuth code request failed ${codeResp.status}: ${err.substring(0, 200)}`);
+    }
+
+    const codeData = await codeResp.json();
+    if (!codeData.user_code || !codeData.verification_uri) {
+      throw new Error(`${cfg.displayName} OAuth: missing user_code or verification_uri`);
+    }
+
+    console.log(`[CloudJudge] ${cfg.displayName} OAuth — open browser and approve access`);
+    console.log(`[CloudJudge] URL: ${codeData.verification_uri}`);
+    console.log(`[CloudJudge] User code: ${codeData.user_code}`);
+
+    // Step 2: open browser
+    const { exec } = await import('child_process');
+    exec(`open "${codeData.verification_uri}"`);
+
+    // Step 3: poll until authorized or expired
+    const pollIntervalMs = codeData.interval ?? 2000;
+    const expireAt = codeData.expired_in ?? (Date.now() + 5 * 60 * 1000);
+
+    while (Date.now() < expireAt) {
+      await new Promise(r => setTimeout(r, pollIntervalMs));
+
+      const tokenResp = await fetch(cfg.tokenURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:user_code',
+          client_id: cfg.clientId,
+          user_code: codeData.user_code,
+          code_verifier: verifier,
+        }),
+      });
+
+      const tokenText = await tokenResp.text();
+      let tokenData;
+      try { tokenData = JSON.parse(tokenText); } catch { continue; }
+
+      if (!tokenResp.ok || tokenData.status === 'error') continue; // still pending
+      if (tokenData.status === 'pending' || !tokenData.access_token) continue;
+
+      // Success
+      setToken(provider, {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+        expires_in: tokenData.expired_in ?? 3600,
+        resource_url: tokenData.resource_url,
+        savedAt: Date.now(),
+      });
+
+      console.log(`[CloudJudge] ${cfg.displayName} OAuth connected successfully`);
+      return { ok: true, provider };
+    }
+
+    throw new Error(`${cfg.displayName} OAuth timed out — authorization not completed`);
   }
 
   /**
@@ -909,6 +1049,7 @@ export class CloudJudge {
     // API key path
     if (this.apiKey) {
       if (this.provider === 'claude') return this._callClaudeApiKey(userContent, undefined, sysPr, opts);
+      if (this.provider === 'minimax') return this._callAnthropicBearer(userContent, this.apiKey, this.baseURL || cfg?.baseURL, sysPr, opts);
       return this._callOpenAICompat(userContent, this.apiKey, this.baseURL || cfg?.baseURL, sysPr, opts);
     }
 
@@ -924,7 +1065,121 @@ export class CloudJudge {
       return this._callClaudeBearer(userContent, accessToken, sysPr, opts);
     }
 
+    if (this.provider === 'openai-codex') {
+      // Auto-refresh token if expired
+      const refreshedToken = await this._ensureOpenAICodexToken(token);
+      return this._callOpenAICodex(userContent, refreshedToken.access_token, sysPr, opts);
+    }
+
+    if (this.provider === 'minimax') {
+      return this._callAnthropicBearer(userContent, accessToken, cfg.baseURL, sysPr, opts);
+    }
+
     return this._callOpenAICompat(userContent, accessToken, cfg.baseURL, sysPr, opts);
+  }
+
+  // ─── Anthropic Messages format with Bearer auth (Minimax) ──────────────────
+
+  async _callAnthropicBearer(userContent, token, baseURL, systemPromptOverride = null, opts = {}) {
+    const model = opts.modelOverride || this.model || PROVIDERS.minimax.defaultModel;
+    const maxTok = opts.maxTokens || (systemPromptOverride ? 2000 : 300);
+    const timeout = opts.timeout || 20000;
+
+    const resp = await fetch(`${baseURL}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTok,
+        system: systemPromptOverride || SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`MiniMax ${resp.status}: ${err.substring(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    return data.content?.[0]?.text ?? null;
+  }
+
+  // ─── OpenAI Codex (ChatGPT OAuth) ──────────────────────────────────────────
+
+  async _ensureOpenAICodexToken(token) {
+    const expiresAt = token.savedAt + (token.expires_in ?? 3600) * 1000;
+    if (Date.now() < expiresAt - 60000) return token; // still valid
+    // Refresh
+    console.log('[CloudJudge] OpenAI Codex token expired, refreshing...');
+    const refreshed = await refreshAccessToken('openai-codex', token.refresh_token);
+    const updated = { ...refreshed, savedAt: Date.now() };
+    setToken('openai-codex', updated);
+    return updated;
+  }
+
+  async _callOpenAICodex(userContent, accessToken, systemPromptOverride = null, opts = {}) {
+    const model = opts.modelOverride || this.model || PROVIDERS['openai-codex'].defaultModel;
+    const timeout = opts.timeout || 30000;
+    const sysPr = systemPromptOverride || SYSTEM_PROMPT;
+
+    // Extract ChatGPT account ID from JWT
+    let accountId = '';
+    try {
+      const payload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64').toString('utf8'));
+      accountId = payload?.['https://api.openai.com/auth']?.chatgpt_account_id ?? '';
+    } catch {
+      throw new Error('OpenAI Codex: failed to extract account ID from token');
+    }
+
+    const body = {
+      model,
+      store: false,
+      stream: true,
+      instructions: sysPr,
+      input: [{ role: 'user', content: userContent }],
+      text: { verbosity: 'medium' },
+    };
+
+    const resp = await fetch('https://chatgpt.com/backend-api/codex/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'ChatGPT-Account-ID': accountId,
+        'OpenAI-Beta': 'responses=experimental',
+        'accept': 'text/event-stream',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`OpenAI Codex ${resp.status}: ${err.substring(0, 500)}`);
+    }
+
+    // Parse SSE stream and collect text deltas
+    const raw = await resp.text();
+    let text = '';
+    for (const line of raw.split('\n')) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') break;
+      try {
+        const event = JSON.parse(data);
+        if (event.type === 'response.output_text.delta' && event.delta) {
+          text += event.delta;
+        }
+      } catch { /* skip malformed lines */ }
+    }
+
+    return text || null;
   }
 
   // ─── Claude Bearer token (OAuth access_token with user:inference scope) ────────

@@ -817,6 +817,9 @@ export default function SettingsModal({ isOpen, onClose, currentToken, currentLl
                     { id: 'claude', displayName: 'Anthropic Claude', defaultModel: 'claude-haiku-4-5-20251001', connected: false, hasApiKey: false, ready: false, oauthSupported: true },
                     { id: 'gemini', displayName: 'Google Gemini', defaultModel: 'gemini-2.0-flash', connected: false, hasApiKey: false, ready: false, oauthSupported: false },
                     { id: 'openai', displayName: 'OpenAI', defaultModel: 'gpt-4o-mini', connected: false, hasApiKey: false, ready: false, oauthSupported: false },
+                    { id: 'openai-codex', displayName: 'OpenAI Codex (ChatGPT)', defaultModel: 'gpt-4o-mini', connected: false, hasApiKey: false, ready: false, oauthSupported: true },
+                    { id: 'minimax', displayName: 'MiniMax', defaultModel: 'MiniMax-M2.7', connected: false, hasApiKey: false, ready: false, oauthSupported: true },
+                    { id: 'kimi', displayName: 'Kimi (Moonshot)', defaultModel: 'kimi-k2.5', connected: false, hasApiKey: false, ready: false, oauthSupported: false },
                   ]).map(p => (
                     <div key={p.id} className="flex items-center justify-between px-4 py-3 rounded-lg border border-gc-border bg-gc-bg">
                       <div className="flex items-center gap-3">

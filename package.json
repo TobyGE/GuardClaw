@@ -1,19 +1,30 @@
 {
   "name": "guardclaw",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "AI Agent Safety Monitor with LLM-based Command Safeguard",
   "main": "server/index.js",
   "type": "module",
   "bin": {
     "guardclaw": "./bin/guardclaw.js"
   },
+  "files": [
+    "bin/",
+    "server/",
+    "client/dist/",
+    "plugin/",
+    "scripts/install-claude-code.js",
+    "scripts/verify-native.mjs",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ],
   "scripts": {
     "dev": "npm run verify:native && concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "server:dev": "nodemon server/index.js",
     "client:dev": "cd client && ./node_modules/.bin/vite",
     "build": "cd client && ./node_modules/.bin/vite build",
     "start": "npm run verify:native && node server/index.js",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "verify:native": "node scripts/verify-native.mjs"
   },
   "keywords": [
