@@ -104,48 +104,21 @@ When risk is detected, GuardClaw doesn't just score — it acts:
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 22.x (LTS)
-- `nvm` recommended (or install Node 22.21.1 manually)
-- One or more supported agents (see [Supported Agents](#supported-agents) below)
-
-### 1) Install and start
+Requires Node.js >= 18.
 
 ```bash
-git clone https://github.com/TobyGE/GuardClaw.git
-cd GuardClaw
-nvm use || nvm install
-npm ci
-npm ci --prefix client
-npm run verify:native
-npm run build
-npm link
+npm install -g guardclaw
 guardclaw start
 ```
 
-### 2) Run onboarding in the dashboard (`localhost:3002`)
+First launch opens an interactive wizard:
 
-The onboarding flow walks through setup in order:
+1. **Evaluation mode** — local / mixed / cloud
+2. **LLM backend** — local (LM Studio, Ollama, built-in MLX) and/or cloud (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini, OpenAI). Cloud providers support OAuth or API key.
+3. **Response mode** — `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
+4. **Agent connections** — auto-detects installed agents and installs hooks/plugins with one confirm
 
-1. **Judge** — choose a backend and activate a model
-2. **Connections** — install hooks/plugin for your agent
-3. **Security Check** — scan for MCP servers, secrets, hooks, and plugin code
-4. **Protection** — choose `Strict` (recommended), `Balanced`, or `Monitor`
-
-Restart the target agent after installing hooks/plugin.
-
-### Judge backends
-
-GuardClaw supports three judge modes: **local-only**, **cloud-only**, and **mixed** (default — local judge first, cloud as fallback or for high-risk confirmation).
-
-| Backend | Mode | Description |
-| ------- | ---- | ----------- |
-| **Built-in (MLX)** | local | Bundled engine using Apple Silicon MLX. Downloads and runs the model locally — no external server needed. |
-| **LM Studio** | local | Connect to [LM Studio](https://lmstudio.ai) running locally. Recommended model: `qwen/qwen3-4b-2507` |
-| **Ollama** | local | Connect to [Ollama](https://ollama.ai) running locally |
-| **Claude (Anthropic)** | cloud | Uses Claude Haiku via Anthropic API or Claude Code OAuth — no API key required if Claude Code is installed |
-| **Fallback** | local | Deterministic rule-based scoring only, no LLM |
+Re-run any time with `guardclaw setup`. Restart the target agent after installing hooks.
 
 ## Supported Agents
 
@@ -184,15 +157,27 @@ Static checks for MCP configuration, secrets exposure, and agentic-risk patterns
 ```
 guardclaw start              # start server (opens dashboard)
 guardclaw stop               # stop server
+guardclaw restart            # restart server
+guardclaw setup              # re-run the interactive setup wizard
+guardclaw update             # upgrade to the latest version
 
 guardclaw status             # server & judge status
 guardclaw stats              # event counts and risk breakdown
-guardclaw history [n]        # recent events (default 10)
+guardclaw history [n]        # recent events (default 20)
 guardclaw model              # active judge model info
 guardclaw blocking [on|off]  # view or toggle blocking
 guardclaw check <command>    # check risk score for a command
 guardclaw approvals          # pending approval requests
 guardclaw memory             # learned safe/risky patterns
+guardclaw brief              # show L0 buffer + L1 AI brief for active sessions
+
+guardclaw config             # interactive config menu
+guardclaw config show        # show all settings
+guardclaw config set K V     # set any variable directly
+
+guardclaw hooks              # show hook installation status
+guardclaw hooks install      # install hooks (claude-code | codex | gemini | cursor | all)
+guardclaw hooks uninstall
 
 guardclaw plugin install     # install OpenClaw plugin
 guardclaw plugin uninstall
@@ -201,12 +186,21 @@ guardclaw plugin status
 guardclaw help
 ```
 
-## TODO
+## Development
 
-- [ ] Publish to npm registry — enable `npx guardclaw start` one-command install
-- [ ] Auto-detect installed agents on first start (scan `~/.claude/`, `~/.gemini/`, etc.)
-- [ ] One-click hook installation for detected agents in dashboard onboarding
-- [ ] OAuth authorization flow for cloud judge (reuse Claude Code token if available)
+To hack on GuardClaw itself, install from source:
+
+```bash
+git clone https://github.com/TobyGE/GuardClaw.git
+cd GuardClaw
+nvm use || nvm install
+npm ci && npm ci --prefix client
+npm run build
+npm link
+guardclaw start
+```
+
+`npm run dev` runs server (nodemon) + client (Vite) concurrently. See [CLAUDE.md](CLAUDE.md) for the architecture overview.
 
 ## Links
 

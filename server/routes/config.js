@@ -15,7 +15,7 @@ export function configRoutes(deps) {
     if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Invalid token' });
 
     try {
-      const envPath = path.join(getDataDir(), '.env');
+      const envPath = path.join(os.homedir(), '.guardclaw', '.env');
       let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
       const tokenRegex = /^OPENCLAW_TOKEN=.*/m;
@@ -60,7 +60,7 @@ export function configRoutes(deps) {
     if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Invalid token' });
 
     try {
-      const envPath = path.join(getDataDir(), '.env');
+      const envPath = path.join(os.homedir(), '.guardclaw', '.env');
       let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
       const tokenRegex = /^QCLAW_TOKEN=.*/m;
@@ -104,7 +104,7 @@ export function configRoutes(deps) {
     if (!backend || !['built-in', 'lmstudio', 'ollama', 'openrouter'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
 
     try {
-      const envPath = path.join(getDataDir(), '.env');
+      const envPath = path.join(os.homedir(), '.guardclaw', '.env');
       let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
       const updates = { SAFEGUARD_BACKEND: backend, LMSTUDIO_URL: lmstudioUrl, LMSTUDIO_MODEL: lmstudioModel, OLLAMA_URL: ollamaUrl, OLLAMA_MODEL: ollamaModel };
 

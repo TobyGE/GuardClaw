@@ -37,7 +37,7 @@ import { agentPermissions } from './agent-permissions.js';
 import { SecurityMemory, buildParamsDigest, buildDataFlowTag } from './security-memory.js';
 import { loadGlobalKnowledge, updateGlobalKnowledge } from './global-knowledge.js';
 
-dotenv.config();
+dotenv.config({ path: path.join(os.homedir(), '.guardclaw', '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -3594,7 +3594,7 @@ app.post('/api/config/fail-closed', (req, res) => {
   failClosedEnabled = enabled;
   // Persist to .env so it survives restarts
   try {
-    const envPath = path.join(getDataDir(), '.env');
+    const envPath = path.join(os.homedir(), '.guardclaw', '.env');
     let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
     if (envContent.includes('GUARDCLAW_FAIL_CLOSED=')) {
       envContent = envContent.replace(/GUARDCLAW_FAIL_CLOSED=.*/, `GUARDCLAW_FAIL_CLOSED=${enabled}`);
@@ -5676,7 +5676,7 @@ app.post('/api/blocking/toggle', (req, res) => {
 
   try {
     // Update .env file
-    const envPath = path.join(getDataDir(), '.env');
+    const envPath = path.join(os.homedir(), '.guardclaw', '.env');
     let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
     if (envContent.includes('GUARDCLAW_BLOCKING_ENABLED=')) {

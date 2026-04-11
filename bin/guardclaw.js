@@ -195,7 +195,7 @@ function confirm(question, { defaultYes = true } = {}) {
 // ─── .env helpers ─────────────────────────────────────────────────────────────
 
 function getEnvPath() {
-  return join(process.cwd(), '.env');
+  return join(os.homedir(), '.guardclaw', '.env');
 }
 
 function readEnvFile() {
@@ -203,6 +203,7 @@ function readEnvFile() {
 }
 
 function writeEnvFile(content) {
+  fs.mkdirSync(join(os.homedir(), '.guardclaw'), { recursive: true });
   fs.writeFileSync(getEnvPath(), content, 'utf8');
 }
 
@@ -765,7 +766,7 @@ async function runOnboarding() {
     console.log('     After setup finishes, open the dashboard → Settings → Built-in');
     console.log('     to download and load a model. GuardClaw will fall back to');
     console.log('     rule-based scoring until a model is loaded.\n');
-  } else if (backend === 'fallback') {
+  } else if (backend === 'fallback' && judgeMode !== 'cloud-only') {
     console.log('  ℹ️  Rule-based only — no LLM calls. You can switch later via `guardclaw config llm`.\n');
   }
 
@@ -1188,6 +1189,7 @@ Usage:
   guardclaw start [options]          Start the GuardClaw server
   guardclaw stop                     Stop the GuardClaw server
   guardclaw restart [options]        Restart the GuardClaw server
+  guardclaw setup                    Run the setup wizard
   guardclaw config [command]         Configuration (interactive menu if no command)
   guardclaw hooks [command]          Manage Claude Code / Codex hook integrations
   guardclaw plugin [command]         Manage OpenClaw interceptor plugin
@@ -1203,7 +1205,7 @@ Config Commands:
   guardclaw config mode              Change approval mode
   guardclaw config thresholds        Change risk thresholds
   guardclaw config agents            Manage agent connections
-  guardclaw config setup             Re-run setup wizard
+  guardclaw config setup             Re-run setup wizard (alias: guardclaw setup)
   guardclaw config set-token <tok>   Set OpenClaw token
   guardclaw config detect-token      Auto-detect OpenClaw token
 
@@ -1248,12 +1250,27 @@ function stopServer() {
       const cmd = m[2];
       if (Number.isNaN(pid)) continue;
       if (!cmd.includes('server/index.js')) continue;
-      if (!/guardclaw/i.test(cmd) && !cmd.includes(`${rootDir}/server/index.js`)) continue;
-      pids.add(pid);
+      if (/guardclaw/i.test(cmd) || cmd.includes(`${rootDir}/server/index.js`)) {
+        pids.add(pid);
+        continue;
+      }
+      // Relative path (e.g. `node server/index.js`) — resolve the process
+      // cwd and check whether it lives under the guardclaw repo.
+      try {
+        const cwdLine = execSync(`lsof -p ${pid} -a -d cwd -Fn`, {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        }).split('\n').find(l => l.startsWith('n'));
+        const cwd = cwdLine ? cwdLine.slice(1) : '';
+        if (cwd && (cwd === rootDir || cwd.startsWith(rootDir + '/'))) pids.add(pid);
+      } catch {}
     }
   } catch {}
 
   // Fallback: find listener on GuardClaw port and validate command.
+  // A process listening on GC_PORT running `server/index.js` is GuardClaw —
+  // no need for extra name checks that miss foreground launches via
+  // relative paths (e.g. `node server/index.js` from the repo root).
   try {
     const out = execSync(`lsof -ti tcp:${GC_PORT} -sTCP:LISTEN`, {
       encoding: 'utf8',
@@ -1267,9 +1284,7 @@ function stopServer() {
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'ignore'],
         }).trim();
-        if (!cmd.includes('server/index.js')) continue;
-        if (!/guardclaw/i.test(cmd) && !cmd.includes(`${rootDir}/server/index.js`)) continue;
-        pids.add(pid);
+        if (cmd.includes('server/index.js')) pids.add(pid);
       } catch {}
     }
   } catch {}
@@ -1935,6 +1950,7 @@ switch (command) {
   case 'stop':                      stopServer(); break;
   case 'restart': case 'rs': case 'r': restartServer(); break;
   case 'config':                    handleConfigCommand(); break;
+  case 'setup':   case 'wizard':    runOnboarding(); break;
   case 'plugin':                    handlePluginCommand(); break;
   case 'update':  case 'upgrade':   updateGuardClaw(); break;
   case 'version': case '--version': case '-v': showVersion(); break;
