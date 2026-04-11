@@ -35,7 +35,7 @@ node scripts/install-claude-code.js            # Install hooks into ~/.claude/se
 node scripts/install-claude-code.js --uninstall
 ```
 
-No automated tests exist yet (`npm test` is a no-op placeholder).
+Unit tests live in `test/*.test.js` and run via `npm test` (`node --test`). Manual dev benchmark scripts live in `scripts/benchmarks/` (`test-4b.js`, `accuracy-test.js`, `gpt-oss-accuracy.js`) — run from the repo root so `dotenv` finds `.env`. The integration smoke test is `scripts/smoke-test.sh`.
 
 ## Architecture
 

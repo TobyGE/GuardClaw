@@ -1,4 +1,4 @@
-import { SafeguardService } from './server/safeguard.js';
+import { SafeguardService } from '../../server/safeguard.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
