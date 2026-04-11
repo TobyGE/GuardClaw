@@ -41,6 +41,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
+const APPROVAL_MODE = (process.env.GUARDCLAW_APPROVAL_MODE || 'auto').toLowerCase(); // 'auto' | 'monitor-only'
 
 // Blocking config (whitelist/blacklist)
 const BLOCKING_CONFIG_PATH = path.join(getDataDir(), 'blocking-config.json');
@@ -461,6 +462,26 @@ function extractResultText(result) {
     return result.content.filter(c => c.type === 'text').map(c => c.text).join('\n');
   }
   return JSON.stringify(result);
+}
+
+// In monitor-only mode, strip all intervention from hook responses.
+// Applied as middleware on all pre-tool-use routes — intercepts res.json().
+function monitorModeMiddleware(req, res, next) {
+  if (APPROVAL_MODE !== 'monitor-only') return next();
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (!body || typeof body !== 'object') return originalJson(body);
+    const cleaned = { ...body };
+    delete cleaned.systemMessage;
+    if (cleaned.hookSpecificOutput?.permissionDecision === 'deny') {
+      cleaned.hookSpecificOutput = { ...cleaned.hookSpecificOutput, permissionDecision: 'allow' };
+      delete cleaned.hookSpecificOutput.permissionDecisionReason;
+    }
+    if (cleaned.decision === 'block' || cleaned.decision === 'deny') cleaned.decision = 'allow';
+    if (cleaned.permission === 'deny') cleaned.permission = 'allow';
+    return originalJson(cleaned);
+  };
+  next();
 }
 
 function addToToolHistory(sessionKey, toolName, params, result) {
@@ -1313,7 +1334,7 @@ app.post('/api/tool-result', async (req, res) => {
 
 // ─── Pre-Execution Risk Evaluation API (uses LM Studio) ──────────────────────
 
-app.post('/api/evaluate', async (req, res) => {
+app.post('/api/evaluate', monitorModeMiddleware, async (req, res) => {
   const { toolName, params, sessionKey } = req.body;
   
   if (!toolName) {
@@ -1741,7 +1762,7 @@ function readSkillFile(skillName, cwd) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware, async (req, res) => {
   const { tool_name, session_id } = req.body;
   // Copilot extension may send tool_input as a JSON string — parse it
   let tool_input = req.body.tool_input;
@@ -2492,7 +2513,7 @@ function mapGeminiParams(toolName, toolInput) {
 
 let geminiLastHookTime = 0;
 
-app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware, async (req, res) => {
   geminiLastHookTime = Date.now();
   // Gemini CLI sends same format as Claude Code: tool_name, tool_input, session_id
   const toolName = req.body.toolName || req.body.tool_name;
@@ -2693,7 +2714,7 @@ app.post('/api/hooks/gemini/post-tool-use', rateLimit(60_000, 120), (req, res) =
 
 let codexLastHookTime = 0;
 
-app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware, async (req, res) => {
   codexLastHookTime = Date.now();
   const toolName = req.body.tool_name;
   const toolInput = req.body.tool_input || {};
@@ -4069,7 +4090,7 @@ function mapCursorParams(toolName, toolInput) {
 let cursorLastHookTime = 0;
 let opencodeLastHookTime = 0;
 
-app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware, async (req, res) => {
   cursorLastHookTime = Date.now();
   const toolName = req.body.tool_name || req.body.toolName;
   const toolInput = req.body.tool_input || req.body.toolInput || {};
@@ -4488,7 +4509,7 @@ function mapOpenCodeParams(toolName, toolInput) {
   }
 }
 
-app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), async (req, res) => {
+app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware, async (req, res) => {
   opencodeLastHookTime = Date.now();
   const toolName = req.body.tool_name || req.body.toolName;
   const toolInput = req.body.tool_input || req.body.toolInput || {};

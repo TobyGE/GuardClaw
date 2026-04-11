@@ -216,6 +216,34 @@ function getEnvVar(env, key) {
   return m ? m[1].trim() : null;
 }
 
+// ─── Hook script sync ─────────────────────────────────────────────────────────
+
+const HOOKS_DIR = join(os.homedir(), '.guardclaw', 'hooks');
+const HOOK_SCRIPTS = ['codex-hook.sh', 'gemini-hook.sh', 'cursor-hook.sh', 'copilot-hook.sh'];
+
+function syncHookScripts() {
+  fs.mkdirSync(HOOKS_DIR, { recursive: true });
+  let synced = 0;
+  for (const name of HOOK_SCRIPTS) {
+    const src = join(rootDir, 'scripts', name);
+    const dst = join(HOOKS_DIR, name);
+    if (!fs.existsSync(src)) continue;
+    const srcContent = fs.readFileSync(src, 'utf8');
+    let needsUpdate = true;
+    try { needsUpdate = fs.readFileSync(dst, 'utf8') !== srcContent; } catch {}
+    if (needsUpdate) {
+      fs.writeFileSync(dst, srcContent);
+      fs.chmodSync(dst, 0o755);
+      synced++;
+    }
+  }
+  if (synced > 0) console.log(`  Synced ${synced} hook script(s) to ${HOOKS_DIR}`);
+}
+
+function hookScriptPath(name) {
+  return join(HOOKS_DIR, name);
+}
+
 // ─── Install / onboarding state ───────────────────────────────────────────────
 
 // Onboarding marker lives in ~/.guardclaw/ (global), NOT in the project
@@ -327,7 +355,7 @@ function uninstallClaudeCodeHooks() {
 // ─── Codex hook helpers ───────────────────────────────────────────────────────
 
 const CODEX_HOOKS_FILE = join(os.homedir(), '.codex', 'hooks.json');
-const CODEX_HOOK_SCRIPT = join(rootDir, 'scripts', 'codex-hook.sh');
+const CODEX_HOOK_SCRIPT = hookScriptPath('codex-hook.sh');
 
 function isGCCodexHook(group) {
   return group?.hooks?.some(h => h.command?.includes('codex-hook.sh'));
@@ -370,6 +398,77 @@ function uninstallCodexHooks() {
 
 // ─── Agent detection ──────────────────────────────────────────────────────────
 
+// ─── Gemini CLI hook helpers ─────────────────────────────────────────────────
+
+const GEMINI_SETTINGS = join(os.homedir(), '.gemini', 'settings.json');
+const GEMINI_HOOK_SCRIPT = hookScriptPath('gemini-hook.sh');
+
+function isGeminiHooksInstalled() {
+  try {
+    const s = JSON.parse(fs.readFileSync(GEMINI_SETTINGS, 'utf8'));
+    const hooks = s.hooksConfig?.hooks || {};
+    return Object.values(hooks).flat().some(h => h.command?.includes('gemini-hook.sh'));
+  } catch { return false; }
+}
+
+function installGeminiHooks() {
+  if (fs.existsSync(GEMINI_HOOK_SCRIPT)) fs.chmodSync(GEMINI_HOOK_SCRIPT, 0o755);
+  let s = {};
+  try { s = JSON.parse(fs.readFileSync(GEMINI_SETTINGS, 'utf8')); } catch {}
+  if (!s.hooksConfig) s.hooksConfig = {};
+  if (!s.hooksConfig.hooks) s.hooksConfig.hooks = {};
+  const cmd = GEMINI_HOOK_SCRIPT;
+  s.hooksConfig.hooks.PreToolUse = [{ command: cmd, timeout: 310 }];
+  s.hooksConfig.hooks.PostToolUse = [{ command: cmd, timeout: 10 }];
+  s.hooksConfig.hooks.Stop = [{ command: cmd, timeout: 10 }];
+  fs.writeFileSync(GEMINI_SETTINGS, JSON.stringify(s, null, 2) + '\n');
+}
+
+// ─── Cursor hook helpers ─────────────────────────────────────────────────────
+
+const CURSOR_HOOKS_FILE = join(os.homedir(), '.cursor', 'hooks.json');
+const CURSOR_HOOK_SCRIPT = hookScriptPath('cursor-hook.sh');
+
+function isCursorHooksInstalled() {
+  try {
+    const c = JSON.parse(fs.readFileSync(CURSOR_HOOKS_FILE, 'utf8'));
+    const hooks = c.hooks || {};
+    return Object.values(hooks).flat().some(h => h.command?.includes('cursor-hook.sh'));
+  } catch { return false; }
+}
+
+function installCursorHooks() {
+  fs.mkdirSync(join(os.homedir(), '.cursor'), { recursive: true });
+  if (fs.existsSync(CURSOR_HOOK_SCRIPT)) fs.chmodSync(CURSOR_HOOK_SCRIPT, 0o755);
+  let c = {};
+  try { c = JSON.parse(fs.readFileSync(CURSOR_HOOKS_FILE, 'utf8')); } catch {}
+  if (!c.version) c.version = 1;
+  if (!c.hooks) c.hooks = {};
+  const cmd = `GUARDCLAW_PORT=${GC_PORT} ${CURSOR_HOOK_SCRIPT}`;
+  c.hooks.beforeShellExecution = [{ command: cmd, type: 'command', timeout: 310 }];
+  c.hooks.afterShellExecution = [{ command: cmd, type: 'command', timeout: 5 }];
+  c.hooks.afterFileEdit = [{ command: cmd, type: 'command', timeout: 5 }];
+  fs.writeFileSync(CURSOR_HOOKS_FILE, JSON.stringify(c, null, 2) + '\n');
+}
+
+// ─── Copilot CLI hook helpers ────────────────────────────────────────────────
+
+const COPILOT_HOOK_SCRIPT = hookScriptPath('copilot-hook.sh');
+
+function isCopilotHooksInstalled() {
+  // Copilot CLI uses Claude Code's settings.json hooks with copilot: prefix session IDs
+  return isClaudeCodeHooksInstalled();
+}
+
+// ─── OpenCode hook helpers ───────────────────────────────────────────────────
+
+const OPENCODE_CONFIG_DIR = join(os.homedir(), '.config', 'opencode');
+const OPENCODE_PLUGIN_DIR = join(OPENCODE_CONFIG_DIR, 'plugins');
+
+function isOpenCodeInstalled() {
+  return fs.existsSync(OPENCODE_CONFIG_DIR);
+}
+
 function detectAgents() {
   const env = readEnvFile();
   const agents = [];
@@ -377,6 +476,31 @@ function detectAgents() {
   // Claude Code
   if (fs.existsSync(join(os.homedir(), '.claude'))) {
     agents.push({ id: 'claude-code', label: 'Claude Code', type: 'hook', installed: isClaudeCodeHooksInstalled() });
+  }
+
+  // Codex
+  if (fs.existsSync(join(os.homedir(), '.codex'))) {
+    agents.push({ id: 'codex', label: 'Codex', type: 'hook', installed: isCodexHooksInstalled() });
+  }
+
+  // Gemini CLI
+  if (fs.existsSync(join(os.homedir(), '.gemini'))) {
+    agents.push({ id: 'gemini', label: 'Gemini CLI', type: 'hook', installed: isGeminiHooksInstalled() });
+  }
+
+  // Cursor
+  if (fs.existsSync(join(os.homedir(), '.cursor'))) {
+    agents.push({ id: 'cursor', label: 'Cursor', type: 'hook', installed: isCursorHooksInstalled() });
+  }
+
+  // Copilot CLI (shares CC hooks)
+  if (fs.existsSync(join(os.homedir(), '.copilot'))) {
+    agents.push({ id: 'copilot', label: 'Copilot CLI', type: 'hook', installed: isCopilotHooksInstalled() });
+  }
+
+  // OpenCode
+  if (isOpenCodeInstalled()) {
+    agents.push({ id: 'opencode', label: 'OpenCode', type: 'hook', installed: false });
   }
 
   // OpenClaw
@@ -398,11 +522,6 @@ function detectAgents() {
         installed: getEnvVar(env, 'QCLAW_TOKEN') === token });
     }
   } catch {}
-
-  // Codex
-  if (fs.existsSync(join(os.homedir(), '.codex'))) {
-    agents.push({ id: 'codex', label: 'Codex', type: 'hook', installed: isCodexHooksInstalled() });
-  }
 
   return agents;
 }
@@ -547,7 +666,15 @@ async function pickModel(rl, models, current, fallback) {
 // ─── Onboarding wizard ────────────────────────────────────────────────────────
 
 async function runOnboarding() {
-  console.log('\n🛡️  Welcome to GuardClaw!\n');
+  console.log('\n⛨ Welcome to GuardClaw!\n');
+  console.log('  GuardClaw is an independent safety monitor for AI coding agents.');
+  console.log('  It sits between your agent (Claude Code, Codex, Gemini, etc.) and');
+  console.log('  the tools it uses — evaluating every tool call in real time.\n');
+  console.log('  • Scores every tool call before execution (1-10 risk scale)');
+  console.log('  • Auto-approves safe operations, blocks dangerous ones');
+  console.log('  • Learns from your decisions to reduce interruptions over time');
+  console.log('  • Supports Claude Code, Codex, Gemini CLI, and more\n');
+  console.log('  Let\'s get you set up in 4 quick steps.\n');
   console.log('Use ↑↓ arrow keys to navigate, Enter to select.\n');
 
   let env = readEnvFile();
@@ -565,6 +692,7 @@ async function runOnboarding() {
   // ── Step 2: LLM backend(s) ───────────────────────────────────────────────────
   let cloudProvider = null;
   let cloudApiKey = '';
+  let pendingOAuth = null;
 
   if (judgeMode === 'local-only') {
     console.log('── Step 2 of 4: Local LLM backend ──────────────────────────────────\n');
@@ -670,12 +798,23 @@ async function runOnboarding() {
       cloudApiKey = key || '';
       if (!key) console.log('  (skipped — configure later in Settings)\n');
     } else {
-      const label = cloudProvider === 'openai-codex' ? 'OpenAI Codex' : 'Claude';
-      console.log(`  ${label} supports OAuth login — configure in Settings dashboard.\n`);
-      const rl = createPrompt();
-      const key = await ask(rl, '  Or paste API key now (Enter to skip): ');
-      rl.close();
-      cloudApiKey = key || '';
+      const label = cloudProvider === 'openai-codex' ? 'OpenAI Codex' : cloudProvider === 'minimax' ? 'MiniMax' : 'Claude';
+      const authMethod = await select([
+        { label: 'OAuth login', value: 'oauth', hint: `sign in with your ${label} account after server starts` },
+        { label: 'API key',     value: 'apikey', hint: 'paste key now' },
+        { label: 'Skip',        value: 'skip',   hint: 'configure later in Settings' },
+      ]);
+
+      if (authMethod === 'apikey') {
+        const rl = createPrompt();
+        const key = await ask(rl, `  ${label} API key: `);
+        rl.close();
+        cloudApiKey = key || '';
+      } else if (authMethod === 'oauth') {
+        // Mark pending OAuth — server will trigger the flow on startup
+        pendingOAuth = cloudProvider;
+        console.log(`\n  OAuth login will open in your browser after the server starts.\n`);
+      }
     }
 
     // Apply cloud judge config via API (silent: server may not be up yet
@@ -710,12 +849,12 @@ async function runOnboarding() {
   }
 
   // ── Step 3: Approval mode ────────────────────────────────────────────────────
-  console.log('── Step 3 of 4: Approval mode ──────────────────────────────────────\n');
+  console.log('── Step 3 of 4: Response mode ───────────────────────────────────────\n');
+  console.log('  How should GuardClaw respond to risky tool calls?\n');
 
   const mode = await select([
-    { label: 'Auto',         value: 'auto',         hint: 'auto-allow safe, auto-block dangerous' },
-    { label: 'Prompt',       value: 'prompt',       hint: 'ask you for medium-risk commands' },
-    { label: 'Monitor only', value: 'monitor-only', hint: 'never block, just log and analyze' },
+    { label: 'Auto mode',     value: 'auto',         hint: 'score, warn, and flag risky calls to the agent (recommended)' },
+    { label: 'Monitor only', value: 'monitor-only', hint: 'score and log only, no intervention' },
   ]);
   env = setEnvVar(env, 'GUARDCLAW_APPROVAL_MODE', mode);
   console.log(`  → ${mode}`);
@@ -738,6 +877,9 @@ async function runOnboarding() {
         if (yes) {
           if (agent.id === 'claude-code') installClaudeCodeHooks(GC_PORT);
           if (agent.id === 'codex') installCodexHooks();
+          if (agent.id === 'gemini') installGeminiHooks();
+          if (agent.id === 'cursor') installCursorHooks();
+          if (agent.id === 'copilot') installClaudeCodeHooks(GC_PORT); // shares CC hooks
           console.log(`  ✅ ${agent.label} hooks installed`);
         }
       } else if (agent.type === 'ws' && agent.token) {
@@ -755,8 +897,10 @@ async function runOnboarding() {
   writeEnvFile(env);
   markOnboardingDone();
 
-  console.log('\n✅ Setup complete. Config saved to:', getEnvPath());
-  console.log('   To change settings later: guardclaw config\n');
+  console.log('\n⛨ Setup complete. Config saved to:', getEnvPath());
+  console.log('  To change settings later: guardclaw config\n');
+
+  return { pendingOAuth };
 }
 
 // ─── Interactive config menu ──────────────────────────────────────────────────
@@ -1476,8 +1620,12 @@ async function startServer() {
     }
   }
 
+  // Sync hook scripts to ~/.guardclaw/hooks/ (survives npm updates)
+  syncHookScripts();
+
+  let onboardingResult = null;
   if (!noOnboarding && !isOnboardingDone() && process.stdin.isTTY) {
-    await runOnboarding();
+    onboardingResult = await runOnboarding();
   }
 
   // Resolve the actual port the server will listen on. Order:
@@ -1511,6 +1659,16 @@ async function startServer() {
 
     if (!noOpen) setTimeout(() => { openBrowser(url); }, 2000);
 
+    // Trigger pending OAuth after server is ready
+    if (onboardingResult?.pendingOAuth) {
+      setTimeout(async () => {
+        try {
+          console.log(`\n⛨ Starting OAuth login for ${onboardingResult.pendingOAuth}...`);
+          await gcApi(`/api/config/cloud-judge/oauth/${onboardingResult.pendingOAuth}`, 'POST');
+        } catch { console.log('  (OAuth can be started later from Settings dashboard)'); }
+      }, 2000);
+    }
+
     child.on('error', e => { console.error('❌ Failed to start:', e.message); process.exit(1); });
     child.on('exit', (code, signal) => {
       if (code === 0 || code === null) return;
@@ -1542,8 +1700,21 @@ async function startServer() {
   console.log(`📜 Logs: ${logPath}`);
   console.log(`🛑 Stop with: guardclaw stop`);
 
-  if (!noOpen) setTimeout(() => { openBrowser(url); process.exit(0); }, 2000);
-  else process.exit(0);
+  if (onboardingResult?.pendingOAuth) {
+    // Wait for server, trigger OAuth, then exit
+    setTimeout(async () => {
+      try {
+        console.log(`\n⛨ Starting OAuth login for ${onboardingResult.pendingOAuth}...`);
+        await gcApi(`/api/config/cloud-judge/oauth/${onboardingResult.pendingOAuth}`, 'POST');
+      } catch { console.log('  (OAuth can be started later from Settings dashboard)'); }
+      if (!noOpen) openBrowser(url);
+      process.exit(0);
+    }, 2000);
+  } else if (!noOpen) {
+    setTimeout(() => { openBrowser(url); process.exit(0); }, 2000);
+  } else {
+    process.exit(0);
+  }
 }
 
 async function restartServer() {

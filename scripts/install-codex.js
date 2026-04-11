@@ -22,7 +22,15 @@ const port = portIdx !== -1 ? args[portIdx + 1] : '3002';
 
 const codexDir = path.join(os.homedir(), '.codex');
 const hooksPath = path.join(codexDir, 'hooks.json');
-const hookScript = path.join(__dirname, 'codex-hook.sh');
+// Use stable path in ~/.guardclaw/hooks/ (survives npm updates)
+const hooksDir = path.join(os.homedir(), '.guardclaw', 'hooks');
+const hookScript = path.join(hooksDir, 'codex-hook.sh');
+// Sync script from package to stable location
+try {
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const src = path.join(__dirname, 'codex-hook.sh');
+  if (fs.existsSync(src)) { fs.copyFileSync(src, hookScript); fs.chmodSync(hookScript, 0o755); }
+} catch {}
 
 const hookEntry = (event) => ({
   matcher: '',
