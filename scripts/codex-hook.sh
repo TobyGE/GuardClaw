@@ -40,6 +40,17 @@ fi
 
 # ── SessionStart ─────────────────────────────────────────────────────────────
 if [ "$HOOK_EVENT" = "SessionStart" ]; then
+  curl -s -X POST "${GUARDCLAW_URL}/api/hooks/codex/session-start" \
+    -H "Content-Type: application/json" \
+    -d "$INPUT" > /dev/null 2>&1
+  exit 0
+fi
+
+# ── ContextCompaction ────────────────────────────────────────────────────────
+if [ "$HOOK_EVENT" = "ContextCompaction" ]; then
+  curl -s -X POST "${GUARDCLAW_URL}/api/hooks/codex/context-compaction" \
+    -H "Content-Type: application/json" \
+    -d "$INPUT" > /dev/null 2>&1
   exit 0
 fi
 

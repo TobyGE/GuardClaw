@@ -2854,6 +2854,25 @@ app.post('/api/hooks/codex/stop', rateLimit(60_000, 30), (req, res) => {
   res.json({});
 });
 
+app.post('/api/hooks/codex/session-start', rateLimit(60_000, 10), (req, res) => {
+  const sessionId = req.body.session_id;
+  const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
+  console.log(`[GuardClaw] 🟢 Codex session started: ${sessionKey}`);
+  res.json({});
+});
+
+app.post('/api/hooks/codex/context-compaction', rateLimit(60_000, 10), (req, res) => {
+  const sessionId = req.body.session_id;
+  const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
+  console.log(`[GuardClaw] 🗜️ Codex context compaction: ${sessionKey}`);
+  // Deliver security brief on next PreToolUse if available
+  const brief = securityMemory.getCurrentBrief(sessionKey);
+  if (brief) {
+    console.log(`[GuardClaw] Brief ready for delivery after compaction (${brief.length} chars)`);
+  }
+  res.json({});
+});
+
 // ─── Claude Code conversation hooks ──────────────────────────────────────────
 
 // Prompt injection detection patterns

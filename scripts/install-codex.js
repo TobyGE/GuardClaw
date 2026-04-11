@@ -34,9 +34,12 @@ const hookEntry = (event) => ({
 });
 
 const GUARDCLAW_HOOKS = {
-  PreToolUse:       [hookEntry('PreToolUse')],
-  UserPromptSubmit: [hookEntry('UserPromptSubmit')],
-  Stop:             [hookEntry('Stop')],
+  PreToolUse:         [hookEntry('PreToolUse')],
+  PostToolUse:        [hookEntry('PostToolUse')],
+  SessionStart:       [hookEntry('SessionStart')],
+  ContextCompaction:  [hookEntry('ContextCompaction')],
+  UserPromptSubmit:   [hookEntry('UserPromptSubmit')],
+  Stop:               [hookEntry('Stop')],
 };
 
 function isGuardClawHook(group) {
