@@ -35,7 +35,7 @@ node scripts/install-claude-code.js            # Install hooks into ~/.claude/se
 node scripts/install-claude-code.js --uninstall
 ```
 
-Unit tests live in `test/*.test.js` and run via `npm test` (`node --test`). Manual dev benchmark scripts live in `scripts/benchmarks/` (`test-4b.js`, `accuracy-test.js`, `gpt-oss-accuracy.js`) — run from the repo root so `dotenv` finds `.env`. The integration smoke test is `scripts/smoke-test.sh`.
+Unit tests live in `test/*.test.js` and run via `npm test` (`node --test`). Manual dev benchmark scripts live in `scripts/benchmarks/` (`test-4b.js`, `accuracy-test.js`, `gpt-oss-accuracy.js`) — run from the repo root so `dotenv` finds `.env`. Integration smoke scripts (`scripts/smoke-test.sh`, `scripts/lsof-detect.mjs`) and the MCP fixture they use (`scripts/fake-mcp-server.mjs`) also live under `scripts/`.
 
 ## Architecture
 
