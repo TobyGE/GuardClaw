@@ -157,6 +157,7 @@ export class SafeguardService {
     this.config = {
       lmstudioUrl: this.normalizeLMStudioUrl(config.lmstudioUrl || process.env.LMSTUDIO_URL || 'http://127.0.0.1:1234/v1'),
       lmstudioModel: config.lmstudioModel || process.env.LMSTUDIO_MODEL || 'qwen/qwen3-4b-2507',
+      lmstudioApiKey: config.lmstudioApiKey || process.env.LMSTUDIO_API_KEY || process.env.LLM_API_KEY || '',
       ollamaUrl: config.ollamaUrl || process.env.OLLAMA_URL || 'http://localhost:11434',
       ollamaModel: config.ollamaModel || process.env.OLLAMA_MODEL || 'llama3',
       openrouterUrl: 'https://openrouter.ai/api/v1',
@@ -191,6 +192,138 @@ export class SafeguardService {
     return url;
   }
 
+  // ─── Unified OpenAI-compatible backend ─────────────────────────────────────
+  // All non-built-in backends (lmstudio, ollama, openrouter) are OpenAI-compatible.
+  // _resolveBackendConfig() normalizes them to { baseURL, model, apiKey }.
+
+  _resolveBackendConfig() {
+    switch (this.backend) {
+      case 'lmstudio':
+        return {
+          baseURL: this.config.lmstudioUrl,
+          model: this.config.lmstudioModel,
+          apiKey: this.config.lmstudioApiKey || null,
+        };
+      case 'ollama':
+        return {
+          baseURL: `${this.config.ollamaUrl}/v1`,
+          model: this.config.ollamaModel,
+          apiKey: null,
+        };
+      case 'openrouter':
+        return {
+          baseURL: this.config.openrouterUrl,
+          model: this.config.openrouterModel,
+          apiKey: this.config.openrouterApiKey || null,
+        };
+      default:
+        return {
+          baseURL: this.config.lmstudioUrl,
+          model: this.config.lmstudioModel,
+          apiKey: this.config.lmstudioApiKey || null,
+        };
+    }
+  }
+
+  async _callOpenAICompat({ baseURL, model, apiKey, messages, temperature = 0.7, max_tokens = 800, timeout = 30000 }) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    if (this.backend === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://github.com/TobyGE/GuardClaw';
+      headers['X-Title'] = 'GuardClaw';
+    }
+
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model, messages, temperature, max_tokens }),
+      signal: AbortSignal.timeout(timeout),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`LLM API error: ${response.status} - ${errorText}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Unified dispatch: built-in uses mlx engine, everything else goes through
+   * _callOpenAICompat with the resolved backend config.
+   */
+  async _dispatchAnalyze(prompt, action) {
+    if (this.backend === 'built-in') {
+      return this.analyzeWithBuiltIn(prompt, action);
+    }
+    return this._analyzeWithOpenAICompat(prompt, action);
+  }
+
+  /**
+   * Single OpenAI-compatible analyze method — replaces analyzeWithLMStudioPrompt,
+   * analyzeWithOpenRouterPrompt, and analyzeWithOllamaPrompt.
+   */
+  async _analyzeWithOpenAICompat(prompt, action) {
+    let { baseURL, model, apiKey } = this._resolveBackendConfig();
+
+    // Auto-detect model if set to "auto"
+    if (model === 'auto') {
+      model = await this._autoDetectModel(baseURL, apiKey);
+      if (!model) throw new Error('No models available');
+    }
+
+    const modelCfg = this.getModelConfig(model);
+    const userPrompt = (modelCfg.promptStyle === 'minimal' && action)
+      ? this.createToolAnalysisPromptMinimal(action)
+      : prompt;
+
+    try {
+      const data = await this._callOpenAICompat({
+        baseURL, model, apiKey,
+        messages: [
+          { role: 'system', content: modelCfg.system },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: modelCfg.temperature,
+        max_tokens: modelCfg.max_tokens,
+      });
+
+      if (data.usage && llmEngine._onTokenUsage) {
+        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+      }
+      const content = data.choices[0].message.content;
+      const result = this.parseAnalysisResponse(content, prompt, action?.summary);
+      result._rawResponse = content;
+      result._systemPrompt = modelCfg.system;
+      result._userPrompt = userPrompt;
+      result._model = model;
+      result.backend = this.backend;
+      this._recordJudgeCall(result, action);
+      return result;
+    } catch (error) {
+      console.error(`[SafeguardService] ${this.backend} analysis failed:`, error.message);
+      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
+    }
+  }
+
+  /**
+   * Auto-detect first available model from an OpenAI-compatible /models endpoint.
+   */
+  async _autoDetectModel(baseURL, apiKey) {
+    try {
+      const url = `${baseURL.replace(/\/+$/, '')}/models`;
+      const headers = {};
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+      const response = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(3000) });
+      if (!response.ok) return null;
+      const data = await response.json();
+      const models = data.data || [];
+      const chatModels = models.filter(m => !m.id.includes('embedding'));
+      return chatModels.length > 0 ? chatModels[0].id : (models[0]?.id || null);
+    } catch (error) {
+      console.error('[SafeguardService] Failed to auto-detect model:', error.message);
+      return null;
+    }
+  }
+
   // Get an OpenAI-compatible client for summary generation
   get llm() {
     if (!this._llmClient && this.backend === 'built-in') {
@@ -205,38 +338,24 @@ export class SafeguardService {
       this.config.model = llmEngine.loadedModelId || 'built-in';
       return this._llmClient;
     }
-    if (!this._llmClient && (this.backend === 'lmstudio' || this.backend === 'ollama')) {
-      // Create a minimal OpenAI-compatible client
-      // Ollama's OpenAI-compat endpoint is at /v1/chat/completions
-      const baseURL = this.backend === 'lmstudio'
-        ? this.config.lmstudioUrl
-        : `${this.config.ollamaUrl}/v1`;
+    if (!this._llmClient && (this.backend === 'lmstudio' || this.backend === 'ollama' || this.backend === 'openrouter')) {
+      const { baseURL, model, apiKey } = this._resolveBackendConfig();
       this._llmClient = {
         chat: {
           completions: {
             create: async (opts) => {
-              const url = `${baseURL}/chat/completions`;
-              const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  model: opts.model || this.config.model || 'auto',
-                  messages: opts.messages,
-                  temperature: opts.temperature || 0.7,
-                  max_tokens: opts.max_tokens || 800
-                }),
-                signal: AbortSignal.timeout(30000), // 30s max — local LLM can be slow
+              return this._callOpenAICompat({
+                baseURL, apiKey,
+                model: opts.model || model || 'auto',
+                messages: opts.messages,
+                temperature: opts.temperature || 0.7,
+                max_tokens: opts.max_tokens || 800,
               });
-              if (!response.ok) {
-                throw new Error(`LLM API error: ${response.status}`);
-              }
-              return await response.json();
             }
           }
         }
       };
-      // Store model config
-      this.config.model = this.backend === 'lmstudio' ? this.config.lmstudioModel : this.config.ollamaModel;
+      this.config.model = model;
     }
     return this._llmClient || null;
   }
@@ -331,24 +450,7 @@ export class SafeguardService {
       const taskSection = taskContext ? this.buildTaskContextSection(taskContext) : '';
       const prompt = this.createAnalysisPrompt(command) + taskSection + chainSection + memorySection;
 
-      {
-        switch (this.backend) {
-          case 'built-in':
-            result = await this.analyzeWithBuiltIn(prompt, { tool: 'exec', summary: command });
-            break;
-          case 'lmstudio':
-            result = await this.analyzeWithLMStudioPrompt(prompt, { tool: 'exec', summary: command });
-            break;
-          case 'ollama':
-            result = await this.analyzeWithOllamaPrompt(prompt, command);
-            break;
-          case 'openrouter':
-            result = await this.analyzeWithOpenRouterPrompt(prompt, { tool: 'exec', summary: command });
-            break;
-          default:
-            result = this.fallbackAnalysis(command);
-        }
-      }
+      result = await this._dispatchAnalyze(prompt, { tool: 'exec', summary: command });
     }
 
     // Stage 2: cloud judge escalation (mixed mode only)
@@ -577,23 +679,7 @@ export class SafeguardService {
       result = this.fallbackToolAnalysis(action);
     } else {
       const prompt = this.createToolAnalysisPrompt(action, chainHistory, memoryContext, taskContext);
-      
-      switch (this.backend) {
-        case 'built-in':
-          result = await this.analyzeWithBuiltIn(prompt, action);
-          break;
-        case 'lmstudio':
-          result = await this.analyzeWithLMStudioPrompt(prompt, action);
-          break;
-        case 'ollama':
-          result = await this.analyzeWithOllamaPrompt(prompt);
-          break;
-        case 'openrouter':
-          result = await this.analyzeWithOpenRouterPrompt(prompt, action);
-          break;
-        default:
-          result = this.fallbackToolAnalysis(action);
-      }
+      result = await this._dispatchAnalyze(prompt, action);
     }
 
     result = await mixedEscalate(result);
@@ -708,13 +794,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
     if (!this.enabled) {
       result = this.fallbackToolAnalysis(action);
     } else {
-      switch (this.backend) {
-        case 'built-in':    result = await this.analyzeWithBuiltIn(prompt, action); break;
-        case 'lmstudio':    result = await this.analyzeWithLMStudioPrompt(prompt, action); break;
-        case 'ollama':      result = await this.analyzeWithOllamaPrompt(prompt); break;
-        case 'openrouter':  result = await this.analyzeWithOpenRouterPrompt(prompt, action); break;
-        default:         result = this.fallbackToolAnalysis(action);
-      }
+      result = await this._dispatchAnalyze(prompt, action);
     }
 
     // Stage 2: cloud judge escalation (mixed mode only)
@@ -745,48 +825,14 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
         const result = await llmEngine.chatCompletion({ messages, temperature: 0.3 });
         return result?.choices?.[0]?.message?.content || null;
       }
-      if (this.backend === 'lmstudio') {
-        const url = `${this.config.lmstudioUrl}/chat/completions`;
-        let model = this.config.lmstudioModel;
-        if (model === 'auto') model = await this.getFirstAvailableLMStudioModel();
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 500 }),
-          signal: AbortSignal.timeout(30000),
-        });
-        const data = await resp.json();
-        return data?.choices?.[0]?.message?.content || null;
-      }
-      if (this.backend === 'ollama') {
-        const url = `${this.config.ollamaUrl}/api/chat`;
-        const model = this.config.ollamaModel || 'qwen2.5:3b';
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages, stream: false }),
-          signal: AbortSignal.timeout(30000),
-        });
-        const data = await resp.json();
-        return data?.message?.content || null;
-      }
-      if (this.backend === 'openrouter') {
-        const url = `${this.config.openrouterUrl}/chat/completions`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.openrouterApiKey}`,
-            'HTTP-Referer': 'https://github.com/TobyGE/GuardClaw',
-            'X-Title': 'GuardClaw',
-          },
-          body: JSON.stringify({ model: this.config.openrouterModel, messages, temperature: 0.3, max_tokens: 500 }),
-          signal: AbortSignal.timeout(30000),
-        });
-        const data = await resp.json();
-        return data?.choices?.[0]?.message?.content || null;
-      }
-      return null;
+      // All OpenAI-compatible backends (lmstudio, ollama, openrouter)
+      let { baseURL, model, apiKey } = this._resolveBackendConfig();
+      if (model === 'auto') model = await this._autoDetectModel(baseURL, apiKey);
+      const data = await this._callOpenAICompat({
+        baseURL, model, apiKey, messages,
+        temperature: 0.3, max_tokens: 500,
+      });
+      return data?.choices?.[0]?.message?.content || null;
     } catch (e) {
       console.error('[SafeguardService] rawLLMChat failed:', e.message);
       return null;
@@ -820,31 +866,7 @@ ${isEdit ? `REPLACING:\n${oldSnippet}\n\nWITH:\n${snippet}` : `CONTENT:\n${snipp
       };
     } else {
       const prompt = this.createChatAnalysisPrompt(text);
-      
-      switch (this.backend) {
-
-        case 'built-in':
-          result = await this.analyzeWithBuiltIn(prompt);
-          break;
-        case 'lmstudio':
-          result = await this.analyzeWithLMStudioPrompt(prompt);
-          break;
-        case 'ollama':
-          result = await this.analyzeWithOllamaPrompt(prompt);
-          break;
-        case 'openrouter':
-          result = await this.analyzeWithOpenRouterPrompt(prompt);
-          break;
-        default:
-          result = {
-            riskScore: 0,
-            category: 'safe',
-            reasoning: 'Chat content (fallback)',
-            allowed: true,
-            warnings: [],
-            backend: 'fallback'
-          };
-      }
+      result = await this._dispatchAnalyze(prompt, null);
     }
     
     this.addToCache(cacheKey, result);
@@ -895,20 +917,7 @@ Respond ONLY with valid JSON:
     if (!this.enabled) {
       result = { riskScore: 1, category: 'safe', reasoning: 'No analysis backend', allowed: true, warnings: [], backend: 'fallback' };
     } else {
-      switch (this.backend) {
-
-        case 'built-in':
-          result = await this.analyzeWithBuiltIn(prompt, action);
-          break;
-        case 'lmstudio':
-          result = await this.analyzeWithLMStudioPrompt(prompt, action);
-          break;
-        case 'ollama':
-          result = await this.analyzeWithOllamaPrompt(prompt);
-          break;
-        default:
-          result = { riskScore: 1, category: 'safe', reasoning: 'Fallback (no backend)', allowed: true, warnings: [], backend: 'fallback' };
-      }
+      result = await this._dispatchAnalyze(prompt, action);
     }
     result.backend = result.backend || this.backend;
     this.addToCache(cacheKey, result);
@@ -1342,126 +1351,8 @@ ACTION: ${action.summary}${detailSection}`;
     });
   }
 
-  async analyzeWithLMStudioPrompt(prompt, action) {
-    const url = `${this.config.lmstudioUrl}/chat/completions`;
-
-    // Auto-detect model if set to "auto"
-    let modelToUse = this.config.lmstudioModel;
-    if (modelToUse === 'auto') {
-      modelToUse = await this.getFirstAvailableLMStudioModel();
-      if (!modelToUse) {
-        throw new Error('No models available in LM Studio');
-      }
-    }
-
-    // Get per-model config
-    const modelCfg = this.getModelConfig(modelToUse);
-    const userPrompt = (modelCfg.promptStyle === 'minimal' && action)
-      ? this.createToolAnalysisPromptMinimal(action)
-      : prompt;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: modelToUse,
-          messages: [
-            {
-              role: 'system',
-              content: modelCfg.system
-            },
-            {
-              role: 'user',
-              content: userPrompt
-            }
-          ],
-          temperature: modelCfg.temperature,
-          max_tokens: modelCfg.max_tokens
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      if (data.usage && llmEngine._onTokenUsage) {
-        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
-      }
-      const content = data.choices[0].message.content;
-      const result = this.parseAnalysisResponse(content, prompt, action?.summary);
-      result._rawResponse = content;
-      result._systemPrompt = modelCfg.system;
-      result._userPrompt = userPrompt;
-      result._model = modelToUse;
-
-      // Record every LLM judge call for training data
-      this._recordJudgeCall(result, action);
-
-      return result;
-    } catch (error) {
-      console.error('[SafeguardService] LM Studio analysis failed:', error);
-      console.error('[SafeguardService] Model:', modelToUse);
-      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
-    }
-  }
-
-  async analyzeWithOpenRouterPrompt(prompt, action) {
-    const url = `${this.config.openrouterUrl}/chat/completions`;
-    const model = this.config.openrouterModel;
-    const modelCfg = this.getModelConfig(model);
-    const userPrompt = (modelCfg.promptStyle === 'minimal' && action)
-      ? this.createToolAnalysisPromptMinimal(action)
-      : prompt;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.openrouterApiKey}`,
-          'HTTP-Referer': 'https://github.com/TobyGE/GuardClaw',
-          'X-Title': 'GuardClaw',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: modelCfg.system },
-            { role: 'user', content: userPrompt },
-          ],
-          temperature: modelCfg.temperature,
-          max_tokens: modelCfg.max_tokens,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      if (data.usage && llmEngine._onTokenUsage) {
-        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
-      }
-      const content = data.choices[0].message.content;
-      const result = this.parseAnalysisResponse(content, prompt, action?.summary);
-      result._rawResponse = content;
-      result._systemPrompt = modelCfg.system;
-      result._userPrompt = userPrompt;
-      result._model = model;
-      result.backend = 'openrouter';
-      this._recordJudgeCall(result, action);
-      return result;
-    } catch (error) {
-      console.error('[SafeguardService] OpenRouter analysis failed:', error.message);
-      return this.fallbackToolAnalysis(action || { summary: 'unknown' });
-    }
-  }
+  // analyzeWithLMStudioPrompt / analyzeWithOpenRouterPrompt removed —
+  // unified into _analyzeWithOpenAICompat above.
 
   async analyzeWithBuiltIn(prompt, action) {
     if (!llmEngine.isReady) {
@@ -1501,40 +1392,7 @@ ACTION: ${action.summary}${detailSection}`;
     }
   }
 
-  async analyzeWithOllamaPrompt(prompt, rawCommand) {
-    const url = `${this.config.ollamaUrl}/api/generate`;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: this.config.ollamaModel,
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.1
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Ollama API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (llmEngine._onTokenUsage) {
-        llmEngine._onTokenUsage(data.prompt_eval_count || 0, data.eval_count || 0);
-      }
-      const content = data.response;
-      return this.parseAnalysisResponse(content, prompt, rawCommand);
-    } catch (error) {
-      console.error('[SafeguardService] Ollama analysis failed:', error);
-      return this.fallbackToolAnalysis({ summary: rawCommand || 'unknown' });
-    }
-  }
+  // analyzeWithOllamaPrompt removed — unified into _analyzeWithOpenAICompat above.
 
   fallbackToolAnalysis(action) {
     // Simple fallback for tools
@@ -1702,99 +1560,8 @@ ACTION: ${action.summary}${detailSection}`;
     return null;
   }
 
-  async analyzeWithLMStudio(command) {
-    const url = `${this.config.lmstudioUrl}/chat/completions`;
-
-    // Auto-detect model if set to "auto"
-    let modelToUse = this.config.lmstudioModel;
-    if (modelToUse === 'auto') {
-      modelToUse = await this.getFirstAvailableLMStudioModel();
-      if (!modelToUse) {
-        throw new Error('No models available in LM Studio');
-      }
-    }
-
-    // Per-model config
-    const modelCfg = this.getModelConfig(modelToUse);
-
-    const prompt = (modelCfg.promptStyle === 'minimal')
-      ? this.createAnalysisPromptMinimal(command)
-      : this.createAnalysisPrompt(command);
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: modelToUse,
-          messages: [
-            {
-              role: 'system',
-              content: modelCfg.system
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: modelCfg.temperature,
-          max_tokens: modelCfg.max_tokens
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      if (data.usage && llmEngine._onTokenUsage) {
-        llmEngine._onTokenUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
-      }
-      const content = data.choices[0].message.content;
-      return this.parseAnalysisResponse(content, command);
-    } catch (error) {
-      console.error('[SafeguardService] LM Studio analysis failed:', error);
-      console.error('[SafeguardService] Model:', modelToUse);
-      console.error('[SafeguardService] Make sure LM Studio is running and a model is loaded');
-      return this.fallbackAnalysis(command);
-    }
-  }
-
-  async analyzeWithOllama(command) {
-    const prompt = this.createAnalysisPrompt(command);
-    const url = `${this.config.ollamaUrl}/api/generate`;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: this.config.ollamaModel,
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.1
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Ollama API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = data.response;
-      return this.parseAnalysisResponse(content, command);
-    } catch (error) {
-      console.error('[SafeguardService] Ollama analysis failed:', error);
-      return this.fallbackAnalysis(command);
-    }
-  }
+  // Legacy analyzeWithLMStudio / analyzeWithOllama removed — all callers now
+  // use _dispatchAnalyze → _analyzeWithOpenAICompat.
 
   // Minimal exec-command prompt for small models (≤1B params)
   createAnalysisPromptMinimal(command) {
@@ -2010,39 +1777,10 @@ ACTION: ${action.summary}${detailSection}`;
     return analysis.riskScore >= 8 || analysis.allowed === false;
   }
 
+  // getFirstAvailableLMStudioModel removed — replaced by _autoDetectModel above.
   async getFirstAvailableLMStudioModel() {
-    try {
-      const baseUrl = this.config.lmstudioUrl.replace(/\/+$/, '');
-      const url = `${baseUrl}/models`;
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000)
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const data = await response.json();
-      const models = data.data || [];
-      
-      // Filter out embedding models, prefer chat models
-      const chatModels = models.filter(m => !m.id.includes('embedding'));
-      
-      if (chatModels.length > 0) {
-        return chatModels[0].id;
-      }
-      
-      // Fallback to any model if no chat model found
-      if (models.length > 0) {
-        return models[0].id;
-      }
-
-      return null;
-    } catch (error) {
-      console.error('[SafeguardService] Failed to get LM Studio models:', error.message);
-      return null;
-    }
+    const { baseURL, apiKey } = this._resolveBackendConfig();
+    return this._autoDetectModel(baseURL, apiKey);
   }
 
   async testConnection() {
@@ -2073,56 +1811,47 @@ ACTION: ${action.summary}${detailSection}`;
       }
 
       if (this.backend === 'lmstudio') {
-        // LM Studio URL should already include /v1, so just append /models
-        const baseUrl = this.config.lmstudioUrl.replace(/\/+$/, ''); // Remove trailing slashes
-        const url = `${baseUrl}/models`;
-        const response = await fetch(url, { 
-          method: 'GET',
-          signal: AbortSignal.timeout(5000) // 5 second timeout
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const data = await response.json();
-        const modelCount = data.data?.length || 0;
-        const modelNames = data.data?.map(m => m.id) || [];
-        
-        // Show configured model or auto-selected model
-        let activeModel = this.config.lmstudioModel;
+        const { baseURL, model, apiKey } = this._resolveBackendConfig();
+        const baseUrl = baseURL.replace(/\/+$/, '');
+
+        // Try /models endpoint (may 404 on cloud APIs like MiniMax)
+        let modelCount = 0, modelNames = [];
+        let modelsAvailable = false;
+        try {
+          const hdrs = {};
+          if (apiKey) hdrs['Authorization'] = `Bearer ${apiKey}`;
+          const response = await fetch(`${baseUrl}/models`, {
+            method: 'GET', headers: hdrs, signal: AbortSignal.timeout(5000)
+          });
+          if (response.ok) {
+            const data = await response.json();
+            modelCount = data.data?.length || 0;
+            modelNames = data.data?.map(m => m.id) || [];
+            modelsAvailable = true;
+          }
+        } catch {}
+
+        let activeModel = model;
         if (activeModel === 'auto' && modelNames.length > 0) {
           const autoModel = await this.getFirstAvailableLMStudioModel();
           activeModel = autoModel ? `auto → ${autoModel}` : 'auto (no chat model found)';
         }
-        
-        // Test if model can actually perform inference (cached for 60s to avoid spamming LM Studio)
+
+        // Test inference (cached 5min)
         let canInfer = false;
         let inferError = null;
-        const now = Date.now();
         if (this._inferCacheTime && (now - this._inferCacheTime) < 300000) {
           canInfer = this._inferCacheOk;
           inferError = this._inferCacheError;
         } else {
           try {
-            const testModel = activeModel.includes('\u2192') ? activeModel.split('\u2192')[1].trim() : activeModel;
-            const testResponse = await fetch(`${baseUrl}/chat/completions`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: testModel,
-                messages: [{ role: 'user', content: 'test' }],
-                max_tokens: 1
-              }),
-              signal: AbortSignal.timeout(10000)
+            const testModel = activeModel.includes('→') ? activeModel.split('→')[1].trim() : activeModel;
+            const data = await this._callOpenAICompat({
+              baseURL, model: testModel, apiKey,
+              messages: [{ role: 'user', content: 'test' }],
+              max_tokens: 1, timeout: 10000,
             });
-
-            if (testResponse.ok) {
-              canInfer = true;
-            } else {
-              const errorData = await testResponse.json();
-              inferError = errorData.error?.message || `HTTP ${testResponse.status}`;
-            }
+            canInfer = !!data?.choices;
           } catch (error) {
             inferError = error.message;
           }
@@ -2130,13 +1859,17 @@ ACTION: ${action.summary}${detailSection}`;
           this._inferCacheOk = canInfer;
           this._inferCacheError = inferError;
         }
-        
-        let message = modelCount > 0 ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)` : 'Connected but no models available';
-        if (!canInfer && modelCount > 0) {
-          message += ' - ⚠️ Model not loaded for inference';
+
+        let message;
+        if (canInfer) {
+          message = modelsAvailable
+            ? `Connected (${modelCount} model${modelCount !== 1 ? 's' : ''} available)`
+            : `Connected — inference OK (model: ${activeModel})`;
+        } else {
+          message = `Cannot infer: ${inferError || 'unknown error'}`;
         }
-        
-        const lmResult = { connected: true, backend: 'lmstudio', url: this.config.lmstudioUrl, models: modelCount, modelNames, activeModel, canInfer, inferError, message };
+
+        const lmResult = { connected: canInfer || modelsAvailable, backend: 'lmstudio', url: this.config.lmstudioUrl, models: modelCount, modelNames, activeModel, canInfer, inferError, message };
         this._connCacheResult = lmResult;
         this._connCacheTime = now;
         return lmResult;
@@ -2254,19 +1987,9 @@ Output ONLY ONE JSON object:
         backend: 'fallback',
       };
     } else {
-      switch (this.backend) {
-
-        case 'built-in':
-          result = await this.analyzeWithBuiltIn(prompt, action);
-          break;
-        case 'lmstudio':
-          result = await this.analyzeWithLMStudioPrompt(prompt, action);
-          break;
-        case 'ollama':
-          result = await this.analyzeWithOllamaPrompt(prompt);
-          break;
-        default:
-          result = {
+      result = await this._dispatchAnalyze(prompt, action);
+      if (!result || result.backend === 'fallback') {
+        result = {
             riskScore: 3,
             category: 'skill-execution',
             reasoning: `Skill "${skillName}" — no LLM backend configured`,

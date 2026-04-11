@@ -58,6 +58,67 @@ async function gcApi(path, method = 'GET', body, { silent = false } = {}) {
   }
 }
 
+// ─── Hot-reload helper ──────────────────────────────────────────────────────
+// After writing .env, try to push the change to a running server via its API.
+// If the server is offline, offer to restart it (or start it).
+
+async function tryHotReload(configType, body, successMsg) {
+  // Try the server API first
+  try {
+    const endpoint = configType === 'llm' ? '/api/config/llm' : null;
+    if (endpoint) {
+      await gcApi(endpoint, 'POST', body, { silent: true });
+      console.log(`\n✅ ${successMsg} — applied to running server\n`);
+      return;
+    }
+  } catch (e) {
+    if (!e.offline) {
+      // Server is up but rejected — config saved, needs restart
+      console.log(`\n✅ ${successMsg}`);
+    }
+  }
+
+  // Server offline or no hot-reload endpoint — offer restart
+  const isRunning = isServerRunning();
+  if (isRunning) {
+    console.log(`\n✅ ${successMsg}`);
+    if (process.stdin.isTTY) {
+      const choice = await select([
+        { label: 'Restart now', value: 'restart', hint: 'apply changes immediately' },
+        { label: 'Later',       value: 'later',   hint: 'restart manually with guardclaw start' },
+      ]);
+      if (choice === 'restart') {
+        await restartServer();
+        return;
+      }
+    }
+    console.log('  Run `guardclaw stop && guardclaw start` to apply.\n');
+  } else {
+    console.log(`\n✅ ${successMsg}`);
+    if (process.stdin.isTTY) {
+      const choice = await select([
+        { label: 'Start now', value: 'start', hint: 'start the server' },
+        { label: 'Later',     value: 'later', hint: 'start manually with guardclaw start' },
+      ]);
+      if (choice === 'start') {
+        await startServer();
+        return;
+      }
+    }
+    console.log('  Run `guardclaw start` to apply.\n');
+  }
+}
+
+function isServerRunning() {
+  try {
+    const out = execSync('ps ax -o pid= -o command=', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+    for (const line of out.split('\n')) {
+      if (line.includes('server/index.js') && /guardclaw/i.test(line)) return true;
+    }
+  } catch {}
+  return false;
+}
+
 // ─── Interactive prompt helpers (arrow-key navigation) ───────────────────────
 
 function createPrompt() {
@@ -566,7 +627,9 @@ async function fetchModels(backend, baseUrl, apiKey) {
   try {
     if (backend === 'lmstudio') {
       const url = (baseUrl || 'http://localhost:1234/v1').replace(/\/$/, '');
-      const res = await fetch(`${url}/models`, { signal: AbortSignal.timeout(4000) });
+      const headers = {};
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+      const res = await fetch(`${url}/models`, { headers, signal: AbortSignal.timeout(4000) });
       const data = await res.json();
       return (data.data || []).map(m => m.id).filter(id => !id.includes('embedding'));
     }
@@ -945,8 +1008,20 @@ async function configLLM() {
     rl.close();
     const resolvedUrl = u || existingUrl;
     if (u) env = setEnvVar(env, 'LMSTUDIO_URL', resolvedUrl);
+    // API key (optional — needed for cloud OpenAI-compatible APIs like MiniMax, DeepSeek, etc.)
+    const rlKey = createPrompt();
+    const existingKey = getEnvVar(env, 'LMSTUDIO_API_KEY') || getEnvVar(env, 'LLM_API_KEY');
+    const keyPrompt = existingKey ? `  API key [${existingKey.slice(0,8)}...] (Enter to keep, "none" to clear): ` : '  API key (optional, for cloud APIs): ';
+    const apiKey = await ask(rlKey, keyPrompt);
+    rlKey.close();
+    if (apiKey === 'none') {
+      env = setEnvVar(env, 'LMSTUDIO_API_KEY', '');
+    } else if (apiKey) {
+      env = setEnvVar(env, 'LMSTUDIO_API_KEY', apiKey);
+    }
+    const effectiveKey = (apiKey === 'none') ? null : (apiKey || existingKey || null);
     process.stdout.write('  Fetching models...');
-    const models = await fetchModels('lmstudio', resolvedUrl);
+    const models = await fetchModels('lmstudio', resolvedUrl, effectiveKey);
     process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found)\n');
     const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL') || 'auto';
     if (models.length) {
@@ -1012,7 +1087,18 @@ async function configLLM() {
   }
 
   writeEnvFile(env);
-  console.log(`\n✅ Backend set to: ${backend}  (restart to apply)\n`);
+
+  // Try hot-reload via the server API
+  await tryHotReload('llm', {
+    backend,
+    lmstudioUrl: getEnvVar(env, 'LMSTUDIO_URL'),
+    lmstudioModel: getEnvVar(env, 'LMSTUDIO_MODEL'),
+    lmstudioApiKey: getEnvVar(env, 'LMSTUDIO_API_KEY'),
+    ollamaUrl: getEnvVar(env, 'OLLAMA_URL'),
+    ollamaModel: getEnvVar(env, 'OLLAMA_MODEL'),
+    openrouterApiKey: getEnvVar(env, 'OPENROUTER_API_KEY'),
+    openrouterModel: getEnvVar(env, 'OPENROUTER_MODEL'),
+  }, `Backend set to: ${backend}`);
 }
 
 async function configMode() {
@@ -1031,7 +1117,7 @@ async function configMode() {
   const mode = await select(modes, { defaultIndex: defaultIdx });
 
   writeEnvFile(setEnvVar(env, 'GUARDCLAW_APPROVAL_MODE', mode));
-  console.log(`\n✅ Mode set to: ${mode}  (restart to apply)\n`);
+  await tryHotReload(null, null, `Mode set to: ${mode}`);
 }
 
 async function configThresholds() {
@@ -1056,7 +1142,7 @@ async function configThresholds() {
   env = setEnvVar(env, 'GUARDCLAW_ASK_THRESHOLD',        nb || askT);
   env = setEnvVar(env, 'GUARDCLAW_AUTO_BLOCK_THRESHOLD', nc || block);
   writeEnvFile(env);
-  console.log('\n✅ Thresholds updated  (restart to apply)\n');
+  await tryHotReload(null, null, 'Thresholds updated');
 }
 
 async function configAgentsInteractive() {
@@ -1318,7 +1404,11 @@ function configSetDirect() {
   writeEnvFile(setEnvVar(readEnvFile(), key, value));
   const display = (key.includes('KEY') || key.includes('TOKEN')) && value.length > 8
     ? value.slice(0, 8) + '...' : value;
-  console.log(`✅ ${key} = ${display}  (restart to apply)\n`);
+  console.log(`✅ ${key} = ${display}`);
+  // For direct set, just tell user to restart (no interactive prompt in scripted mode)
+  if (isServerRunning()) {
+    console.log('  Run `guardclaw stop && guardclaw start` to apply.\n');
+  }
 }
 
 function configSetToken() {
@@ -1370,8 +1460,9 @@ function configShow() {
   const sections = [
     { title: 'LLM Backend', vars: [
       ['SAFEGUARD_BACKEND',   'Backend (lmstudio/ollama/anthropic/openrouter/built-in/fallback)'],
-      ['LMSTUDIO_URL',        'LM Studio URL'],
-      ['LMSTUDIO_MODEL',      'LM Studio model'],
+      ['LMSTUDIO_URL',        'LM Studio / OpenAI-compat URL'],
+      ['LMSTUDIO_MODEL',      'LM Studio / OpenAI-compat model'],
+      ['LMSTUDIO_API_KEY',    'LM Studio / OpenAI-compat API key'],
       ['OLLAMA_URL',          'Ollama URL'],
       ['OLLAMA_MODEL',        'Ollama model'],
       ['ANTHROPIC_API_KEY',   'Anthropic API key'],

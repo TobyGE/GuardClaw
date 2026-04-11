@@ -100,13 +100,13 @@ export function configRoutes(deps) {
   });
 
   router.post('/api/config/llm', async (req, res) => {
-    const { backend, lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel } = req.body;
+    const { backend, lmstudioUrl, lmstudioModel, lmstudioApiKey, ollamaUrl, ollamaModel } = req.body;
     if (!backend || !['built-in', 'lmstudio', 'ollama', 'openrouter'].includes(backend)) return res.status(400).json({ error: 'Invalid backend' });
 
     try {
       const envPath = path.join(os.homedir(), '.guardclaw', '.env');
       let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-      const updates = { SAFEGUARD_BACKEND: backend, LMSTUDIO_URL: lmstudioUrl, LMSTUDIO_MODEL: lmstudioModel, OLLAMA_URL: ollamaUrl, OLLAMA_MODEL: ollamaModel };
+      const updates = { SAFEGUARD_BACKEND: backend, LMSTUDIO_URL: lmstudioUrl, LMSTUDIO_MODEL: lmstudioModel, LMSTUDIO_API_KEY: lmstudioApiKey, OLLAMA_URL: ollamaUrl, OLLAMA_MODEL: ollamaModel };
 
       for (const [key, value] of Object.entries(updates)) {
         if (value) {
@@ -118,10 +118,11 @@ export function configRoutes(deps) {
       process.env.SAFEGUARD_BACKEND = backend;
       if (lmstudioUrl) process.env.LMSTUDIO_URL = lmstudioUrl;
       if (lmstudioModel) process.env.LMSTUDIO_MODEL = lmstudioModel;
+      if (lmstudioApiKey) process.env.LMSTUDIO_API_KEY = lmstudioApiKey;
       if (ollamaUrl) process.env.OLLAMA_URL = ollamaUrl;
       if (ollamaModel) process.env.OLLAMA_MODEL = ollamaModel;
 
-      const newSafeguard = new SafeguardService(process.env.ANTHROPIC_API_KEY, backend, { lmstudioUrl, lmstudioModel, ollamaUrl, ollamaModel });
+      const newSafeguard = new SafeguardService(process.env.ANTHROPIC_API_KEY, backend, { lmstudioUrl, lmstudioModel, lmstudioApiKey, ollamaUrl, ollamaModel });
       const testResult = await newSafeguard.testConnection();
       const allowApply = testResult.connected || backend === 'built-in';
 
