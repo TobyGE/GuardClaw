@@ -118,8 +118,11 @@ const safeguardService = new SafeguardService(
   {
     lmstudioUrl: process.env.LMSTUDIO_URL,
     lmstudioModel: process.env.LMSTUDIO_MODEL,
+    lmstudioApiKey: process.env.LMSTUDIO_API_KEY || process.env.LLM_API_KEY,
     ollamaUrl: process.env.OLLAMA_URL,
-    ollamaModel: process.env.OLLAMA_MODEL
+    ollamaModel: process.env.OLLAMA_MODEL,
+    openrouterApiKey: process.env.OPENROUTER_API_KEY,
+    openrouterModel: process.env.OPENROUTER_MODEL,
   }
 );
 

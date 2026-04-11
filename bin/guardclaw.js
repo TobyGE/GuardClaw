@@ -620,6 +620,15 @@ const KNOWN_MODELS = {
     'deepseek/deepseek-r1',
     'qwen/qwen3-235b-a22b',
   ],
+  minimax: [
+    'MiniMax-M2.7',
+    'MiniMax-M2.7-highspeed',
+    'MiniMax-M2.5',
+    'MiniMax-M2.5-highspeed',
+    'MiniMax-M2.1',
+    'MiniMax-M1',
+    'MiniMax-Text-01',
+  ],
 };
 
 /** Fetch available models for a backend. Returns [] on failure. */
@@ -682,6 +691,10 @@ async function fetchModels(backend, baseUrl, apiKey) {
           .map(m => m.name.replace('models/', ''))
           .filter(id => id.startsWith('gemini-'));
       }
+    }
+    if (backend === 'minimax') {
+      // MiniMax doesn't have /models — return known list directly
+      return KNOWN_MODELS.minimax;
     }
     if (backend === 'openrouter') {
       // OpenRouter /models is public — no auth needed
@@ -977,12 +990,13 @@ async function configLLM() {
   console.log(`  Current: ${current}\n`);
 
   const backends = [
-    { label: 'LM Studio',  value: 'lmstudio' },
-    { label: 'Ollama',     value: 'ollama' },
-    { label: 'Claude API', value: 'anthropic' },
-    { label: 'OpenRouter', value: 'openrouter' },
-    { label: 'Built-in',   value: 'built-in' },
-    { label: 'Fallback',   value: 'fallback' },
+    { label: 'LM Studio',  value: 'lmstudio',   hint: 'local, or any OpenAI-compatible API' },
+    { label: 'MiniMax',     value: 'minimax',    hint: 'cloud, MoE models' },
+    { label: 'Ollama',      value: 'ollama',     hint: 'local' },
+    { label: 'Claude API',  value: 'anthropic' },
+    { label: 'OpenRouter',  value: 'openrouter', hint: '400+ models' },
+    { label: 'Built-in',    value: 'built-in',   hint: 'Apple Silicon MLX' },
+    { label: 'Fallback',    value: 'fallback',   hint: 'rule-based only' },
   ];
   const defaultIdx = Math.max(0, backends.findIndex(b => b.value === current));
   const backend = await select(backends, { defaultIndex: defaultIdx });
@@ -1053,6 +1067,19 @@ async function configLLM() {
       rl2.close();
       if (m) env = setEnvVar(env, 'OLLAMA_MODEL', m);
     }
+  } else if (backend === 'minimax') {
+    // MiniMax is OpenAI-compatible — uses lmstudio backend internally
+    env = setEnvVar(env, 'SAFEGUARD_BACKEND', 'lmstudio');
+    env = setEnvVar(env, 'LMSTUDIO_URL', 'https://api.minimaxi.chat/v1');
+    const rl = createPrompt();
+    const existing = getEnvVar(env, 'LMSTUDIO_API_KEY') || getEnvVar(env, 'MINIMAX_API_KEY');
+    const key = await ask(rl, `  MiniMax API key [${existing ? existing.slice(0,8)+'...' : 'not set'}]: `);
+    rl.close();
+    if (key) env = setEnvVar(env, 'LMSTUDIO_API_KEY', key);
+    const models = KNOWN_MODELS.minimax;
+    const currentModel = getEnvVar(env, 'LMSTUDIO_MODEL');
+    const model = await pickModel(null, models, currentModel, 'MiniMax-M2.5-highspeed');
+    if (model) env = setEnvVar(env, 'LMSTUDIO_MODEL', model);
   } else if (backend === 'openrouter') {
     const rl = createPrompt();
     const existing = getEnvVar(env, 'OPENROUTER_API_KEY');
@@ -1395,20 +1422,34 @@ function stopServer() {
 
 // ─── Config commands ──────────────────────────────────────────────────────────
 
-function configSetDirect() {
+async function configSetDirect() {
   const key = process.argv[4], value = process.argv[5];
   if (!key || !value) {
     console.error('Usage: guardclaw config set <KEY> <VALUE>');
     process.exit(1);
   }
-  writeEnvFile(setEnvVar(readEnvFile(), key, value));
+  const env = setEnvVar(readEnvFile(), key, value);
+  writeEnvFile(env);
   const display = (key.includes('KEY') || key.includes('TOKEN')) && value.length > 8
     ? value.slice(0, 8) + '...' : value;
-  console.log(`✅ ${key} = ${display}`);
-  // For direct set, just tell user to restart (no interactive prompt in scripted mode)
-  if (isServerRunning()) {
-    console.log('  Run `guardclaw stop && guardclaw start` to apply.\n');
+
+  // Try hot-reload if the key is LLM-related and server is running
+  const llmKeys = new Set(['SAFEGUARD_BACKEND', 'LMSTUDIO_URL', 'LMSTUDIO_MODEL', 'LMSTUDIO_API_KEY', 'LLM_API_KEY', 'OLLAMA_URL', 'OLLAMA_MODEL', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL']);
+  if (llmKeys.has(key) && isServerRunning()) {
+    try {
+      await gcApi('/api/config/llm', 'POST', {
+        backend: getEnvVar(env, 'SAFEGUARD_BACKEND') || 'lmstudio',
+        lmstudioUrl: getEnvVar(env, 'LMSTUDIO_URL'),
+        lmstudioModel: getEnvVar(env, 'LMSTUDIO_MODEL'),
+        lmstudioApiKey: getEnvVar(env, 'LMSTUDIO_API_KEY'),
+        ollamaUrl: getEnvVar(env, 'OLLAMA_URL'),
+        ollamaModel: getEnvVar(env, 'OLLAMA_MODEL'),
+      }, { silent: true });
+      console.log(`✅ ${key} = ${display} — applied`);
+      return;
+    } catch {}
   }
+  console.log(`✅ ${key} = ${display}`);
 }
 
 function configSetToken() {
@@ -1539,7 +1580,7 @@ async function handleConfigCommand() {
     case 'mode':       await configMode(); break;
     case 'thresholds': await configThresholds(); break;
     case 'agents':     await configAgentsInteractive(); break;
-    case 'set':        configSetDirect(); break;
+    case 'set':        await configSetDirect(); break;
     case 'show':       configShow(); break;
     case 'set-token':  configSetToken(); break;
     case 'get-token':  configGetToken(); break;
@@ -1687,11 +1728,43 @@ function handlePluginCommand() {
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 function updateGuardClaw() {
-  console.log('🔄 Updating GuardClaw...\n');
+  // Check current vs latest version
+  let currentVer, latestVer;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(join(rootDir, 'package.json'), 'utf8'));
+    currentVer = pkg.version;
+  } catch { currentVer = '?'; }
+  try {
+    latestVer = execSync('npm view guardclaw version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+  } catch { latestVer = null; }
+
+  if (latestVer && currentVer === latestVer) {
+    console.log(`✅ Already on latest version (${currentVer})\n`);
+    return;
+  }
+
+  console.log(`🔄 Updating GuardClaw...${latestVer ? `  ${currentVer} → ${latestVer}` : ''}\n`);
+
+  // Stop running server first
+  const wasRunning = isServerRunning();
+  if (wasRunning) {
+    console.log('🛑 Stopping server before update...');
+    stopServer();
+  }
+
   const child = spawn('npm', ['install', '-g', 'guardclaw@latest'], { stdio: 'inherit', shell: true });
-  child.on('exit', code => {
-    if (code === 0) console.log('\n✅ Updated. Restart: guardclaw start\n');
-    else { console.error(`\n❌ Update failed (code ${code})`); process.exit(code); }
+  child.on('exit', async (code) => {
+    if (code !== 0) {
+      console.error(`\n❌ Update failed (code ${code})`);
+      process.exit(code);
+    }
+    console.log('\n✅ Updated successfully');
+    if (wasRunning) {
+      console.log('🔄 Restarting server...\n');
+      await startServer();
+    } else {
+      console.log('');
+    }
   });
   child.on('error', e => { console.error('❌', e.message); process.exit(1); });
 }
