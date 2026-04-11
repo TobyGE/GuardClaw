@@ -21,8 +21,6 @@
 
 ---
 
-![GuardClaw Dashboard](docs/screenshots/dashboard-overview-2026-03.png)
-
 ## The Problem
 
 AI agents usually fail in one of two ways:
@@ -148,42 +146,22 @@ Static checks for MCP configuration, secrets exposure, and agentic-risk patterns
 
 ### Menu Bar App (macOS)
 
-[GuardClawBar](docs/GUARDCLAWBAR.md) provides native monitoring and quick actions from the menu bar.
+<img align="right" src="docs/screenshots/menubar-claude-tab-2026-03.png" width="320" alt="GuardClawBar">
 
-![GuardClawBar](docs/screenshots/menubar-claude-tab-2026-03.png)
+[GuardClawBar](docs/GUARDCLAWBAR.md) lives in the macOS menu bar so you can monitor GuardClaw without keeping the dashboard tab open. The popover shows live per-agent event counts, recent risky calls, and a quick toggle for blocking mode — each agent (Claude Code, Codex, Gemini, OpenClaw) has its own tab. Approval prompts fire as native notifications so you can allow or deny right from the corner of your screen.
+
+<br clear="right">
+
 
 ## CLI Reference
 
 ```
-guardclaw start              # start server (opens dashboard)
-guardclaw stop               # stop server
-guardclaw restart            # restart server
-guardclaw setup              # re-run the interactive setup wizard
-guardclaw update             # upgrade to the latest version
-
-guardclaw status             # server & judge status
-guardclaw stats              # event counts and risk breakdown
-guardclaw history [n]        # recent events (default 20)
-guardclaw model              # active judge model info
-guardclaw blocking [on|off]  # view or toggle blocking
-guardclaw check <command>    # check risk score for a command
-guardclaw approvals          # pending approval requests
-guardclaw memory             # learned safe/risky patterns
-guardclaw brief              # show L0 buffer + L1 AI brief for active sessions
-
-guardclaw config             # interactive config menu
-guardclaw config show        # show all settings
-guardclaw config set K V     # set any variable directly
-
-guardclaw hooks              # show hook installation status
-guardclaw hooks install      # install hooks (claude-code | codex | gemini | cursor | all)
-guardclaw hooks uninstall
-
-guardclaw plugin install     # install OpenClaw plugin
-guardclaw plugin uninstall
-guardclaw plugin status
-
-guardclaw help
+guardclaw start          # start server (opens dashboard)
+guardclaw stop           # stop server
+guardclaw setup          # re-run the interactive setup wizard
+guardclaw status         # server & judge status
+guardclaw check <cmd>    # manually risk-score a command
+guardclaw help           # full command list
 ```
 
 ## Development
