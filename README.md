@@ -4,11 +4,17 @@
     GuardClaw
   </h1>
   <p align="center">
-    <strong>Smart permission layer for AI agents</strong>
+    <strong>Risk-scores every tool call your AI agent makes.</strong><br>
+    Blocks the dangerous ones. Stays out of the way on the rest.
   </p>
-  <p align="center">
-    Real-time risk judgment for agent tool calls. Runs local or cloud.
-  </p>
+</p>
+
+<p align="center">
+  <a href="https://github.com/TobyGE/GuardClaw/stargazers"><img src="https://img.shields.io/github/stars/TobyGE/GuardClaw?style=flat&logo=github" alt="GitHub stars"></a>
+  <a href="https://www.npmjs.com/package/guardclaw"><img src="https://img.shields.io/npm/v/guardclaw?color=cb3837&logo=npm" alt="npm version"></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A518-brightgreen?logo=node.js" alt="Node >= 18">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
+  <img src="https://img.shields.io/badge/agents-7-orange" alt="7 agents supported">
 </p>
 
 <p align="center">
@@ -17,6 +23,10 @@
   <a href="#product-tour">Product Tour</a> ·
   <a href="#how-it-works">How It Works</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-overview-2026-03.png" alt="GuardClaw dashboard" width="820">
 </p>
 
 ---
@@ -28,7 +38,7 @@ AI agents usually fail in one of two ways:
 - **Too loose:** dangerous operations run with little control
 - **Too strict:** safe operations keep interrupting the user
 
-GuardClaw sits between the agent and tools, scores each action with a local or cloud judge, and makes a practical decision:
+GuardClaw sits between the agent and its tools, scores each action with a local or cloud judge, and makes a practical decision:
 
 - safe actions continue without friction
 - suspicious actions are surfaced for approval
@@ -42,16 +52,20 @@ npm install -g guardclaw
 guardclaw start
 ```
 
+Takes about 30 seconds. No account needed. Uninstall any time with `npm uninstall -g guardclaw`.
+
 First launch opens an interactive wizard:
 
-1. **Evaluation mode** — local / mixed / cloud
-2. **LLM backend** — local (LM Studio, Ollama, built-in MLX) and/or cloud (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini, OpenAI). Cloud providers support OAuth or API key.
-3. **Response mode** — `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
-4. **Agent connections** — auto-detects installed agents and installs hooks/plugins with one confirm
+1. **Evaluation mode:** local / mixed / cloud
+2. **LLM backend:** local (LM Studio, Ollama, built-in MLX) and/or cloud (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini, OpenAI). Cloud providers support OAuth or API key.
+3. **Response mode:** `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
+4. **Agent connections:** auto-detects installed agents and installs hooks/plugins with one confirm
 
 Re-run any time with `guardclaw setup`. Restart the target agent after installing hooks.
 
 ## Supported Agents
+
+Works with 7 major coding agents out of the box. Full pre-tool blocking on 6, shell-only on Cursor.
 
 | Agent | Integration | Pre-tool blocking | Approval flow | Notes |
 |-------|------------|:-----------------:|:-------------:|-------|
@@ -60,7 +74,7 @@ Re-run any time with `guardclaw setup`. Restart the target agent after installin
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | HTTP hooks | ✅ | ✅ | Full support |
 | [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
 | [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
-| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
+| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only; file operations (read/write/edit) are not intercepted |
 | [GitHub Copilot CLI](https://github.com/github/copilot-sdk) | HTTP hooks (shared with CC) | ✅ | ✅ | Full support via Claude Code hook endpoint |
 
 ## Product Tour
@@ -81,7 +95,7 @@ Static checks for MCP configuration, secrets exposure, and agentic-risk patterns
 
 <img align="right" src="docs/screenshots/menubar-claude-tab-2026-03.png" width="320" alt="GuardClawBar">
 
-[GuardClawBar](docs/GUARDCLAWBAR.md) lives in the macOS menu bar so you can monitor GuardClaw without keeping the dashboard tab open. The popover shows live per-agent event counts, recent risky calls, and a quick toggle for blocking mode — each agent (Claude Code, Codex, Gemini, OpenClaw) has its own tab. Approval prompts fire as native notifications so you can allow or deny right from the corner of your screen.
+[GuardClawBar](docs/GUARDCLAWBAR.md) lives in the macOS menu bar so you can monitor GuardClaw without keeping the dashboard tab open. The popover shows live per-agent event counts, recent risky calls, and a quick toggle for blocking mode. Each agent (Claude Code, Codex, Gemini, OpenClaw) has its own tab. Approval prompts fire as native notifications so you can allow or deny right from the corner of your screen.
 
 <br clear="right">
 
@@ -103,55 +117,22 @@ Static checks for MCP configuration, secrets exposure, and agentic-risk patterns
 
 ### Architecture
 
-GuardClaw is built from four core subsystems that work together:
+GuardClaw has four core subsystems. The short version:
 
-#### 1. Two-Stage Judge
+- **Two-Stage Judge.** A local judge model (via LM Studio / Ollama / MLX) scores every tool call. High-risk calls (score ≥ 8) escalate to a cloud judge (Claude) with richer context.
+- **Multi-Level Security Memory.** Four levels of memory (raw events → session brief → project context → global knowledge) designed to catch long-range attacks that unfold over hundreds of tool calls.
+- **Adaptive Memory & Chain Analysis.** Learns from your approve/deny decisions, tracks tool-call sequences per session, and flags multi-step exfiltration like `read ~/.ssh/id_rsa → curl evil.com`.
+- **Active Intervention.** Injects safety guidance into the agent's context before risky calls, dual-channel approval (agent dialog + dashboard + optional Telegram/Discord/WhatsApp push), circuit breaker on repeated denials, credential scanning on tool output, prompt injection detection, skill security review, and DTrace syscall monitoring (macOS).
 
-Every tool call goes through a two-stage evaluation pipeline:
+Full architecture walkthrough: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-| Stage | Engine | Latency | When |
-|-------|--------|---------|------|
-| **Local Judge** | Qwen3-4B via LM Studio / Ollama / MLX | <100ms | Every tool call |
-| **Cloud Judge** | Claude (Anthropic) | ~1s | High-risk only (score >= 8) |
+#### Fast Paths (before the LLM)
 
-Before hitting the LLM, three fast paths run first:
-- **High-risk patterns** — regex match (e.g. `curl | bash`, `nc -e`) → instant score 9
-- **Safe fast-path** — known safe commands (git status, npm test) → instant score 1
-- **Agent permissions (Layer 1)** — reads each agent's own config, auto-allows if the agent already permits it
+Three checks run before the local judge to keep latency low:
 
-The cloud judge receives richer context: the session security brief, project-level security context, and global knowledge — enabling it to detect attacks that span many tool calls.
-
-#### 2. Multi-Level Security Memory
-
-A four-level memory hierarchy designed to detect long-range attacks that unfold over hundreds of tool calls:
-
-| Level | What | Storage | Lifecycle |
-|-------|------|---------|-----------|
-| **L0 — Raw Buffer** | Every tool call with data flow tags (`reads:.env`, `fetches:evil.com`, `sends-file:/tmp/x`) | In-memory | Per session |
-| **L1 — AI Brief** | Rolling AI summary of the session. Triggered when L0 hits 60K tokens. `new_brief = AI(old_brief + new_events)` — early signals survive multiple compressions | In-memory | Per session |
-| **L2 — Project Context** | AI-generated security baseline for this project (safe patterns, trusted domains, known risks). Updated at session end | `~/.guardclaw/security-context.md` | Persistent, cross-session |
-| **L3 — Global Knowledge** | Cross-project intelligence (malicious domains, attack patterns, dangerous MCP servers). Updated only when L1 brief contains high-severity findings | `~/.guardclaw/global-knowledge.md` | Persistent, cross-project |
-
-Data flows upward: L0 → compress → L1 → session end → L2 → high-severity → L3. The cloud judge sees L1 + L2 + L3 in its prompt, so it can catch attacks that no single tool call reveals.
-
-#### 3. Adaptive Memory & Chain Analysis
-
-- **Adaptive memory** (`memory.db`) — SQLite-backed pattern learning from user approve/deny decisions. Repeated approvals → auto-approve, reducing friction over time
-- **Chain analysis** — tracks tool call sequences per session to detect multi-step exfiltration (read `~/.ssh/id_rsa` → `curl evil.com`)
-- **Intent classification** — LLM classifies user prompt intent; deviations raise risk floors (agent doing something the user didn't ask for)
-- **Session signals** — cumulative session state: credential reads, network usage, sensitive file access, risk budget with decay
-
-#### 4. Active Intervention & Approval
-
-When risk is detected, GuardClaw doesn't just score — it acts:
-
-- **Proactive intervention** — injects safety guidance into the agent's context via `systemMessage` before the tool runs (e.g. "credentials were read earlier — network operations will be scrutinized")
-- **Dual-channel approval** — high-risk operations trigger both the agent's native dialog AND the GuardClaw dashboard/menu bar, plus optional push notifications (Telegram, Discord, WhatsApp)
-- **Circuit breaker** — too many consecutive denials → degrades to ask mode, preventing agent deadlocks
-- **Credential scanning** — PostToolUse output scanned for leaked secrets (API keys, tokens, private keys)
-- **Prompt injection detection** — UserPromptSubmit hook catches common injection patterns
-- **Skill security review** — LLM reviews `/skill` file contents for instruction injection
-- **DTrace syscall monitoring** — OS-level monitoring of MCP server system calls (file, network, process) on macOS
+- **High-risk patterns.** Regex match on known-bad commands (`curl | bash`, `nc -e`) → instant score 9.
+- **Safe fast-path.** Allowlist of safe commands (`git status`, `npm test`) → instant score 1.
+- **Agent permissions.** Reads each agent's own config and auto-allows anything the agent already permits.
 
 ## CLI Reference
 
@@ -189,5 +170,5 @@ guardclaw start
 ---
 
 <p align="center">
-  <sub>Built for practical agent safety. Your data stays on your machine.</sub>
+  <sub>Locally judged. Open source. Your data stays on your machine.</sub>
 </p>
