@@ -13,9 +13,9 @@
 
 <p align="center">
   <a href="#the-problem">The Problem</a> ·
-  <a href="#how-it-works">How It Works</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#product-tour">Product Tour</a> ·
+  <a href="#how-it-works">How It Works</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
@@ -32,6 +32,59 @@ GuardClaw sits between the agent and tools, scores each action with a local or c
 
 - safe actions continue without friction
 - suspicious actions are surfaced for approval
+
+## Quick Start
+
+Requires Node.js >= 18.
+
+```bash
+npm install -g guardclaw
+guardclaw start
+```
+
+First launch opens an interactive wizard:
+
+1. **Evaluation mode** — local / mixed / cloud
+2. **LLM backend** — local (LM Studio, Ollama, built-in MLX) and/or cloud (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini, OpenAI). Cloud providers support OAuth or API key.
+3. **Response mode** — `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
+4. **Agent connections** — auto-detects installed agents and installs hooks/plugins with one confirm
+
+Re-run any time with `guardclaw setup`. Restart the target agent after installing hooks.
+
+## Supported Agents
+
+| Agent | Integration | Pre-tool blocking | Approval flow | Notes |
+|-------|------------|:-----------------:|:-------------:|-------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | HTTP hooks | ✅ | ✅ | Full support |
+| [Codex CLI](https://github.com/openai/codex) | Command hooks | ✅ | ✅ | Full support |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | HTTP hooks | ✅ | ✅ | Full support |
+| [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
+| [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
+| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
+| [GitHub Copilot CLI](https://github.com/github/copilot-sdk) | HTTP hooks (shared with CC) | ✅ | ✅ | Full support via Claude Code hook endpoint |
+
+## Product Tour
+
+### Dashboard
+
+The web dashboard (`localhost:3002`) is the central control plane: event timeline, risk filters, session visibility, blocking toggles.
+
+![Dashboard](docs/screenshots/dashboard-overview-2026-03.png)
+
+### Security Scan
+
+Static checks for MCP configuration, secrets exposure, and agentic-risk patterns.
+
+![Security Scan](docs/screenshots/security-scan-clean-2026-03.png)
+
+### Menu Bar App (macOS)
+
+<img align="right" src="docs/screenshots/menubar-claude-tab-2026-03.png" width="320" alt="GuardClawBar">
+
+[GuardClawBar](docs/GUARDCLAWBAR.md) lives in the macOS menu bar so you can monitor GuardClaw without keeping the dashboard tab open. The popover shows live per-agent event counts, recent risky calls, and a quick toggle for blocking mode — each agent (Claude Code, Codex, Gemini, OpenClaw) has its own tab. Approval prompts fire as native notifications so you can allow or deny right from the corner of your screen.
+
+<br clear="right">
+
 
 ## How It Works
 
@@ -99,59 +152,6 @@ When risk is detected, GuardClaw doesn't just score — it acts:
 - **Prompt injection detection** — UserPromptSubmit hook catches common injection patterns
 - **Skill security review** — LLM reviews `/skill` file contents for instruction injection
 - **DTrace syscall monitoring** — OS-level monitoring of MCP server system calls (file, network, process) on macOS
-
-## Quick Start
-
-Requires Node.js >= 18.
-
-```bash
-npm install -g guardclaw
-guardclaw start
-```
-
-First launch opens an interactive wizard:
-
-1. **Evaluation mode** — local / mixed / cloud
-2. **LLM backend** — local (LM Studio, Ollama, built-in MLX) and/or cloud (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini, OpenAI). Cloud providers support OAuth or API key.
-3. **Response mode** — `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
-4. **Agent connections** — auto-detects installed agents and installs hooks/plugins with one confirm
-
-Re-run any time with `guardclaw setup`. Restart the target agent after installing hooks.
-
-## Supported Agents
-
-| Agent | Integration | Pre-tool blocking | Approval flow | Notes |
-|-------|------------|:-----------------:|:-------------:|-------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | HTTP hooks | ✅ | ✅ | Full support |
-| [Codex CLI](https://github.com/openai/codex) | Command hooks | ✅ | ✅ | Full support |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | HTTP hooks | ✅ | ✅ | Full support |
-| [OpenCode](https://opencode.ai) | HTTP hooks | ✅ | ✅ | Full support |
-| [OpenClaw](https://github.com/openclaw/openclaw) | WebSocket plugin | ✅ | ✅ | Full support; requires gateway |
-| [Cursor](https://cursor.com) | Shell hooks | ⚠️ | ✅ | Shell commands only — file operations (read/write/edit) are not intercepted |
-| [GitHub Copilot CLI](https://github.com/github/copilot-sdk) | HTTP hooks (shared with CC) | ✅ | ✅ | Full support via Claude Code hook endpoint |
-
-## Product Tour
-
-### Dashboard
-
-The web dashboard (`localhost:3002`) is the central control plane: event timeline, risk filters, session visibility, blocking toggles.
-
-![Dashboard](docs/screenshots/dashboard-overview-2026-03.png)
-
-### Security Scan
-
-Static checks for MCP configuration, secrets exposure, and agentic-risk patterns.
-
-![Security Scan](docs/screenshots/security-scan-clean-2026-03.png)
-
-### Menu Bar App (macOS)
-
-<img align="right" src="docs/screenshots/menubar-claude-tab-2026-03.png" width="320" alt="GuardClawBar">
-
-[GuardClawBar](docs/GUARDCLAWBAR.md) lives in the macOS menu bar so you can monitor GuardClaw without keeping the dashboard tab open. The popover shows live per-agent event counts, recent risky calls, and a quick toggle for blocking mode — each agent (Claude Code, Codex, Gemini, OpenClaw) has its own tab. Approval prompts fire as native notifications so you can allow or deny right from the corner of your screen.
-
-<br clear="right">
-
 
 ## CLI Reference
 
