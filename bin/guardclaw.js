@@ -1517,6 +1517,26 @@ async function configDetectToken() {
   } catch (e) { console.error('❌', e.message); process.exit(1); }
 }
 
+async function configOAuthCallback() {
+  const url = process.argv[4];
+  if (!url) {
+    console.error('Usage: guardclaw config oauth-callback "<URL>"');
+    console.error('  Paste the full URL from your browser address bar after OAuth authorization.');
+    process.exit(1);
+  }
+  try {
+    const result = await gcApi('/api/config/cloud-judge/oauth/manual-callback', 'POST', { url });
+    if (result.ok) {
+      console.log(`✅ OAuth connected successfully (${result.provider})`);
+    } else {
+      console.error('❌', result.error || 'Unknown error');
+    }
+  } catch (err) {
+    console.error('❌', err.message || err);
+    process.exit(1);
+  }
+}
+
 function configShow() {
   const envPath = getEnvPath();
   if (!fs.existsSync(envPath)) {
@@ -1615,6 +1635,7 @@ async function handleConfigCommand() {
     case 'set-token':  await configSetToken(); break;
     case 'get-token':  configGetToken(); break;
     case 'detect-token': await configDetectToken(); break;
+    case 'oauth-callback': await configOAuthCallback(); break;
     default:
       console.error(`Unknown config command: ${process.argv[3]}`);
       console.log('Run "guardclaw help" for usage.');
@@ -1873,7 +1894,13 @@ async function startServer() {
       setTimeout(async () => {
         try {
           console.log(`\n⛨ Starting OAuth login for ${onboardingResult.pendingOAuth}...`);
-          await gcApi(`/api/config/cloud-judge/oauth/${onboardingResult.pendingOAuth}`, 'POST');
+          const result = await gcApi(`/api/config/cloud-judge/oauth/${onboardingResult.pendingOAuth}`, 'POST');
+          if (result?.pending) {
+            console.log(`\n⛨ Open this URL in your browser to authorize:`);
+            console.log(`  ${result.authURL}\n`);
+            console.log(`After authorizing, copy the URL from your browser and run:`);
+            console.log(`  guardclaw config oauth-callback "<URL>"\n`);
+          }
         } catch { console.log('  (OAuth can be started later from Settings dashboard)'); }
       }, 2000);
     }
@@ -1914,7 +1941,14 @@ async function startServer() {
     setTimeout(async () => {
       try {
         console.log(`\n⛨ Starting OAuth login for ${onboardingResult.pendingOAuth}...`);
-        await gcApi(`/api/config/cloud-judge/oauth/${onboardingResult.pendingOAuth}`, 'POST');
+        const result = await gcApi(`/api/config/cloud-judge/oauth/${onboardingResult.pendingOAuth}`, 'POST');
+        if (result?.pending) {
+          // Headless: server returned the auth URL, user must complete manually
+          console.log(`\n⛨ Open this URL in your browser to authorize:`);
+          console.log(`  ${result.authURL}\n`);
+          console.log(`After authorizing, copy the URL from your browser and run:`);
+          console.log(`  guardclaw config oauth-callback "<URL>"\n`);
+        }
       } catch { console.log('  (OAuth can be started later from Settings dashboard)'); }
       if (!noOpen) openBrowser(url);
       process.exit(0);
