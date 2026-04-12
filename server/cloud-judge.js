@@ -662,12 +662,15 @@ export class CloudJudge {
     }
 
     const authURL = `${cfg.authURL}?${params}`;
-    console.log(`[CloudJudge] Opening browser for ${cfg.displayName} OAuth...`);
-    console.log(`[CloudJudge] URL: ${authURL}`);
+    console.log(`[CloudJudge] Authorize ${cfg.displayName} by opening this URL:`);
+    console.log(`\n  ${authURL}\n`);
 
-    // Open browser
-    const { exec } = await import('child_process');
-    exec(`open "${authURL}"`);
+    // Try to open browser (works on macOS/Linux desktop; fails silently on headless servers)
+    try {
+      const { exec } = await import('child_process');
+      const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+      exec(`${cmd} "${authURL}"`, () => {});
+    } catch {};
 
     // Wait for callback (use provider-specific port/path)
     const callbackPort = cfg.callbackPort ?? DEFAULT_CALLBACK_PORT;
