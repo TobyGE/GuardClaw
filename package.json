@@ -1,6 +1,6 @@
 {
   "name": "guardclaw",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "AI Agent Safety Monitor with LLM-based Command Safeguard",
   "main": "server/index.js",
   "type": "module",
