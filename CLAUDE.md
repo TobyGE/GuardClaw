@@ -92,7 +92,14 @@ Handles `start`, `stop`, `config`, `plugin`, `update`, `version`, `help`. `guard
 OpenClaw plugin installed to `~/.openclaw/plugins/guardclaw-interceptor/`. Intercepts tool calls before execution and calls `/api/evaluate` on the GuardClaw server.
 
 ### Data directories
-- **`.guardclaw/`** — Project-local (created in `process.cwd()`): `events.db`, `memory.db`, `blocking-config.json`, `install.json`.
+
+Two helpers in `server/data-dir.js` split paths:
+- `getDataDir()` → `process.cwd()` (overridable via `GUARDCLAW_DATA_DIR`)
+- `getGuardClawDir()` → `<dataDir>/.guardclaw`
+
+File layout:
+- **Project root** (`getDataDir()`): `blocking-config.json` (whitelist/blacklist), `guardclaw.log` (runtime log from `server/logger.js`).
+- **`.guardclaw/`** (`getGuardClawDir()`): `events.db`, `memory.db`, `install.json`, `audit-cache.json`, `lora/` (LoRA adapters used by `judge-store.js`).
 - **`~/.guardclaw/`** — Global (user home): `identity/device.json` (ED25519 key), `models/` (downloaded MLX models), `venv/` (Python venv for mlx_lm).
 
 ## Environment Configuration
