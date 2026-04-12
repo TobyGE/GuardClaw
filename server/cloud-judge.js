@@ -611,9 +611,6 @@ export class CloudJudge {
     const defaults = PROVIDERS[this.provider] ?? {};
     if (!this.model) this.model = defaults.defaultModel ?? 'default';
     if (!this.baseURL) this.baseURL = defaults.baseURL ?? '';
-
-    // Pending OAuth state for manual callback flow (headless servers)
-    this._pendingOAuth = null;
   }
 
   get isConfigured() {
@@ -630,9 +627,8 @@ export class CloudJudge {
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   /**
-   * Start OAuth PKCE flow. On desktop, opens browser and waits for redirect callback.
-   * On headless servers, prints URL and returns { pending: true } for manual completion
-   * via completeManualOAuth().
+   * Start OAuth PKCE flow. Opens browser, waits for callback, stores token.
+   * Returns { ok: true } or throws.
    */
   async startOAuth(provider = this.provider) {
     const cfg = PROVIDERS[provider];
@@ -666,64 +662,24 @@ export class CloudJudge {
     }
 
     const authURL = `${cfg.authURL}?${params}`;
-    const canOpenBrowser = process.platform === 'darwin' || !!process.env.DISPLAY;
-
-    if (canOpenBrowser) {
-      // ─── Desktop mode: open browser + callback server ───
-      console.log(`[CloudJudge] Authorize ${cfg.displayName} by opening this URL:`);
-      console.log(`\n  ${authURL}\n`);
-      try {
-        const { exec } = await import('child_process');
-        const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
-        exec(`${cmd} "${authURL}"`, () => {});
-      } catch {};
-
-      const callbackPort = cfg.callbackPort ?? DEFAULT_CALLBACK_PORT;
-      const callbackPath = cfg.callbackPath ?? DEFAULT_CALLBACK_PATH;
-      const { code, state: returnedState } = await waitForCallback(120000, callbackPort, callbackPath);
-      if (provider !== 'openai-codex' && returnedState !== state) throw new Error('OAuth state mismatch (possible CSRF)');
-      console.log(`[CloudJudge] Callback received, exchanging code...`);
-      return this._exchangeAndStore(provider, code, verifier, state);
-    }
-
-    // ─── Headless mode: store state, return URL for manual completion ───
-    this._pendingOAuth = { verifier, state, provider, redirectURI, timestamp: Date.now() };
-    console.log(`[CloudJudge] Authorize ${cfg.displayName} by opening this URL in any browser:`);
+    console.log(`[CloudJudge] Authorize ${cfg.displayName} by opening this URL:`);
     console.log(`\n  ${authURL}\n`);
-    console.log(`[CloudJudge] After authorizing, the browser will redirect to a page that won't load.`);
-    console.log(`[CloudJudge] Copy the full URL from your browser's address bar and run:`);
-    console.log(`  guardclaw config oauth-callback "<URL>"\n`);
-    return { ok: true, pending: true, authURL };
-  }
 
-  /**
-   * Complete OAuth from a manually-pasted callback URL (headless server flow).
-   * The URL looks like: http://localhost:54321/callback?code=xxx&state=yyy
-   */
-  async completeManualOAuth(callbackURL) {
-    if (!this._pendingOAuth) throw new Error('No pending OAuth request. Run the OAuth flow first.');
-    const { verifier, state, provider } = this._pendingOAuth;
+    // Try to open browser (works on macOS/Linux desktop; fails silently on headless servers)
+    try {
+      const { exec } = await import('child_process');
+      const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+      exec(`${cmd} "${authURL}"`, () => {});
+    } catch {};
 
-    // Allow 10 minutes for manual completion
-    if (Date.now() - this._pendingOAuth.timestamp > 600000) {
-      this._pendingOAuth = null;
-      throw new Error('Pending OAuth expired (10 min). Start OAuth again.');
-    }
-
-    const url = new URL(callbackURL);
-    const code = url.searchParams.get('code');
-    const returnedState = url.searchParams.get('state');
-    if (!code) throw new Error('No authorization code found in URL.');
+    // Wait for callback (use provider-specific port/path)
+    const callbackPort = cfg.callbackPort ?? DEFAULT_CALLBACK_PORT;
+    const callbackPath = cfg.callbackPath ?? DEFAULT_CALLBACK_PATH;
+    const { code, state: returnedState } = await waitForCallback(120000, callbackPort, callbackPath);
     if (provider !== 'openai-codex' && returnedState !== state) throw new Error('OAuth state mismatch (possible CSRF)');
+    console.log(`[CloudJudge] Callback received, exchanging code...`);
 
-    this._pendingOAuth = null;
-    console.log(`[CloudJudge] Manual callback received, exchanging code...`);
-    return this._exchangeAndStore(provider, code, verifier, returnedState);
-  }
-
-  /** Exchange auth code for tokens and store them. Shared by desktop + headless flows. */
-  async _exchangeAndStore(provider, code, verifier, state) {
-    const cfg = PROVIDERS[provider];
+    // Exchange code for tokens
     let tokenData;
     try {
       tokenData = await exchangeCode(provider, code, verifier, state);
@@ -734,6 +690,7 @@ export class CloudJudge {
     }
     setToken(provider, tokenData);
 
+    // For Claude: exchange OAuth token for API key
     if (provider === 'claude' && tokenData.access_token) {
       await this._claudeCreateApiKey(tokenData.access_token);
     }

@@ -230,18 +230,7 @@ export function configRoutes(deps) {
     res.json({ success: true, ...cloudJudge.getConfig() });
   });
 
-  // Manual OAuth callback (headless servers: user pastes redirect URL)
-  // Must be registered BEFORE :provider wildcard route
-  router.post('/api/config/cloud-judge/oauth/manual-callback', async (req, res) => {
-    try {
-      const result = await cloudJudge.completeManualOAuth(req.body.url);
-      res.json(result);
-    } catch (err) {
-      res.status(400).json({ success: false, error: err.message });
-    }
-  });
-
-  // Start OAuth flow — opens browser on desktop, returns authURL on headless
+  // Start OAuth flow — opens browser, returns when done
   router.post('/api/config/cloud-judge/oauth/:provider', async (req, res) => {
     const { provider } = req.params;
     try {
