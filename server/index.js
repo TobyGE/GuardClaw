@@ -257,8 +257,42 @@ const MAX_TOOL_HISTORY = 30;
 // Key: `${sessionKey}:${toolName}:${stableParamsJson}`, TTL: 60s
 const evaluationCache = new Map(); // key → { result, expiresAt }
 const lastCCPromptId = new Map();    // sessionKey → promptEventId (for prompt→reply linking)
-const lastCCPromptText = new Map();  // sessionKey → last user prompt text (for LLM context)
-const lastOCPromptText = new Map();  // sessionKey → last user prompt text (for OC/Gemini LLM context)
+// Prompt history caches: sessionKey → array of recent user prompts
+// (most recent last). Stored as array so the LLM context shows the full
+// directive chain, not just the latest ack. Short acknowledgments like
+// "嗯", "ok", "yes" would otherwise clobber the real directive.
+const lastCCPromptText = new Map();  // sessionKey → string[] (last user prompts)
+const lastOCPromptText = new Map();  // sessionKey → string[] (last user prompts, shared by OC/Gemini/Cursor/OpenCode)
+const PROMPT_HISTORY_MAX = 5;
+
+// Append a prompt to the history map, keeping the last PROMPT_HISTORY_MAX entries.
+function pushPromptHistory(map, key, text) {
+  if (!key || !text) return;
+  const trimmed = text.trim().slice(0, 500);
+  if (!trimmed) return;
+  const existing = map.get(key);
+  const arr = Array.isArray(existing) ? existing.slice() : (existing ? [existing] : []);
+  arr.push(trimmed);
+  while (arr.length > PROMPT_HISTORY_MAX) arr.shift();
+  map.set(key, arr);
+}
+
+// Read the prompt history as a single formatted string for LLM consumption.
+// Returns null if no history exists. Multi-turn history is labeled so the
+// judge can see the full directive chain (newest last) instead of just
+// the latest acknowledgment.
+function readPromptHistory(map, key) {
+  const val = map.get(key);
+  if (!val) return null;
+  const arr = Array.isArray(val) ? val : [val];
+  if (arr.length === 0) return null;
+  if (arr.length === 1) return arr[0];
+  const lines = arr.map((p, i) => {
+    const label = i === arr.length - 1 ? 'latest' : `earlier -${arr.length - 1 - i}`;
+    return `[${label}] ${p}`;
+  });
+  return lines.join('\n');
+}
 const ccTranscriptPaths = new Map(); // session_id → transcript_path (cached from Stop hook)
 const ccLastReadLine = new Map();    // session_id → last line number processed for intermediate text
 // Active CC sub-agents: session_id → { agent_id, agent_type, startTime }
@@ -1451,8 +1485,8 @@ app.post('/api/evaluate', monitorModeMiddleware, async (req, res) => {
       return `- "${p.pattern}" — user marked ${verdict} (${p.approveCount} approves, ${p.denyCount} denies)`;
     }).join('\n') : null;
 
-    // Build taskContext from cached user prompt (OC/Gemini sessions)
-    const userPrompt = lastOCPromptText.get(sessionKey);
+    // Build taskContext from cached user prompt history (OC/Gemini sessions)
+    const userPrompt = readPromptHistory(lastOCPromptText, sessionKey);
     const taskContext = userPrompt ? { userPrompt, cwd: null, recentTools: null } : null;
 
     let analysis;
@@ -1842,7 +1876,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware
 
     // Build task context from user prompt, cwd, and recent tool history
     const { cwd, transcript_path } = req.body;
-    let userPrompt = lastCCPromptText.get(sessionKey);
+    let userPrompt = readPromptHistory(lastCCPromptText, sessionKey);
 
     // If no cached prompt (e.g. hook registered after prompt was sent), try reading from transcript
     if (!userPrompt && transcript_path) {
@@ -2573,8 +2607,8 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), monitorModeMid
       }
     }
 
-    // Build taskContext from cached user prompt + Gemini-provided cwd
-    const geminiUserPrompt = lastOCPromptText.get(sessionKey);
+    // Build taskContext from cached user prompt history + Gemini-provided cwd
+    const geminiUserPrompt = readPromptHistory(lastOCPromptText, sessionKey);
     const geminiCwd = req.body.cwd || null;
     const taskContext = (geminiUserPrompt || geminiCwd)
       ? { userPrompt: geminiUserPrompt || null, cwd: geminiCwd, recentTools: null }
@@ -2769,7 +2803,7 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), monitorModeMidd
       }
     }
 
-    const userPrompt = lastOCPromptText.get(sessionKey);
+    const userPrompt = readPromptHistory(lastOCPromptText, sessionKey);
     const taskContext = (userPrompt || req.body.cwd)
       ? { userPrompt: userPrompt || null, cwd: req.body.cwd || null, recentTools: null }
       : null;
@@ -2857,7 +2891,7 @@ app.post('/api/hooks/codex/user-prompt', rateLimit(60_000, 30), (req, res) => {
   const sessionId = req.body.session_id;
   const prompt = req.body.prompt || '';
   const sessionKey = sessionId ? `codex:${sessionId}` : 'codex:default';
-  if (prompt) lastOCPromptText.set(sessionKey, prompt);
+  if (prompt) pushPromptHistory(lastOCPromptText, sessionKey, prompt);
   console.log(`[GuardClaw] Codex UserPromptSubmit: "${prompt.slice(0, 100)}"`);
   res.json({ decision: 'allow' });
 });
@@ -2958,7 +2992,7 @@ app.post('/api/hooks/user-prompt', rateLimit(60_000, 30), (req, res) => {
     timestamp: Date.now(),
   });
   lastCCPromptId.set(sessionKey, promptId);   // track for stop-hook reply linking
-  lastCCPromptText.set(sessionKey, promptText.slice(0, 500)); // cache for LLM context in pre-tool-use
+  pushPromptHistory(lastCCPromptText, sessionKey, promptText); // cache for LLM context in pre-tool-use
 
   // Record prompt to session history (before responding)
   sessionSignals.addPrompt(sessionKey, promptText);
@@ -3159,9 +3193,9 @@ app.post('/api/hooks/llm-input', (req, res) => {
   const truncated = typeof prompt === 'string' ? prompt.slice(0, 2000) : '';
   console.log(`[GuardClaw] 💬 llm-input: session=${key}, model=${model}, prompt_len=${truncated.length}, history=${historyLength}`);
 
-  // Cache user prompt for taskContext in /api/evaluate (OC/Gemini)
+  // Cache user prompt history for taskContext in /api/evaluate (OC/Gemini)
   if (truncated) {
-    lastOCPromptText.set(key, truncated.slice(0, 500));
+    pushPromptHistory(lastOCPromptText, key, truncated);
   }
 
   eventStore.addEvent({
@@ -3217,9 +3251,9 @@ app.post('/api/hooks/message-received', (req, res) => {
   const truncated = contentStr.substring(0, 2000);
   console.log(`[GuardClaw] 💬 message-received: from=${from}, session=${key} (raw=${rawKey}), len=${truncated.length}`);
 
-  // Cache user prompt for taskContext in /api/evaluate (OC/Gemini)
+  // Cache user prompt history for taskContext in /api/evaluate (OC/Gemini)
   if (truncated && from !== 'assistant') {
-    lastOCPromptText.set(key, truncated.slice(0, 500));
+    pushPromptHistory(lastOCPromptText, key, truncated);
   }
 
   eventStore.addEvent({
@@ -4151,8 +4185,8 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), monitorModeMid
       }
     }
 
-    // Build taskContext from cached user prompt
-    const cursorUserPrompt = lastOCPromptText.get(sessionKey);
+    // Build taskContext from cached user prompt history
+    const cursorUserPrompt = readPromptHistory(lastOCPromptText, sessionKey);
     const cursorTaskContext = cursorUserPrompt ? { userPrompt: cursorUserPrompt, cwd: null, recentTools: null } : null;
 
     // Evaluate
@@ -4569,8 +4603,8 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), monitorModeM
       }
     }
 
-    // Build taskContext from cached user prompt
-    const ocUserPrompt = lastOCPromptText.get(sessionKey);
+    // Build taskContext from cached user prompt history
+    const ocUserPrompt = readPromptHistory(lastOCPromptText, sessionKey);
     const ocTaskContext = ocUserPrompt ? { userPrompt: ocUserPrompt, cwd: null, recentTools: null } : null;
 
     // Evaluate with safeguard service

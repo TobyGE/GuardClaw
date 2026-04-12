@@ -811,13 +811,28 @@ export class CloudJudge {
     const briefBlock = sessionBrief ? `\n\n<session-brief>\n${sessionBrief}\n</session-brief>` : '';
     const globalKnowledge = loadGlobalKnowledge();
     const globalBlock = globalKnowledge ? `\n\n<global-knowledge>\n${globalKnowledge}\n</global-knowledge>` : '';
-    // If we have a session brief, strip content it already covers (transcript, chain history, session signals)
-    const trimmed = sessionBrief
-      ? masked
-          .replace(/<transcript>[\s\S]*?<\/transcript>[^\n]*\n?/g, '')
-          .replace(/<chain_history>[\s\S]*?<\/chain_history>[\s\S]*?(?=\n(?:TOOL|USER|PARAMS|FILE|$))/g, '')
-          .replace(/\nSESSION STATE \(accumulated[\s\S]*?Use this to assess multi-step risk[^\n]*/g, '')
-      : masked;
+    // If we have a session brief, strip content it already covers (transcript, chain history, session signals),
+    // but PRESERVE [User] lines from the transcript so user intent is never lost even after compression
+    let trimmed = masked;
+    if (sessionBrief) {
+      // Extract [User] lines from the transcript block before stripping
+      const transcriptMatch = /<transcript>\n?([\s\S]*?)\n?<\/transcript>/.exec(masked);
+      let userLinesBlock = '';
+      if (transcriptMatch) {
+        const userLines = transcriptMatch[1]
+          .split('\n')
+          .filter(l => l.startsWith('[User] '))
+          .slice(-5); // keep last 5 user messages
+        if (userLines.length > 0) {
+          userLinesBlock = `\n\n<recent-user-messages>\n${userLines.join('\n')}\n</recent-user-messages>`;
+        }
+      }
+      trimmed = masked
+        .replace(/<transcript>[\s\S]*?<\/transcript>[^\n]*\n?/g, '')
+        .replace(/<chain_history>[\s\S]*?<\/chain_history>[\s\S]*?(?=\n(?:TOOL|USER|PARAMS|FILE|$))/g, '')
+        .replace(/\nSESSION STATE \(accumulated[\s\S]*?Use this to assess multi-step risk[^\n]*/g, '')
+        + userLinesBlock;
+    }
     const userContent = trimmed + piiNote + (extraContext || '') + secCtxBlock + briefBlock + globalBlock;
 
     try {
