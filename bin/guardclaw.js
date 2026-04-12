@@ -63,22 +63,30 @@ async function gcApi(path, method = 'GET', body, { silent = false } = {}) {
 // If the server is offline, offer to restart it (or start it).
 
 async function tryHotReload(configType, body, successMsg) {
+  const endpointMap = {
+    llm: '/api/config/llm',
+    token: '/api/config/token',
+    'qclaw-token': '/api/config/qclaw-token',
+    mode: '/api/config/mode',
+    thresholds: '/api/config/thresholds',
+    'fail-closed': '/api/config/fail-closed',
+  };
+  const endpoint = endpointMap[configType];
+
   // Try the server API first
-  try {
-    const endpoint = configType === 'llm' ? '/api/config/llm' : null;
-    if (endpoint) {
+  if (endpoint && isServerRunning()) {
+    try {
       await gcApi(endpoint, 'POST', body, { silent: true });
-      console.log(`\n✅ ${successMsg} — applied to running server\n`);
+      console.log(`\n✅ ${successMsg} — applied\n`);
       return;
-    }
-  } catch (e) {
-    if (!e.offline) {
-      // Server is up but rejected — config saved, needs restart
-      console.log(`\n✅ ${successMsg}`);
+    } catch (e) {
+      if (!e.offline) {
+        // Server rejected the request — fall through to restart offer
+      }
     }
   }
 
-  // Server offline or no hot-reload endpoint — offer restart
+  // Server offline or no hot-reload endpoint — offer restart/start
   const isRunning = isServerRunning();
   if (isRunning) {
     console.log(`\n✅ ${successMsg}`);
@@ -1144,7 +1152,7 @@ async function configMode() {
   const mode = await select(modes, { defaultIndex: defaultIdx });
 
   writeEnvFile(setEnvVar(env, 'GUARDCLAW_APPROVAL_MODE', mode));
-  await tryHotReload(null, null, `Mode set to: ${mode}`);
+  await tryHotReload('mode', { mode }, `Mode set to: ${mode}`);
 }
 
 async function configThresholds() {
@@ -1169,7 +1177,8 @@ async function configThresholds() {
   env = setEnvVar(env, 'GUARDCLAW_ASK_THRESHOLD',        nb || askT);
   env = setEnvVar(env, 'GUARDCLAW_AUTO_BLOCK_THRESHOLD', nc || block);
   writeEnvFile(env);
-  await tryHotReload(null, null, 'Thresholds updated');
+  const finalAllow = na || allow, finalAsk = nb || askT, finalBlock = nc || block;
+  await tryHotReload('thresholds', { autoAllow: parseInt(finalAllow), ask: parseInt(finalAsk), autoBlock: parseInt(finalBlock) }, 'Thresholds updated');
 }
 
 async function configAgentsInteractive() {
@@ -1433,10 +1442,15 @@ async function configSetDirect() {
   const display = (key.includes('KEY') || key.includes('TOKEN')) && value.length > 8
     ? value.slice(0, 8) + '...' : value;
 
-  // Try hot-reload if the key is LLM-related and server is running
-  const llmKeys = new Set(['SAFEGUARD_BACKEND', 'LMSTUDIO_URL', 'LMSTUDIO_MODEL', 'LMSTUDIO_API_KEY', 'LLM_API_KEY', 'OLLAMA_URL', 'OLLAMA_MODEL', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL']);
-  if (llmKeys.has(key) && isServerRunning()) {
-    try {
+  if (!isServerRunning()) {
+    console.log(`✅ ${key} = ${display}`);
+    return;
+  }
+
+  // Try hot-reload based on key type
+  try {
+    const llmKeys = new Set(['SAFEGUARD_BACKEND', 'LMSTUDIO_URL', 'LMSTUDIO_MODEL', 'LMSTUDIO_API_KEY', 'LLM_API_KEY', 'OLLAMA_URL', 'OLLAMA_MODEL', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL']);
+    if (llmKeys.has(key)) {
       await gcApi('/api/config/llm', 'POST', {
         backend: getEnvVar(env, 'SAFEGUARD_BACKEND') || 'lmstudio',
         lmstudioUrl: getEnvVar(env, 'LMSTUDIO_URL'),
@@ -1445,18 +1459,34 @@ async function configSetDirect() {
         ollamaUrl: getEnvVar(env, 'OLLAMA_URL'),
         ollamaModel: getEnvVar(env, 'OLLAMA_MODEL'),
       }, { silent: true });
-      console.log(`✅ ${key} = ${display} — applied`);
+    } else if (key === 'OPENCLAW_TOKEN') {
+      await gcApi('/api/config/token', 'POST', { token: value }, { silent: true });
+    } else if (key === 'QCLAW_TOKEN') {
+      await gcApi('/api/config/qclaw-token', 'POST', { token: value }, { silent: true });
+    } else if (key === 'GUARDCLAW_APPROVAL_MODE') {
+      await gcApi('/api/config/mode', 'POST', { mode: value }, { silent: true });
+    } else if (key === 'GUARDCLAW_AUTO_ALLOW_THRESHOLD') {
+      await gcApi('/api/config/thresholds', 'POST', { autoAllow: parseInt(value) }, { silent: true });
+    } else if (key === 'GUARDCLAW_ASK_THRESHOLD') {
+      await gcApi('/api/config/thresholds', 'POST', { ask: parseInt(value) }, { silent: true });
+    } else if (key === 'GUARDCLAW_AUTO_BLOCK_THRESHOLD') {
+      await gcApi('/api/config/thresholds', 'POST', { autoBlock: parseInt(value) }, { silent: true });
+    } else {
+      // No hot-reload endpoint for this key
+      console.log(`✅ ${key} = ${display}`);
       return;
-    } catch {}
+    }
+    console.log(`✅ ${key} = ${display} — applied`);
+  } catch {
+    console.log(`✅ ${key} = ${display}`);
   }
-  console.log(`✅ ${key} = ${display}`);
 }
 
-function configSetToken() {
+async function configSetToken() {
   const token = process.argv[4];
   if (!token) { console.error('Usage: guardclaw config set-token <token>'); process.exit(1); }
   writeEnvFile(setEnvVar(readEnvFile(), 'OPENCLAW_TOKEN', token));
-  console.log('✅ OPENCLAW_TOKEN saved  (restart to apply)\n');
+  await tryHotReload('token', { token }, 'OPENCLAW_TOKEN saved');
 }
 
 function configGetToken() {
@@ -1469,7 +1499,7 @@ function configGetToken() {
   }
 }
 
-function configDetectToken() {
+async function configDetectToken() {
   const save = process.argv[4] === '--save' || process.argv[4] === '-s';
   const configPath = join(os.homedir(), '.openclaw', 'openclaw.json');
   if (!fs.existsSync(configPath)) { console.error('❌ OpenClaw config not found at:', configPath); process.exit(1); }
@@ -1479,7 +1509,7 @@ function configDetectToken() {
     console.log(`✅ Found: ${token.slice(0,16)}...${token.slice(-8)}`);
     if (save) {
       writeEnvFile(setEnvVar(readEnvFile(), 'OPENCLAW_TOKEN', token));
-      console.log('✅ Saved to .env  (restart to apply)\n');
+      await tryHotReload('token', { token }, 'Token saved');
     } else {
       console.log(`   To save: guardclaw config set-token ${token}`);
       console.log('   Or:      guardclaw config detect-token --save');
@@ -1582,9 +1612,9 @@ async function handleConfigCommand() {
     case 'agents':     await configAgentsInteractive(); break;
     case 'set':        await configSetDirect(); break;
     case 'show':       configShow(); break;
-    case 'set-token':  configSetToken(); break;
+    case 'set-token':  await configSetToken(); break;
     case 'get-token':  configGetToken(); break;
-    case 'detect-token': configDetectToken(); break;
+    case 'detect-token': await configDetectToken(); break;
     default:
       console.error(`Unknown config command: ${process.argv[3]}`);
       console.log('Run "guardclaw help" for usage.');

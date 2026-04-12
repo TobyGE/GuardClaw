@@ -8,7 +8,7 @@ import { cloudJudge } from '../cloud-judge.js';
 
 export function configRoutes(deps) {
   const router = Router();
-  const { getOpenclawClient, getQclawClient, getSafeguardService, setSafeguardService, getLLMEngine } = deps;
+  const { getOpenclawClient, getQclawClient, getSafeguardService, setSafeguardService, getLLMEngine, getApprovalHandler } = deps;
 
   router.post('/api/config/token', async (req, res) => {
     const { token } = req.body;
@@ -179,6 +179,33 @@ export function configRoutes(deps) {
     deps.setFailClosed(enabled);
     console.log(`[GuardClaw] Fail-closed mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
     res.json({ success: true, failClosed: enabled });
+  });
+
+  // ─── Approval Mode & Thresholds ──────────────────────────────────────────────
+
+  router.post('/api/config/mode', (req, res) => {
+    const { mode } = req.body;
+    if (!mode || !['auto', 'prompt', 'monitor-only'].includes(mode)) return res.status(400).json({ error: 'Invalid mode' });
+    process.env.GUARDCLAW_APPROVAL_MODE = mode;
+    const handler = getApprovalHandler?.();
+    if (handler) handler.mode = mode;
+    console.log(`[GuardClaw] Approval mode set to: ${mode}`);
+    res.json({ success: true, mode });
+  });
+
+  router.post('/api/config/thresholds', (req, res) => {
+    const { autoAllow, ask, autoBlock } = req.body;
+    if (autoAllow != null) process.env.GUARDCLAW_AUTO_ALLOW_THRESHOLD = String(autoAllow);
+    if (ask != null) process.env.GUARDCLAW_ASK_THRESHOLD = String(ask);
+    if (autoBlock != null) process.env.GUARDCLAW_AUTO_BLOCK_THRESHOLD = String(autoBlock);
+    const handler = getApprovalHandler?.();
+    if (handler) {
+      if (autoAllow != null) handler.autoAllowThreshold = parseInt(autoAllow);
+      if (ask != null) handler.askThreshold = parseInt(ask);
+      if (autoBlock != null) handler.autoBlockThreshold = parseInt(autoBlock);
+    }
+    console.log(`[GuardClaw] Thresholds updated: allow≤${autoAllow ?? '?'}, ask≤${ask ?? '?'}, block≥${autoBlock ?? '?'}`);
+    res.json({ success: true, autoAllow, ask, autoBlock });
   });
 
   // ─── Cloud Judge ─────────────────────────────────────────────────────────────

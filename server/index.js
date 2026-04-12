@@ -3298,6 +3298,7 @@ const routeDeps = {
   setFailClosed: (v) => { failClosedEnabled = v; },
   getBenchmarkStore: () => benchmarkStore,
   getLLMEngine: () => llmEngine,
+  getApprovalHandler: () => approvalHandler,
 };
 app.use(configRoutes(routeDeps));
 app.use(benchmarkRoutes(routeDeps));
