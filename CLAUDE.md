@@ -89,7 +89,10 @@ Key data flow in `App.jsx`: SSE connection to `/api/events` drives all real-time
 Handles `start`, `stop`, `config`, `plugin`, `update`, `version`, `help`. `guardclaw stop` finds and kills by grepping `ps aux` for `node.*guardclaw.*server/index.js`.
 
 ### Plugin (`plugin/guardclaw-interceptor/`)
-OpenClaw plugin installed to `~/.openclaw/plugins/guardclaw-interceptor/`. Intercepts tool calls before execution and calls `/api/evaluate` on the GuardClaw server.
+OpenClaw plugin installed to `~/.openclaw/plugins/guardclaw-interceptor/`. Intercepts tool calls before execution and calls `/api/evaluate` on the GuardClaw server. Managed via `guardclaw plugin install | uninstall | status` (see `bin/guardclaw.js`).
+
+### OpenCode integration (`integrations/opencode/`)
+Standalone plugin for [OpenCode](https://opencode.ai) (distinct from OpenClaw). Hooks `tool.execute.before` / `tool.execute.after` / `chat.message` and calls `/api/hooks/opencode/{pre-tool-use,post-tool-use,message}` on the GuardClaw server (endpoints in `server/index.js`). Manual install: `cp integrations/opencode/index.ts ~/.config/opencode/plugins/guardclaw.ts`. No automated `guardclaw ...` installer yet — the CLI stub in `bin/guardclaw.js` defines `OPENCODE_PLUGIN_DIR` but doesn't wire install/uninstall.
 
 ### Data directories
 
