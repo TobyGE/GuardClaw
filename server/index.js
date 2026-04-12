@@ -36,8 +36,12 @@ import { summarizeSession, loadSecurityContext } from './security-context.js';
 import { agentPermissions } from './agent-permissions.js';
 import { SecurityMemory, buildParamsDigest, buildDataFlowTag } from './security-memory.js';
 import { loadGlobalKnowledge, updateGlobalKnowledge } from './global-knowledge.js';
+import { initSqlite } from './database.js';
 
 dotenv.config({ path: path.join(os.homedir(), '.guardclaw', '.env') });
+
+// Initialize sql.js WASM engine before any Database usage
+await initSqlite();
 
 const app = express();
 const PORT = process.env.PORT || 3002;

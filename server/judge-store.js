@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from './database.js';
 import fs from 'fs';
 import path from 'path';
 import { getDataDir } from './data-dir.js';

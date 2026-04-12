@@ -1,7 +1,7 @@
 // GuardClaw Memory System
 // Learns from user approve/deny decisions to adapt over time
 
-import Database from 'better-sqlite3';
+import Database from './database.js';
 import path from 'path';
 import fs from 'fs';
 import { getGuardClawDir } from './data-dir.js';

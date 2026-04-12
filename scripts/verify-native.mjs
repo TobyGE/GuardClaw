@@ -1,21 +1,12 @@
-import { createRequire } from 'module';
+// sql.js is pure WASM — no native compilation needed.
+// This script is kept for backwards compatibility but is now a no-op.
 
-const require = createRequire(import.meta.url);
 const major = Number(process.versions.node.split('.')[0]);
 
-if (major !== 22) {
+if (major < 18) {
   console.error(`[GuardClaw] Unsupported Node runtime: ${process.version}`);
-  console.error('[GuardClaw] Use Node 22.21.1 (see .nvmrc), then run `npm ci`.');
+  console.error('[GuardClaw] Node >= 18 is required.');
   process.exit(1);
 }
 
-try {
-  require('better-sqlite3');
-  console.log(`[GuardClaw] Native dependency check passed (Node ${process.version}, modules=${process.versions.modules})`);
-} catch (error) {
-  console.error('[GuardClaw] Native dependency check failed: better-sqlite3 could not be loaded.');
-  console.error(`[GuardClaw] Runtime: Node ${process.version}, modules=${process.versions.modules}`);
-  console.error('[GuardClaw] Fix: run `npm ci` in repo root (and `npm ci --prefix client` if needed) with Node 22.21.1.');
-  console.error(`[GuardClaw] Error: ${error?.message || error}`);
-  process.exit(1);
-}
+console.log(`[GuardClaw] Runtime check passed (Node ${process.version})`);
