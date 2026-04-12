@@ -155,6 +155,61 @@ Implemented (2026-02-22):
 
 ---
 
+## Judge ↔ Agent Feedback
+
+Improvements to how the judge's verdict, reasoning, and session context are delivered back to the agent — so the agent can act on better signal instead of guessing what GuardClaw meant.
+
+### Intent-uncertainty verdict (new)
+**Problem:** Today the judge has only `allow / ask / block`. When user intent is ambiguous (e.g. user said "嗯" but the last explicit instruction several turns ago was "push吧"), the judge currently falls back to "no authorization → score 9 → block", which is self-confidently wrong and actively misleading to the agent.
+
+**Plan:**
+- Add an `<intent>clear|unclear</intent>` tag to the Stage 2 judge output. The system prompt teaches the model to distinguish "I have evidence this is dangerous" from "I cannot tell whether the user authorized this".
+- In `server/approval-handler.js`, when `intentUncertain: true` and the computed action would be `block`, downgrade to `ask` regardless of `GUARDCLAW_AUTO_BLOCK_THRESHOLD`.
+- Hook response `systemMessage` uses a dedicated template: *"GuardClaw cannot confirm whether the user authorized this operation. Before proceeding, confirm intent with the user or explain in your reply why this is a continuation of prior context."*
+- The agent can then choose to explain/clarify rather than being hard-blocked on a misread.
+
+**Why it matters:** The "push吧 → 嗯" incident that prompted Fix A+B was an intent-uncertainty case masquerading as an authorization failure. A structured uncertainty signal lets the agent recover gracefully instead of fighting a confident wrong reason.
+
+### Continuous session signal card (new)
+**Problem:** `SessionSignals` already tracks `credential_read`, `network_used`, `sensitive_file_access`, risk budget, etc. — but the agent only sees these indirectly via judge reasoning on high-risk calls. During planning (score 1–3 calls), the agent has no visibility into accumulated session state, so it keeps re-learning the same context.
+
+**Plan:**
+- New `buildSessionCard(sessionKey)` helper in `server/session-signals.js`. Returns a compact string (~100–300 chars), only non-empty flags:
+  ```
+  [Session state] creds-read: .env@t-2min · network: false · sensitive-files: 1 · risk-budget: 4/10
+  ```
+- All 7 PreToolUse handlers (CC / Codex / Gemini / OpenCode / Cursor / OC / Copilot) attach this card to `hookSpecificOutput.additionalContext` on **every** call — allow, ask, or block. No LLM cost, purely derived from the existing signal state.
+- Omit the card entirely when no flags are set, so it disappears during a clean session.
+
+**Why it matters:** The agent gains "this session already touched .env" awareness at planning time, so it can proactively explain a downstream `curl` instead of being ambushed by a chain-risk flag from the judge. Also unblocks #1 and #3 — the systemMessage infrastructure is shared.
+
+### Observed-vs-inferred reasoning split (new)
+**Problem:** Current Stage 2 reasoning is free-form text that mixes facts ("tool: git push origin main") with inferences ("user did not authorize this"). The agent cannot distinguish what the judge directly observed from what it speculated, so it can't push back with specific evidence.
+
+**Plan:**
+- Update `STAGE2_PROMPT` in `server/cloud-judge.js` to require structured output:
+  ```xml
+  <observed>
+  - Tool: Bash "git push origin main"
+  - Prior tools: 3 reads, 1 write
+  - Recent user messages: [latest] 嗯, [earlier -1] push吧
+  </observed>
+  <inferred confidence="medium">
+  - User likely authorized this push (based on "push吧" two turns ago)
+  - No secret leak visible in recent diffs
+  </inferred>
+  <verdict>allow</verdict>
+  ```
+- Parser in `cloud-judge.js` splits the two blocks and stores them as separate fields on the event record.
+- Hook response `systemMessage` format: `Facts: … / Inference (medium confidence): …` — the agent knows which claims are rebuttable with counter-evidence vs which are observations.
+- Dashboard event detail view renders `observed` as neutral and `inferred` with a confidence badge.
+
+**Why it matters:** When a block reason is an inference and the agent has direct evidence against it, the agent should be able to explain rather than retry. Structured output also makes false-positive analysis tractable — you can measure how often high-confidence inferences turn out wrong.
+
+**Implementation order:** #2 (session card) → #1 (intent uncertainty) → #3 (observed/inferred). #2 is the smallest and builds the systemMessage infrastructure that #1 and #3 reuse.
+
+---
+
 ## Dashboard & UX
 
 ### AI-powered event summaries
