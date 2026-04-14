@@ -23,7 +23,24 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.3.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build VitePress docs
+        run: npm run docs:build
+
+      - name: Copy VitePress output into docs/docs/
+        run: |
+          rm -rf docs/docs
+          cp -r docs/.vitepress/dist docs/docs
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

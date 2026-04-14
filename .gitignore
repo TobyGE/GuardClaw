@@ -47,3 +47,4 @@ lora/datagen/*.txt
 *.safetensors.enc
 docs/.vitepress/dist
 docs/.vitepress/cache
+docs/docs

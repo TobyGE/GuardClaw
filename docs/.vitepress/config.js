@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 const enNav = [
+  { text: 'Home', link: 'https://tobyge.github.io/GuardClaw/' },
   { text: 'Guide', link: '/guide/quick-start' },
   { text: 'CLI Reference', link: '/cli/reference' },
   { text: 'Backends', link: '/backends/' },
@@ -16,6 +17,7 @@ const enNav = [
 ]
 
 const zhNav = [
+  { text: '主页', link: 'https://tobyge.github.io/GuardClaw/' },
   { text: '指南', link: '/zh/guide/quick-start' },
   { text: 'CLI 参考', link: '/zh/cli/reference' },
   { text: 'LLM 后端', link: '/zh/backends/' },
@@ -97,10 +99,12 @@ const zhSidebar = {
 export default defineConfig({
   title: 'GuardClaw',
   description: 'Real-time AI agent safety monitor. Risk-scores every tool call before execution.',
+  base: '/GuardClaw/docs/',
+  outDir: './.vitepress/dist',
   ignoreDeadLinks: [/^http:\/\/localhost/],
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/GuardClaw/docs/favicon.svg' }],
     ['meta', { property: 'og:title', content: 'GuardClaw — AI Agent Safety Monitor' }],
     ['meta', { property: 'og:description', content: 'Risk-scores every tool call your AI agent makes. Blocks dangerous ones.' }],
     ['meta', { property: 'og:image', content: 'https://tobyge.github.io/GuardClaw/screenshots/dashboard-overview-2026-03.png' }],
