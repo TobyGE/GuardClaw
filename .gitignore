@@ -9,7 +9,7 @@ node_modules/
 dist/
 
 # Workspace files (personal configuration)
-AGENTS.md
+/AGENTS.md
 SOUL.md
 USER.md
 IDENTITY.md
@@ -17,11 +17,16 @@ TOOLS.md
 HEARTBEAT.md
 BOOTSTRAP.md
 memory/
-MEMORY.md
+/MEMORY.md
 canvas/
 .guardclaw/
 blocking-config.json
 .node-cache/
+
+# Un-ignore documentation pages that collide with workspace filenames on
+# case-insensitive filesystems (macOS APFS folds agents.md -> AGENTS.md).
+!docs/guide/agents.md
+!docs/zh/guide/agents.md
 
 # LoRA artifacts (keep scripts, exclude model weights and training data)
 lora/adapters/
