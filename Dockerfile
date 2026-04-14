@@ -11,8 +11,9 @@ RUN apt-get update && \
 COPY package*.json ./
 COPY client/package*.json ./client/
 
-# Install all dependencies (including devDependencies for building)
-RUN npm ci
+# Install production dependencies for server (devDeps not needed in Docker)
+RUN npm ci --omit=dev
+# Install all client dependencies (vite is a devDep there, needed to build)
 RUN cd client && npm ci
 
 # Copy source code
