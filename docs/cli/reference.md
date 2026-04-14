@@ -1,69 +1,83 @@
-# CLI Reference
+# CLI Quick Reference
 
-## Core Commands
+A compact reference for all GuardClaw CLI commands. For detailed documentation, see the individual pages linked below.
+
+## Server
 
 ```bash
-guardclaw start           # Start the server (opens dashboard in browser)
-guardclaw start -f        # Start in foreground (Ctrl-C to stop)
-guardclaw stop            # Stop the server
-guardclaw status          # Show server and judge status
-guardclaw setup           # Re-run the interactive setup wizard
-guardclaw update          # Update to latest version (stops/restarts server)
+guardclaw start [-f] [--port N] [--no-open]    # Start server
+guardclaw stop                                   # Stop server
+guardclaw restart                                # Restart (aliases: rs, r)
+guardclaw status                                 # Server overview
+guardclaw update                                 # Update to latest version
 ```
+
+[Full server documentation →](./server)
 
 ## Configuration
 
 ```bash
-guardclaw config llm              # Interactive LLM backend picker
-guardclaw config mode             # Set approval mode
-guardclaw config thresholds       # Set risk score thresholds
-guardclaw config show             # Print current config
-guardclaw config set KEY VALUE    # Set a single env var (applied immediately)
-
-guardclaw config set-token <token>          # Set OpenClaw gateway token
-guardclaw config detect-token --save        # Auto-detect and save token
+guardclaw config                    # Interactive menu
+guardclaw config show               # Show all settings
+guardclaw config set <KEY> <VALUE>  # Set any variable (hot-reload)
+guardclaw config llm                # Change LLM backend
+guardclaw config mode               # Change approval mode
+guardclaw config thresholds         # Change risk thresholds
+guardclaw config eval               # Change evaluation mode
+guardclaw config agents             # Manage agent connections
+guardclaw config set-token <tok>    # Set OpenClaw token
+guardclaw config detect-token       # Auto-detect OpenClaw token
+guardclaw config get-token          # Show current token
+guardclaw setup                     # Run setup wizard
 ```
 
-### Commonly used `config set` keys
+[Full config documentation →](./config)
+
+## Monitoring
 
 ```bash
-# Switch backend
-guardclaw config set SAFEGUARD_BACKEND openrouter
-
-# Set approval mode
-guardclaw config set GUARDCLAW_APPROVAL_MODE prompt
-
-# Adjust thresholds
-guardclaw config set GUARDCLAW_AUTO_ALLOW_THRESHOLD 5
-guardclaw config set GUARDCLAW_AUTO_BLOCK_THRESHOLD 8
+guardclaw stats                     # Evaluation statistics
+guardclaw history [n]               # Recent evaluations (default: 20)
+guardclaw check <command>           # Manually risk-score a command
+guardclaw blocking [on|off]         # Toggle blocking mode
+guardclaw model [load|unload]       # LLM model management
+guardclaw approvals                 # Show pending approvals
+guardclaw memory                    # Show learned patterns
+guardclaw brief                     # Security memory sessions
 ```
 
-All config changes apply to the running server immediately — no restart required.
+[Full monitoring documentation →](./monitoring)
 
-## Plugin Management
+## Hooks
 
 ```bash
-guardclaw plugin install    # Install OpenClaw interceptor plugin
-guardclaw plugin status     # Check plugin status
+guardclaw hooks                              # Show hook status
+guardclaw hooks install [claude-code|codex|all]
+guardclaw hooks uninstall [claude-code|codex|all]
 ```
 
-## Hook Installation (Claude Code)
+[Full hooks documentation →](./hooks)
+
+## Plugin
 
 ```bash
-node scripts/install-claude-code.js              # Install hooks
-node scripts/install-claude-code.js --uninstall  # Remove hooks
+guardclaw plugin install      # Install OpenClaw interceptor
+guardclaw plugin uninstall    # Remove plugin
+guardclaw plugin status       # Check status
 ```
 
-## Manual Risk Check
+[Full plugin documentation →](./plugin)
 
-```bash
-guardclaw check "rm -rf /tmp/build"   # Score a command manually
-```
+## Environment Variables
 
-## Options
+All configuration is stored in `.env`. Key variables:
 
-| Flag | Command | Description |
-|------|---------|-------------|
-| `-f`, `--foreground` | `start` | Run in foreground instead of daemonizing |
-| `--no-open` | `start` | Don't open browser on start |
-| `--save` | `config detect-token` | Save detected token to config |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SAFEGUARD_BACKEND` | `lmstudio` | LLM backend |
+| `GUARDCLAW_APPROVAL_MODE` | `auto` | Approval mode |
+| `GUARDCLAW_AUTO_ALLOW_THRESHOLD` | `6` | Auto-allow threshold |
+| `GUARDCLAW_AUTO_BLOCK_THRESHOLD` | `9` | Auto-block threshold |
+| `PORT` | `3002` | Server port |
+
+[Full environment reference →](./environment)

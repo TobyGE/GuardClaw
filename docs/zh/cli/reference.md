@@ -1,69 +1,83 @@
-# CLI 命令参考
+# CLI 快速参考
 
-## 核心命令
+所有 GuardClaw CLI 命令的紧凑参考。详细文档请参考下方链接。
 
-```bash
-guardclaw start           # 启动服务器（自动打开控制台）
-guardclaw start -f        # 前台启动（Ctrl-C 停止）
-guardclaw stop            # 停止服务器
-guardclaw status          # 查看服务器和评分引擎状态
-guardclaw setup           # 重新运行交互式配置向导
-guardclaw update          # 更新到最新版本（自动停止/重启服务器）
-```
-
-## 配置命令
+## 服务器
 
 ```bash
-guardclaw config llm              # 交互式 LLM 后端选择
-guardclaw config mode             # 设置审批模式
-guardclaw config thresholds       # 设置风险分数阈值
-guardclaw config show             # 查看当前配置
-guardclaw config set KEY VALUE    # 设置单个环境变量（立即生效）
-
-guardclaw config set-token <token>          # 设置 OpenClaw 网关 Token
-guardclaw config detect-token --save        # 自动检测并保存 Token
+guardclaw start [-f] [--port N] [--no-open]    # 启动服务器
+guardclaw stop                                   # 停止服务器
+guardclaw restart                                # 重启（别名：rs, r）
+guardclaw status                                 # 服务器概览
+guardclaw update                                 # 更新到最新版本
 ```
 
-### 常用 `config set` 键名
+[完整服务器文档 →](./server)
+
+## 配置
 
 ```bash
-# 切换后端
-guardclaw config set SAFEGUARD_BACKEND openrouter
-
-# 设置审批模式
-guardclaw config set GUARDCLAW_APPROVAL_MODE prompt
-
-# 调整阈值
-guardclaw config set GUARDCLAW_AUTO_ALLOW_THRESHOLD 5
-guardclaw config set GUARDCLAW_AUTO_BLOCK_THRESHOLD 8
+guardclaw config                    # 交互式菜单
+guardclaw config show               # 显示所有设置
+guardclaw config set <KEY> <VALUE>  # 设置任意变量（热重载）
+guardclaw config llm                # 更改 LLM 后端
+guardclaw config mode               # 更改审批模式
+guardclaw config thresholds         # 更改风险阈值
+guardclaw config eval               # 更改评估模式
+guardclaw config agents             # 管理 Agent 连接
+guardclaw config set-token <tok>    # 设置 OpenClaw Token
+guardclaw config detect-token       # 自动检测 OpenClaw Token
+guardclaw config get-token          # 显示当前 Token
+guardclaw setup                     # 运行配置向导
 ```
 
-所有配置更改立即应用到运行中的服务器，**无需重启**。
+[完整配置文档 →](./config)
 
-## 插件管理
+## 监控
 
 ```bash
-guardclaw plugin install    # 安装 OpenClaw 拦截插件
-guardclaw plugin status     # 查看插件状态
+guardclaw stats                     # 评估统计
+guardclaw history [n]               # 最近评估（默认 20 条）
+guardclaw check <命令>              # 手动评分命令
+guardclaw blocking [on|off]         # 切换阻断模式
+guardclaw model [load|unload]       # LLM 模型管理
+guardclaw approvals                 # 查看待审批请求
+guardclaw memory                    # 查看学习到的模式
+guardclaw brief                     # 安全记忆会话
 ```
 
-## Hook 安装（Claude Code）
+[完整监控文档 →](./monitoring)
+
+## Hook
 
 ```bash
-node scripts/install-claude-code.js              # 安装 Hook
-node scripts/install-claude-code.js --uninstall  # 卸载 Hook
+guardclaw hooks                              # 查看 Hook 状态
+guardclaw hooks install [claude-code|codex|all]
+guardclaw hooks uninstall [claude-code|codex|all]
 ```
 
-## 手动风险评分
+[完整 Hook 文档 →](./hooks)
+
+## 插件
 
 ```bash
-guardclaw check "rm -rf /tmp/build"   # 手动评分某条命令
+guardclaw plugin install      # 安装 OpenClaw 拦截插件
+guardclaw plugin uninstall    # 移除插件
+guardclaw plugin status       # 查看状态
 ```
 
-## 选项说明
+[完整插件文档 →](./plugin)
 
-| 参数 | 命令 | 说明 |
-|------|------|------|
-| `-f`, `--foreground` | `start` | 前台运行（不守护进程化）|
-| `--no-open` | `start` | 启动时不自动打开浏览器 |
-| `--save` | `config detect-token` | 将检测到的 Token 保存到配置文件 |
+## 环境变量
+
+所有配置存储在 `.env`。关键变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SAFEGUARD_BACKEND` | `lmstudio` | LLM 后端 |
+| `GUARDCLAW_APPROVAL_MODE` | `auto` | 审批模式 |
+| `GUARDCLAW_AUTO_ALLOW_THRESHOLD` | `6` | 自动允许阈值 |
+| `GUARDCLAW_AUTO_BLOCK_THRESHOLD` | `9` | 自动阻断阈值 |
+| `PORT` | `3002` | 服务器端口 |
+
+[完整环境变量参考 →](./environment)

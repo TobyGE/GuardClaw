@@ -3,12 +3,12 @@ import { defineConfig } from 'vitepress'
 const enNav = [
   { text: 'Home', link: 'https://tobyge.github.io/GuardClaw/' },
   { text: 'Guide', link: '/guide/quick-start' },
-  { text: 'CLI Reference', link: '/cli/reference' },
+  { text: 'CLI Reference', link: '/cli/overview' },
   { text: 'Backends', link: '/backends/' },
   { text: 'Architecture', link: '/architecture' },
   { text: 'Roadmap', link: '/roadmap' },
   {
-    text: 'v0.1.6',
+    text: 'v0.1.9',
     items: [
       { text: 'npm', link: 'https://www.npmjs.com/package/guardclaw' },
       { text: 'Changelog', link: 'https://github.com/TobyGE/GuardClaw/commits/main' },
@@ -19,12 +19,12 @@ const enNav = [
 const zhNav = [
   { text: '主页', link: 'https://tobyge.github.io/GuardClaw/' },
   { text: '指南', link: '/zh/guide/quick-start' },
-  { text: 'CLI 参考', link: '/zh/cli/reference' },
+  { text: 'CLI 参考', link: '/zh/cli/overview' },
   { text: 'LLM 后端', link: '/zh/backends/' },
   { text: '架构', link: '/zh/architecture' },
   { text: '路线图', link: '/roadmap' },
   {
-    text: 'v0.1.6',
+    text: 'v0.1.9',
     items: [
       { text: 'npm', link: 'https://www.npmjs.com/package/guardclaw' },
       { text: '更新日志', link: 'https://github.com/TobyGE/GuardClaw/commits/main' },
@@ -58,7 +58,24 @@ const enSidebar = {
     {
       text: 'CLI',
       items: [
-        { text: 'Command Reference', link: '/cli/reference' },
+        { text: 'Overview', link: '/cli/overview' },
+        { text: 'Quick Reference', link: '/cli/reference' },
+      ],
+    },
+    {
+      text: 'Commands',
+      items: [
+        { text: 'Server Management', link: '/cli/server' },
+        { text: 'Configuration', link: '/cli/config' },
+        { text: 'Monitoring & Diagnostics', link: '/cli/monitoring' },
+        { text: 'Hook Integrations', link: '/cli/hooks' },
+        { text: 'Plugin Management', link: '/cli/plugin' },
+      ],
+    },
+    {
+      text: 'Reference',
+      items: [
+        { text: 'Environment Variables', link: '/cli/environment' },
       ],
     },
   ],
@@ -90,7 +107,24 @@ const zhSidebar = {
     {
       text: 'CLI',
       items: [
-        { text: '命令参考', link: '/zh/cli/reference' },
+        { text: '概览', link: '/zh/cli/overview' },
+        { text: '快速参考', link: '/zh/cli/reference' },
+      ],
+    },
+    {
+      text: '命令',
+      items: [
+        { text: '服务器管理', link: '/zh/cli/server' },
+        { text: '配置管理', link: '/zh/cli/config' },
+        { text: '监控与诊断', link: '/zh/cli/monitoring' },
+        { text: 'Hook 集成', link: '/zh/cli/hooks' },
+        { text: '插件管理', link: '/zh/cli/plugin' },
+      ],
+    },
+    {
+      text: '参考',
+      items: [
+        { text: '环境变量', link: '/zh/cli/environment' },
       ],
     },
   ],

@@ -18,10 +18,10 @@
 </p>
 
 <p align="center">
-  <a href="#the-problem">The Problem</a> ·
+  <a href="https://tobyge.github.io/GuardClaw/"><strong>🌐 Website</strong></a> ·
+  <a href="https://tobyge.github.io/GuardClaw/docs/"><strong>📖 Documentation</strong></a> ·
+  <a href="https://tobyge.github.io/GuardClaw/docs/cli/overview"><strong>⚙️ CLI Reference</strong></a> ·
   <a href="#quick-start">Quick Start</a> ·
-  <a href="#product-tour">Product Tour</a> ·
-  <a href="#how-it-works">How It Works</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
@@ -143,6 +143,9 @@ guardclaw check <cmd>    # manually risk-score a command
 guardclaw help           # full command list
 ```
 
+**Full CLI documentation with every command, flag, and option:**
+[https://tobyge.github.io/GuardClaw/docs/cli/overview](https://tobyge.github.io/GuardClaw/docs/cli/overview)
+
 ## Development
 
 To hack on GuardClaw itself, install from source:
@@ -161,6 +164,10 @@ guardclaw start
 
 ## Links
 
+- 🌐 **Website:** [tobyge.github.io/GuardClaw](https://tobyge.github.io/GuardClaw/)
+- 📖 **Documentation:** [tobyge.github.io/GuardClaw/docs](https://tobyge.github.io/GuardClaw/docs/)
+- ⚙️ **CLI Reference:** [tobyge.github.io/GuardClaw/docs/cli/overview](https://tobyge.github.io/GuardClaw/docs/cli/overview)
+- 📦 **npm package:** [npmjs.com/package/guardclaw](https://www.npmjs.com/package/guardclaw)
 - [Roadmap](docs/ROADMAP.md)
 - [Menu Bar App](docs/GUARDCLAWBAR.md)
 - [LM Studio Troubleshooting](docs/LMSTUDIO-TROUBLESHOOTING.md)
