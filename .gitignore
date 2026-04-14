@@ -45,3 +45,5 @@ lora/datagen/run-*.py
 lora/datagen/*.txt
 *.safetensors
 *.safetensors.enc
+docs/.vitepress/dist
+docs/.vitepress/cache

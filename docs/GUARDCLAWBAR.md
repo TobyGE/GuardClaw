@@ -1,7 +1,7 @@
 # GuardClawBar — macOS Menu Bar App
 
 <p align="center">
-  <img src="screenshots/guardclawbar-popover.png" width="360" alt="GuardClawBar screenshot">
+  <img src="/screenshots/menubar-claude-tab-2026-03.png" width="360" alt="GuardClawBar screenshot">
 </p>
 
 A native macOS menu bar app for GuardClaw. Monitor your AI agents, approve or deny risky tool calls, and get desktop notifications — all without opening a browser.

@@ -25,7 +25,10 @@
     "build": "cd client && ./node_modules/.bin/vite build",
     "start": "npm run verify:native && node server/index.js",
     "test": "node --test test/*.test.js",
-    "verify:native": "node scripts/verify-native.mjs"
+    "verify:native": "node scripts/verify-native.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "openclaw",
@@ -52,7 +55,8 @@
   "devDependencies": {
     "better-sqlite3": "^12.6.2",
     "concurrently": "^8.2.2",
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.3",
+    "vitepress": "^1.6.4"
   },
   "engines": {
     "node": ">=18"
