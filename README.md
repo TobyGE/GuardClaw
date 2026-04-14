@@ -22,6 +22,7 @@
   <a href="https://tobyge.github.io/GuardClaw/docs/"><strong>📖 Documentation</strong></a> ·
   <a href="https://tobyge.github.io/GuardClaw/docs/cli/overview"><strong>⚙️ CLI Reference</strong></a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="#feedback--issues"><strong>💬 Feedback</strong></a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
@@ -161,6 +162,17 @@ guardclaw start
 ```
 
 `npm run dev` runs server (nodemon) + client (Vite) concurrently. See [CLAUDE.md](CLAUDE.md) for the architecture overview.
+
+## Feedback & Issues
+
+We genuinely want to hear from you. GuardClaw is early, and real-world usage is the best way to make it better.
+
+- 🐛 **Found a bug?** [Open an issue](https://github.com/TobyGE/GuardClaw/issues/new)
+- 💡 **Have a feature idea?** [Open an issue](https://github.com/TobyGE/GuardClaw/issues/new) — any suggestion is welcome
+- 🤔 **Stuck on setup?** [Open an issue](https://github.com/TobyGE/GuardClaw/issues/new) — no question is too small
+- ❤️ **Something you love?** [Open an issue](https://github.com/TobyGE/GuardClaw/issues/new) too — we want to know what's working
+
+All feedback, big or small, goes through [GitHub Issues](https://github.com/TobyGE/GuardClaw/issues). No template required, no account hoops — just say what's on your mind.
 
 ## Links
 

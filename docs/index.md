@@ -36,3 +36,9 @@ features:
     title: Multi-step Attack Detection
     details: Chain analysis tracks sequences across tool calls — catching attacks like read ~/.ssh/id_rsa → curl evil.com that look harmless in isolation.
 ---
+
+## We'd Love Your Feedback
+
+GuardClaw is early and we're actively listening. Whether you hit a bug, want a feature, got stuck on setup, or just want to say something works well — **[open a GitHub issue](https://github.com/TobyGE/GuardClaw/issues/new)**. Every piece of feedback shapes the next release.
+
+No template, no sign-up hoops — just tell us what's on your mind at [github.com/TobyGE/GuardClaw/issues](https://github.com/TobyGE/GuardClaw/issues).

@@ -8,7 +8,7 @@ const enNav = [
   { text: 'Architecture', link: '/architecture' },
   { text: 'Roadmap', link: '/roadmap' },
   {
-    text: 'v0.1.9',
+    text: 'v0.1.10',
     items: [
       { text: 'npm', link: 'https://www.npmjs.com/package/guardclaw' },
       { text: 'Changelog', link: 'https://github.com/TobyGE/GuardClaw/commits/main' },
@@ -24,7 +24,7 @@ const zhNav = [
   { text: '架构', link: '/zh/architecture' },
   { text: '路线图', link: '/roadmap' },
   {
-    text: 'v0.1.9',
+    text: 'v0.1.10',
     items: [
       { text: 'npm', link: 'https://www.npmjs.com/package/guardclaw' },
       { text: '更新日志', link: 'https://github.com/TobyGE/GuardClaw/commits/main' },
