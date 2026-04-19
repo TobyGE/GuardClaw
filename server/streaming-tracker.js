@@ -9,21 +9,29 @@ export class StreamingTracker {
 
   // Get or create session
   getSession(sessionKey) {
-    if (!this.sessions.has(sessionKey)) {
-      this.sessions.set(sessionKey, {
-        key: sessionKey,
-        startTime: Date.now(),
-        steps: [],
-        currentMessage: null
-      });
-
-      // Cleanup old sessions
-      if (this.sessions.size > this.maxSessions) {
-        const oldestKey = this.sessions.keys().next().value;
-        this.sessions.delete(oldestKey);
-      }
+    const existing = this.sessions.get(sessionKey);
+    if (existing) {
+      // Bump to Map tail so keys().next() yields truly-least-recently-used,
+      // not first-inserted. Map iteration order is insertion order, so re-inserting
+      // refreshes LRU position.
+      this.sessions.delete(sessionKey);
+      this.sessions.set(sessionKey, existing);
+      return existing;
     }
-    return this.sessions.get(sessionKey);
+
+    const session = {
+      key: sessionKey,
+      startTime: Date.now(),
+      steps: [],
+      currentMessage: null
+    };
+    this.sessions.set(sessionKey, session);
+
+    if (this.sessions.size > this.maxSessions) {
+      const oldestKey = this.sessions.keys().next().value;
+      this.sessions.delete(oldestKey);
+    }
+    return session;
   }
 
   // Track a streaming event

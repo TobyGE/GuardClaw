@@ -140,7 +140,8 @@ const securityMemory = new SecurityMemory(cloudJudge, sessionSignals, eventStore
 cloudJudge.sessionBriefProvider = (sessionKey) => securityMemory.getBriefForJudge(sessionKey);
 
 // Track pending raw event seq numbers: PreToolUse → PostToolUse handoff
-// Key: `${sessionKey}:${toolName}:${digest.slice(0,100)}`, Value: array of seq numbers (stack)
+// Key: `${sessionKey}:${toolName}:${digest.slice(0,100)}`,
+// Value: array of { seq, timeout } (FIFO stack)
 const pendingRawSeqs = new Map();
 
 /** Append a raw event to SecurityMemory and store seq for PostToolUse handoff. */
@@ -155,17 +156,19 @@ function recordRawEvent(sessionKey, gcToolName, gcParams, analysis) {
   });
   const digest = buildParamsDigest(gcToolName, gcParams);
   const seqKey = `${sessionKey}:${gcToolName}:${digest.slice(0, 100)}`;
-  // Use array (stack) to handle concurrent identical tool calls
   if (!pendingRawSeqs.has(seqKey)) pendingRawSeqs.set(seqKey, []);
-  pendingRawSeqs.get(seqKey).push(seq);
-  // Auto-expire after 5 min to prevent leaks
-  setTimeout(() => {
-    const arr = pendingRawSeqs.get(seqKey);
-    if (arr) {
-      const idx = arr.indexOf(seq);
-      if (idx >= 0) arr.splice(idx, 1);
-      if (arr.length === 0) pendingRawSeqs.delete(seqKey);
-    }
+  const arr = pendingRawSeqs.get(seqKey);
+  const entry = { seq, timeout: null };
+  arr.push(entry);
+  // Auto-expire after 5 min. Match by identity (entry), not by seq value, so
+  // we reap exactly this entry even if a completion has already shifted an
+  // unrelated seq into this slot.
+  entry.timeout = setTimeout(() => {
+    const bucket = pendingRawSeqs.get(seqKey);
+    if (!bucket) return;
+    const idx = bucket.indexOf(entry);
+    if (idx >= 0) bucket.splice(idx, 1);
+    if (bucket.length === 0) pendingRawSeqs.delete(seqKey);
   }, 300_000);
   return seq;
 }
@@ -177,9 +180,11 @@ function completeRawEvent(sessionKey, gcToolName, gcParams, resultSnippet) {
   const arr = pendingRawSeqs.get(seqKey);
   if (!arr || arr.length === 0) return;
   // FIFO: complete the oldest pending call first
-  const seq = arr.shift();
+  const entry = arr.shift();
   if (arr.length === 0) pendingRawSeqs.delete(seqKey);
-  securityMemory.markToolComplete(sessionKey, seq, resultSnippet);
+  // Cancel the auto-expire so it doesn't later splice a now-unrelated entry.
+  clearTimeout(entry.timeout);
+  securityMemory.markToolComplete(sessionKey, entry.seq, resultSnippet);
 }
 
 // ─── DTrace Watcher: alert handler ─────────────────────────────────────────
@@ -6800,6 +6805,8 @@ app.listen(PORT, () => {
       setInterval(() => {
         try { memoryStore.cleanup(90); } catch (e) { console.error('[GuardClaw] Memory cleanup error:', e.message); }
       }, 3600_000);
+    }).catch((err) => {
+      console.error('[GuardClaw] Startup sequence error:', err?.stack || err?.message || err);
     });
   } else {
     console.log('⏸️  Auto-connect disabled (AUTO_CONNECT=false)');

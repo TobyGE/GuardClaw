@@ -1,5 +1,13 @@
 const GUARDCLAW_URL = process.env.GUARDCLAW_URL || 'http://127.0.0.1:3002';
 
+// Normalize session key for message_* hooks (where context.sessionKey may be
+// absent and webchat channels should collapse to the main agent key).
+function normalizeSessionKey(context) {
+  const rawKey = context.sessionKey ||
+    (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
+  return rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+}
+
 // Format tool params for display
 function formatParams(toolName, params) {
   if (toolName === 'exec') return params.command || '';
@@ -188,9 +196,7 @@ export default function (api) {
 
   // ─── message_received: track incoming user messages ──────────────────────
   api.on('message_received', async (event, context) => {
-    const rawKey = context.sessionKey ||
-      (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
-    const sessionKey = rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+    const sessionKey = normalizeSessionKey(context);
     fetch(`${GUARDCLAW_URL}/api/hooks/message-received`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -208,9 +214,7 @@ export default function (api) {
 
   // ─── message_sending: track outgoing agent replies ───────────────────────
   api.on('message_sending', async (event, context) => {
-    const rawKey = context.sessionKey ||
-      (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
-    const sessionKey = rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+    const sessionKey = normalizeSessionKey(context);
     fetch(`${GUARDCLAW_URL}/api/hooks/message-sending`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -227,9 +231,7 @@ export default function (api) {
 
   // ─── message_sent: log after agent reply is sent ─────────────────────────
   api.on('message_sent', async (event, context) => {
-    const rawKey = context.sessionKey ||
-      (context.channelId ? `agent:main:${context.channelId}` : 'agent:main:main');
-    const sessionKey = rawKey === 'agent:main:webchat' ? 'agent:main:main' : rawKey;
+    const sessionKey = normalizeSessionKey(context);
     fetch(`${GUARDCLAW_URL}/api/hooks/message-sent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

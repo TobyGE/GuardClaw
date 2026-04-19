@@ -482,7 +482,4 @@ export class EventStore {
     return rows;
   }
 
-  // Legacy compat — no-ops
-  loadEvents() {}
-  saveEvents() {}
 }
