@@ -46,17 +46,17 @@ GuardClaw sits between the agent and its tools, scores each action with a local 
 
 ## GuardClaw vs Claude Code Auto Mode
 
-|                      | Claude Code Auto Mode            | **GuardClaw**                                    |
-| -------------------- | -------------------------------- | ------------------------------------------------ |
-| Agent support        | Claude Code only                 | **7 agents** (CC, Codex, Gemini, Cursor, …)      |
-| Risk assessment      | Static allowlist / blocklist     | **LLM judge** with context-aware scoring (1-10)  |
-| Chain analysis       | None — each call judged alone    | **Multi-step tracking** (read key → curl = block) |
-| Memory               | Stateless per conversation       | **4-level memory** — learns across sessions       |
-| Visibility           | Silent — no audit trail          | **Dashboard + menu bar + notifications**          |
-| Customization        | Limited permission toggles       | **Full config** — thresholds, models, rules        |
-| User learning        | No                               | **Adapts** to your approve / deny history          |
-| External alerts      | No                               | **Telegram / Discord / WhatsApp** approval flow   |
-| Open source          | No                               | **MIT**                                            |
+|                      | Claude Code Auto Mode                            | **GuardClaw**                                       |
+| -------------------- | ------------------------------------------------ | --------------------------------------------------- |
+| Agent support        | Claude Code only                                 | **7 agents** (CC, Codex, Gemini, Cursor, OpenCode, OpenClaw, Copilot) |
+| Judge model          | Anthropic-hosted Sonnet / Opus 4.6               | **Your choice** — local (LM Studio / Ollama / MLX) or cloud (Claude / OpenAI / …) |
+| Tool output analysis | Hidden from classifier (anti-prompt-injection)   | **Full context** — analyzes outputs and chain history |
+| Chain analysis       | Per-action only                                  | **Session-level tracking** — detects multi-step patterns (read key → curl) |
+| Adaptation           | Static allow / deny rules                        | **Adaptive memory** — learns from approve / deny decisions |
+| Visibility           | Local JSONL logs only                            | **Dashboard + menu bar + SQLite event store**       |
+| External alerts      | None built-in                                    | **Telegram / Discord / WhatsApp** approval flow     |
+| Plan requirements    | Max / Team / Enterprise / API (research preview) | **Free, any plan**                                  |
+| Open source          | CLI yes, classifier closed                       | **MIT** end-to-end                                  |
 
 ## Quick Start
 
