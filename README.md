@@ -44,6 +44,20 @@ GuardClaw sits between the agent and its tools, scores each action with a local 
 - safe actions continue without friction
 - suspicious actions are surfaced for approval
 
+## GuardClaw vs Claude Code Auto Mode
+
+|                      | Claude Code Auto Mode            | **GuardClaw**                                    |
+| -------------------- | -------------------------------- | ------------------------------------------------ |
+| Agent support        | Claude Code only                 | **7 agents** (CC, Codex, Gemini, Cursor, …)      |
+| Risk assessment      | Static allowlist / blocklist     | **LLM judge** with context-aware scoring (1-10)  |
+| Chain analysis       | None — each call judged alone    | **Multi-step tracking** (read key → curl = block) |
+| Memory               | Stateless per conversation       | **4-level memory** — learns across sessions       |
+| Visibility           | Silent — no audit trail          | **Dashboard + menu bar + notifications**          |
+| Customization        | Limited permission toggles       | **Full config** — thresholds, models, rules        |
+| User learning        | No                               | **Adapts** to your approve / deny history          |
+| External alerts      | No                               | **Telegram / Discord / WhatsApp** approval flow   |
+| Open source          | No                               | **MIT**                                            |
+
 ## Quick Start
 
 Requires Node.js >= 18.
