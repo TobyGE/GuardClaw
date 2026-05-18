@@ -7,7 +7,7 @@ echo "🧪 Testing GuardClaw Pre-Execution Integration"
 echo "=============================================="
 echo ""
 
-GUARDCLAW_URL="http://localhost:3002"
+GUARDCLAW_URL="${GUARDCLAW_URL:-http://127.0.0.1:3002}"
 
 # Test 1: Check API is running
 echo "Test 1: GuardClaw API Status"

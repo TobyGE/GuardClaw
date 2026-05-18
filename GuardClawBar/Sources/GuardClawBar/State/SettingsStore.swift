@@ -19,7 +19,9 @@ final class SettingsStore: @unchecked Sendable {
     }
 
     var serverURL: String {
-        get { defaults.string(forKey: Keys.serverURL) ?? "http://localhost:3002" }
+        // 127.0.0.1 (not "localhost") because the server binds IPv4-only by default;
+        // some macOS configurations resolve "localhost" to ::1 first and would fail.
+        get { defaults.string(forKey: Keys.serverURL) ?? "http://127.0.0.1:3002" }
         set { defaults.set(newValue, forKey: Keys.serverURL) }
     }
 

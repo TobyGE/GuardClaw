@@ -1850,7 +1850,10 @@ async function startServer() {
     if (envPort) port = envPort;
   }
   port = port || 3002;
-  const url  = `http://localhost:${port}`;
+  // Match the server's IPv4-only bind; "localhost" can resolve to ::1 first on macOS
+  // and the dashboard tab would fail to load even though the server is up.
+  const host = process.env.GUARDCLAW_HOST || '127.0.0.1';
+  const url  = `http://${host}:${port}`;
 
   console.log('🛡️  Starting GuardClaw...');
   console.log(`🌐 Dashboard: ${url}\n`);

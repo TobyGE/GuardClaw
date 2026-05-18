@@ -370,30 +370,31 @@ function clearDenialCounter(sessionKey) {
   denialCounters.delete(sessionKey);
 }
 
-// Infer denials for pending asks in a session.
-// Called on each new hook — if a new hook arrives and the pending ask wasn't cleared
-// by PostToolUse (approve), it means the user denied it.
-// excludeKey: skip this key (used in PostToolUse to avoid inferring denial for the current tool)
+// Garbage-collect pending asks for a session when ANOTHER tool's PostToolUse arrives.
+// The previous design treated this as evidence of user denial ("user moved on, must
+// have said no in CC's dialog"), but that inference fires false too often: when the
+// agent submits tool A and tool B in quick succession, A is still pending when B
+// finishes even though A was just submitted. We can't tell timing-only denials apart
+// from real denials, so we don't write to memory. The event is marked 'expired' for
+// forensics; UI state is cleaned up so pending approvals don't linger.
 function inferPendingDenials(sessionKey, excludeKey = null) {
   for (const [key, ask] of ccPendingAsks) {
     if (ask.sessionKey === sessionKey && key !== excludeKey) {
       ccPendingAsks.delete(key);
-      memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
       if (ask.eventId) {
-        eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: false, verdict: 'user-denied' } });
+        eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: false, verdict: 'expired' } });
       }
-      console.log(`[GuardClaw] 🧠 Memory: user DENIED blocked action → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+      console.log(`[GuardClaw] ⏱ ask cleared by sibling PostToolUse — no memory write → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
 
-      // Clean up linked Bar pending approval (user denied in CC dialog)
+      // Clean up linked Bar pending approval (avoid stale UI)
       if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
         const entry = pendingApprovals.get(ask.approvalId);
-        entry.resolve({ denied: true, reason: 'User denied in agent dialog' });
+        entry.resolve({ denied: true, reason: 'Pending ask superseded by next tool' });
         pendingApprovals.delete(ask.approvalId);
         eventStore.notifyListeners({
           type: 'approval-resolved',
           data: JSON.stringify({ id: ask.approvalId }),
         });
-        console.log(`[GuardClaw] Bar approval ${ask.approvalId} auto-resolved (user denied in CC dialog)`);
       }
     }
   }
@@ -6638,9 +6639,12 @@ app.listen(PORT, HOST, () => {
   console.log('');
   console.log('🛡️  GuardClaw - AI Agent Safety Monitor');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`📊 Server:    http://localhost:${PORT}`);
-  console.log(`🌐 Dashboard: http://localhost:${PORT}`);
-  console.log(`🔧 API:       http://localhost:${PORT}/api/status`);
+  // Always advertise the literal bind address — on hosts that resolve `localhost`
+  // to ::1 first, a `localhost:PORT` URL would fail against an IPv4-only listener.
+  const ADVERTISED = HOST === '0.0.0.0' ? 'localhost' : HOST;
+  console.log(`📊 Server:    http://${ADVERTISED}:${PORT}`);
+  console.log(`🌐 Dashboard: http://${ADVERTISED}:${PORT}`);
+  console.log(`🔧 API:       http://${ADVERTISED}:${PORT}/api/status`);
   console.log(`🔌 Backend:   ${BACKEND} (${activeClients.map(c => c.name).join(', ')})`);
   console.log('');
 

@@ -27,8 +27,9 @@ test('Server index.js boots and responds to health check', async () => {
 
     child.stdout.on('data', (data) => {
       output += data.toString();
-      // Server logs when it's listening
-      if (output.includes('http://localhost:3009')) {
+      // Server now advertises its actual bind address (defaults to 127.0.0.1, but
+      // "localhost" appears when GUARDCLAW_HOST=0.0.0.0). Match either.
+      if (/(localhost|127\.0\.0\.1|0\.0\.0\.0):3009/.test(output)) {
         clearTimeout(timeout);
         resolve();
       }
