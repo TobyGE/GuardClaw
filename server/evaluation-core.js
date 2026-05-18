@@ -2,6 +2,8 @@
 // Extracts the common steps: memory lookup, auto-approve, LLM dispatch, memory adjustment,
 // event store write, and verdict determination.
 
+import { formatMemoryLine } from './memory.js';
+
 /**
  * Evaluate a tool call through the full pipeline.
  *
@@ -85,10 +87,10 @@ export async function evaluateToolCall(opts, deps) {
     }
   }
 
-  // 5. Memory context for LLM
+  // 5. Memory context for LLM (neutral observational format — see formatMemoryLine).
   const relatedPatterns = memoryStore.lookupRelated(gcToolName, commandStr);
   const memoryContext = relatedPatterns.length > 0
-    ? relatedPatterns.map(p => `- "${p.pattern}" — ${p.approveCount > p.denyCount ? 'safe' : 'risky'} (${p.approveCount}/${p.denyCount})`).join('\n')
+    ? relatedPatterns.map(p => formatMemoryLine(p)).join('\n')
     : null;
 
   // 6. LLM dispatch

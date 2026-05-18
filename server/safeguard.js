@@ -1098,11 +1098,19 @@ If the chain is dangerous, verdict should be BLOCK with reason explaining the ch
 
   buildMemoryContextSection(memoryContext) {
     if (!memoryContext) return '';
+    // Observational framing on purpose: prior counts are not authoritative.
+    // They can reflect inferred timeouts, transient blockers, freeze-window
+    // policies, or decisions made in different context. The LLM should weigh
+    // them as one signal among many — not as a directive to allow or block.
     return `
 
-USER FEEDBACK HISTORY (from past approve/deny decisions):
+PRIOR DECISIONS FOR SIMILAR PATTERNS (observational, not authoritative):
 ${memoryContext}
-Use this to calibrate your judgment — if the user consistently marks a pattern as safe, lean toward SAFE. If marked risky, lean toward WARNING or BLOCK.`;
+Past approve/deny counts are descriptive history. They may reflect different
+context, inferred-timeout denials, or stale policy. Judge the current action
+on its own merits; do not treat these counts as a recommendation to allow or
+block. Heavily-denied patterns are not automatically risky, and heavily-
+approved patterns are not automatically safe.`;
   }
 
   buildTaskContextSection(taskContext) {

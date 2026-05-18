@@ -23,7 +23,7 @@ import { judgeStore } from './judge-store.js';
 import { cloudJudge } from './cloud-judge.js';
 import { installTracker } from './install-tracker.js';
 import { streamingTracker } from './streaming-tracker.js';
-import { MemoryStore } from './memory.js';
+import { MemoryStore, formatMemoryLine } from './memory.js';
 import { BenchmarkStore } from './benchmark-store.js';
 import { getDataDir, getGuardClawDir } from './data-dir.js';
 import { ApprovalNotifier } from './channels/notifier.js';
@@ -1509,12 +1509,14 @@ app.post('/api/evaluate', monitorModeMiddleware, async (req, res) => {
       }
     }
 
-    // Build memory context for LLM prompt injection
+    // Build memory context for LLM prompt injection.
+    // Neutral format on purpose — see buildMemoryContextSection. No "user marked
+    // safe/risky" verdict, because the underlying counts can include inferred
+    // timeouts or stale context that the LLM would otherwise treat as authoritative.
     const relatedPatterns = memoryStore.lookupRelated(toolName, commandStr);
-    const memoryContext = relatedPatterns.length > 0 ? relatedPatterns.map(p => {
-      const verdict = p.approveCount > p.denyCount ? 'safe' : 'risky';
-      return `- "${p.pattern}" — user marked ${verdict} (${p.approveCount} approves, ${p.denyCount} denies)`;
-    }).join('\n') : null;
+    const memoryContext = relatedPatterns.length > 0
+      ? relatedPatterns.map(p => formatMemoryLine(p)).join('\n')
+      : null;
 
     // Build taskContext from cached user prompt history (OC/Gemini sessions)
     const userPrompt = readPromptHistory(lastOCPromptText, sessionKey);

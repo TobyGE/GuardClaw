@@ -6,6 +6,23 @@ import path from 'path';
 import fs from 'fs';
 import { getGuardClawDir } from './data-dir.js';
 
+// Format a single memory pattern for inclusion in an LLM prompt.
+// Neutral, observational — no "user marked safe/risky" verdict. The wrapper
+// (buildMemoryContextSection in safeguard.js) tells the LLM how to weigh
+// these as one signal among many, not as a recommendation.
+export function formatMemoryLine(p) {
+  const ageMs = p.lastSeen ? Date.now() - p.lastSeen : null;
+  let recency = '';
+  if (ageMs != null) {
+    const days = Math.floor(ageMs / 86_400_000);
+    const hours = Math.floor(ageMs / 3_600_000);
+    if (days >= 1) recency = `, last ${days}d ago`;
+    else if (hours >= 1) recency = `, last ${hours}h ago`;
+    else recency = ', last <1h ago';
+  }
+  return `- "${p.pattern}": ${p.approveCount} approves, ${p.denyCount} denies${recency}`;
+}
+
 export class MemoryStore {
   constructor(dataDir) {
     this.dataDir = dataDir || getGuardClawDir();
@@ -230,21 +247,25 @@ export class MemoryStore {
     const newDenies = (existing?.denyCount || 0) + denyInc;
     const total = newApproves + newDenies;
 
-    // Confidence: weighted ratio (deny counts 3x)
-    // Range: -1 (always deny) to +1 (always approve)
+    // Confidence: weighted ratio (deny counts 3x — caution bias).
+    // Range: -1 (always deny) to +1 (always approve). Used by getScoreAdjustment
+    // to nudge the LLM's score; never used to bypass the LLM.
     const weightedApproves = newApproves;
     const weightedDenies = newDenies * 3;
     const confidence = total > 0
       ? (weightedApproves - weightedDenies) / (weightedApproves + weightedDenies)
       : 0;
 
-    // Suggested action based on confidence and count
-    let suggestedAction = 'ask';
-    if (total >= 3 && confidence > 0.7) {
-      suggestedAction = 'auto-approve';
-    } else if (total >= 2 && confidence < -0.3) {
-      suggestedAction = 'auto-deny';
-    }
+    // suggestedAction is NOT derived from stats. The previous design auto-flipped
+    // patterns to 'auto-deny' / 'auto-approve' based on confidence, which made
+    // memory a decision-maker rather than a signal — a handful of inferred
+    // denials would lock a pattern as auto-deny forever. Stats-derived action is
+    // always 'ask'; only explicit user assertion via setPatternAction can promote
+    // a pattern to 'auto-approve'. Preserve any existing user-asserted action so
+    // recording new decisions doesn't undo a manual trust.
+    const suggestedAction = existing?.suggestedAction === 'auto-approve'
+      ? 'auto-approve'
+      : 'ask';
 
     this._stmtUpsertPattern.run(
       commandPattern, toolName,
@@ -252,7 +273,7 @@ export class MemoryStore {
       confidence, timestamp, suggestedAction
     );
 
-    console.log(`[Memory] Recorded ${decision} for "${commandPattern}" (confidence: ${confidence.toFixed(2)}, suggested: ${suggestedAction})`);
+    console.log(`[Memory] Recorded ${decision} for "${commandPattern}" (confidence: ${confidence.toFixed(2)}, action: ${suggestedAction})`);
 
     return { commandPattern, confidence, suggestedAction };
   }
@@ -291,9 +312,13 @@ export class MemoryStore {
     return { commandPattern };
   }
 
+  // User-asserted override. Only 'auto-approve' and 'ask' are meaningful now —
+  // 'auto-deny' is no longer respected anywhere in the codebase (memory does not
+  // make blocking decisions). Anything other than 'auto-approve' normalizes to 'ask'.
   setPatternAction(pattern, action) {
+    const normalized = action === 'auto-approve' ? 'auto-approve' : 'ask';
     const stmt = this.db.prepare('UPDATE patterns SET suggestedAction = ? WHERE pattern = ?');
-    stmt.run(action, pattern);
+    stmt.run(normalized, pattern);
   }
 
   /**
