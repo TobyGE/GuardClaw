@@ -77,8 +77,24 @@ loadBlockingConfig();
 // Backend selection: auto (default) | openclaw
 const BACKEND = (process.env.BACKEND || 'auto').toLowerCase();
 
-// Middleware
-app.use(cors());
+// Middleware — restrict CORS to local origins only.
+// GUARDCLAW_CORS_ORIGINS=http://x.com,http://y.com to extend if you trust other origins.
+const EXTRA_CORS = (process.env.GUARDCLAW_CORS_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_CORS_ORIGINS = new Set([
+  `http://localhost:${PORT}`,
+  `http://127.0.0.1:${PORT}`,
+  'http://localhost:5173', // Vite dev server
+  ...EXTRA_CORS,
+]);
+app.use(cors({
+  origin: (origin, cb) => {
+    // No Origin header = same-origin / curl / hook scripts → allow.
+    if (!origin) return cb(null, true);
+    if (ALLOWED_CORS_ORIGINS.has(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked: ${origin}`));
+  },
+}));
 app.use(express.json());
 // Resolve client/dist relative to this file (works in both dev and bundled mode)
 const __dirname = path.dirname(new URL(import.meta.url).pathname);
@@ -314,7 +330,13 @@ const CC_CONNECTED_TIMEOUT_MS = 600_000; // consider CC disconnected after 10min
 // Track PreToolUse 'ask' decisions awaiting PostToolUse feedback (approve/deny inference)
 // Key: `${sessionKey}:${toolName}:${commandHash}` → { toolName, commandStr, displayInput, riskScore, sessionKey, timestamp }
 const ccPendingAsks = new Map();
-const PENDING_ASK_TIMEOUT_MS = 15_000; // fallback: infer denial after 15s with no PostToolUse
+// Timeouts for pending Bar approvals / inferred denials.
+// Bar TTL: how long the approval stays visible in the menubar app.
+// Infer-denial TTL: if no PostToolUse arrives within this window after a PreToolUse 'ask',
+//                   we assume the user denied in CC's own dialog and clean up.
+const APPROVAL_BAR_TTL_MS = 300_000;          // 5 min
+const PENDING_ASK_TIMEOUT_MS = 15_000;        // 15s fallback for inferred denial
+const PENDING_ASK_TIMEOUT_AGENT_MS = 120_000; // 2 min for agent_spawn (uses subagent-start/stop instead)
 // Reduce noisy repeated "auto-approved" hook messages for identical actions.
 const ccAllowNoticeCache = new Map(); // key -> last emitted timestamp
 const CC_ALLOW_NOTICE_TTL_MS = 12_000;
@@ -2136,7 +2158,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware
     const pendingEntry = pendingApprovals.get(approvalId);
     if (pendingEntry) approvalNotifier.notifyApprovalRequest(pendingEntry).catch(() => {});
 
-    // Auto-expire from Bar after 15s (dual-channel: user likely already acted in CC dialog)
+    // Auto-expire Bar approval after APPROVAL_BAR_TTL_MS (5 min safety timeout).
+    // Note: the inferred-denial cleanup below runs much sooner (PENDING_ASK_TIMEOUT_MS)
+    // and will usually clear it first when CC's own dialog has been answered.
     setTimeout(() => {
       if (pendingApprovals.has(approvalId)) {
         pendingApprovals.delete(approvalId);
@@ -2144,9 +2168,9 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware
           type: 'approval-resolved',
           data: JSON.stringify({ id: approvalId }),
         });
-        console.log(`[GuardClaw] Bar approval ${approvalId} auto-expired (5 min safety timeout)`);
+        console.log(`[GuardClaw] Bar approval ${approvalId} auto-expired (${APPROVAL_BAR_TTL_MS / 1000}s safety timeout)`);
       }
-    }, 300_000);
+    }, APPROVAL_BAR_TTL_MS);
 
     // Register in ccPendingAsks so PostToolUse/inferPendingDenials can track the outcome
     const askKey = `${sessionKey}:${gcToolName}:${commandStr.slice(0, 200)}`;
@@ -2161,31 +2185,33 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware
       eventId, // link to stored event for updating allowed status
     });
 
-    // If no PostToolUse arrives within timeout, infer user denied in CC dialog → clean up Bar pending
-    // agent_spawn gets longer timeout: CC sends subagent-start/stop instead of PostToolUse
-    const timeoutMs = gcToolName === 'agent_spawn' ? 120_000 : 15_000;
+    // Garbage-collect the ccPendingAsks entry + Bar pending approval if neither a
+    // PostToolUse (→ approve) nor a sibling PreToolUse (→ inferPendingDenials → deny)
+    // arrives within timeoutMs. Timeout alone is NOT evidence of denial — the user
+    // might still be thinking, or CC may be inside a long agent turn — so we record
+    // 'expired' on the event for forensics but deliberately do NOT teach memory.
+    // Real denials are captured by inferPendingDenials when the session moves on.
+    const timeoutMs = gcToolName === 'agent_spawn' ? PENDING_ASK_TIMEOUT_AGENT_MS : PENDING_ASK_TIMEOUT_MS;
     setTimeout(() => {
       if (ccPendingAsks.has(askKey)) {
         const ask = ccPendingAsks.get(askKey);
         ccPendingAsks.delete(askKey);
-        memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
-        // Update the stored event to reflect denial
         if (ask.eventId) {
-          eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: false, verdict: 'user-denied' } });
+          eventStore.updateEvent(ask.eventId, { safeguard: { riskScore: ask.riskScore, allowed: false, verdict: 'expired' } });
         }
-        console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (15s timeout) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+        console.log(`[GuardClaw] ⏱ ask expired (${timeoutMs / 1000}s) — no memory write → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
         if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
           const entry = pendingApprovals.get(ask.approvalId);
-          entry.resolve({ denied: true, reason: 'Inferred denial (no PostToolUse within 15s)' });
+          entry.resolve({ denied: true, reason: `Inferred denial (no PostToolUse within ${timeoutMs / 1000}s)` });
           pendingApprovals.delete(ask.approvalId);
           eventStore.notifyListeners({
             type: 'approval-resolved',
             data: JSON.stringify({ id: ask.approvalId }),
           });
-          console.log(`[GuardClaw] Bar approval ${ask.approvalId} auto-resolved (inferred denial, 15s timeout)`);
+          console.log(`[GuardClaw] Bar approval ${ask.approvalId} auto-resolved (inferred denial, ${timeoutMs / 1000}s timeout)`);
         }
       }
-    }, PENDING_ASK_TIMEOUT_MS);
+    }, timeoutMs);
 
     // Return 'ask' immediately so CC shows its own allow/deny dialog
     return res.json({
@@ -4855,37 +4881,45 @@ app.post('/api/setup/codex', (req, res) => {
     const configPath = path.join(codexDir, 'config.toml');
     const port = process.env.PORT || '3002';
 
-    // Find hook script
-    let hookScript = null;
+    // Locate hook source in package and copy to stable path under ~/.guardclaw/hooks/
+    // (survives npm updates and app bundle path changes)
+    let hookSrc = null;
     const candidates = [
       path.join(path.dirname(process.argv[1] || ''), 'scripts', 'codex-hook.sh'),
       path.join(import.meta.dirname, '..', 'scripts', 'codex-hook.sh'),
     ];
     for (const c of candidates) {
-      if (fs.existsSync(c)) { hookScript = c; break; }
+      if (fs.existsSync(c)) { hookSrc = c; break; }
     }
-    if (!hookScript) return res.status(404).json({ error: 'Hook script not found in app bundle' });
-    try { fs.chmodSync(hookScript, 0o755); } catch {}
+    if (!hookSrc) return res.status(404).json({ error: 'Hook script not found in app bundle' });
+
+    const hooksDir = path.join(os.homedir(), '.guardclaw', 'hooks');
+    const hookScript = path.join(hooksDir, 'codex-hook.sh');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.copyFileSync(hookSrc, hookScript);
+    fs.chmodSync(hookScript, 0o755);
 
     if (!fs.existsSync(codexDir)) fs.mkdirSync(codexDir, { recursive: true });
 
-    // Write hooks.json
+    // Write hooks.json — install all 6 events, matching scripts/install-codex.js
     let config = {};
     if (fs.existsSync(hooksPath)) {
       try { config = JSON.parse(fs.readFileSync(hooksPath, 'utf8')); } catch {}
     }
     if (!config.hooks) config.hooks = {};
     const isGCHook = (g) => g?.hooks?.some(h => h.command?.includes('codex-hook.sh'));
-    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop']) {
+    const ALL_EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'ContextCompaction', 'UserPromptSubmit', 'Stop'];
+    for (const event of ALL_EVENTS) {
       if (Array.isArray(config.hooks[event])) {
         config.hooks[event] = config.hooks[event].filter(g => !isGCHook(g));
         if (config.hooks[event].length === 0) delete config.hooks[event];
       }
     }
     const hookEntry = (timeout) => ({ matcher: '', hooks: [{ type: 'command', command: hookScript, timeout }] });
-    config.hooks.PreToolUse = [...(config.hooks.PreToolUse || []), hookEntry(310)];
-    config.hooks.UserPromptSubmit = [...(config.hooks.UserPromptSubmit || []), hookEntry(10)];
-    config.hooks.Stop = [...(config.hooks.Stop || []), hookEntry(10)];
+    for (const event of ALL_EVENTS) {
+      const timeout = event === 'PreToolUse' ? 310 : 10;
+      config.hooks[event] = [...(config.hooks[event] || []), hookEntry(timeout)];
+    }
     fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2) + '\n');
 
     // Enable codex_hooks feature in config.toml
@@ -4922,7 +4956,7 @@ app.post('/api/setup/codex/uninstall', (req, res) => {
     if (!fs.existsSync(hooksPath)) return res.json({ ok: true });
     const config = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
     const isGCHook = (g) => g?.hooks?.some(h => h.command?.includes('codex-hook.sh'));
-    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'SessionStart', 'ContextCompaction', 'UserPromptSubmit', 'Stop']) {
       if (Array.isArray(config.hooks?.[event])) {
         config.hooks[event] = config.hooks[event].filter(g => !isGCHook(g));
         if (config.hooks[event].length === 0) delete config.hooks[event];
@@ -6434,7 +6468,7 @@ app.post('/api/mcp/safety-check', async (req, res) => {
 app.post('/api/mcp/report', (req, res) => {
   const { source, action, result, details } = req.body;
   logger.info(`[MCP] Report from ${source}: ${action} → ${result}`);
-  eventStore.add({
+  eventStore.addEvent({
     type: 'cowork-mcp',
     tool: 'report',
     sessionKey: `cowork:${source}`,
@@ -6595,7 +6629,10 @@ function startCoworkWatcher() {
 
 // ─── Start server ────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+// Bind to 127.0.0.1 by default — GuardClaw is a local agent monitor and should not
+// be reachable from other hosts. Override with GUARDCLAW_HOST if you really need it.
+const HOST = process.env.GUARDCLAW_HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
   console.log('');
   console.log('🛡️  GuardClaw - AI Agent Safety Monitor');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -6775,18 +6812,18 @@ app.listen(PORT, () => {
           }
         }
 
-        // 5. Infer denials from timed-out pending asks (no PostToolUse received)
-        let denyInferred = 0;
+        // 5. Garbage-collect timed-out pending asks. Timeout is NOT evidence of denial
+        // (see comment near the per-ask setTimeout above), so we do not write to memory.
+        // Real denials are captured by inferPendingDenials when a sibling PreToolUse arrives.
+        let asksExpired = 0;
         for (const [key, ask] of ccPendingAsks) {
           if (now - ask.timestamp > PENDING_ASK_TIMEOUT_MS) {
             ccPendingAsks.delete(key);
-            memoryStore.recordDecision(ask.toolName, ask.displayInput, ask.riskScore, 'deny', ask.sessionKey);
-            console.log(`[GuardClaw] 🧠 Memory: inferred DENIAL (timeout) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
-            denyInferred++;
-            // Clean up linked Bar pending approval
+            console.log(`[GuardClaw] ⏱ ask expired (cleanup) → ${ask.toolName}: ${ask.commandStr.slice(0, 80)}`);
+            asksExpired++;
             if (ask.approvalId && pendingApprovals.has(ask.approvalId)) {
               const entry = pendingApprovals.get(ask.approvalId);
-              entry.resolve({ denied: true, reason: 'Inferred denial (timeout)' });
+              entry.resolve({ denied: true, reason: 'Pending ask expired' });
               pendingApprovals.delete(ask.approvalId);
               eventStore.notifyListeners({
                 type: 'approval-resolved',
@@ -6796,8 +6833,8 @@ app.listen(PORT, () => {
           }
         }
 
-        if (evicted || histEvicted || ccEvicted || denyInferred) {
-          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted}, ccTranscript=${ccEvicted}, denyInferred=${denyInferred}`);
+        if (evicted || histEvicted || ccEvicted || asksExpired) {
+          console.log(`[GuardClaw] 🧹 Cleanup: evalCache=${evicted}, toolHistory=${histEvicted}, ccTranscript=${ccEvicted}, asksExpired=${asksExpired}`);
         }
       }, 300_000);
 
@@ -6824,6 +6861,8 @@ async function shutdown(signal) {
 
 
   memoryStore.shutdown();
+  // Flush debounced event writes before exit
+  try { eventStore.shutdown(); } catch {}
   for (const { client } of activeClients) {
     client.disconnect();
   }

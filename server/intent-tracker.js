@@ -65,8 +65,10 @@ Categories (pick 1-3 that apply):
 - deploy: deployment, publishing, Docker, CI/CD
 - research: researching, learning, exploring, comparing
 - config: configuration, setup, installation
+- security: explicit security/audit work — reviewing credentials, rotating keys, threat modeling, scanning. Use this only when the user clearly asks for it; this is what authorizes reading ~/.ssh, .env, etc. without alarms.
+- destructive: explicit cleanup/delete/undo — \`rm\`, \`git clean\`, dropping dev databases, removing build artifacts. Use only when the user clearly asks; this lowers warning level on destructive ops scoped to what they asked for.
 
-explicit_sensitive: true ONLY if the user explicitly asks to handle credentials, SSH keys, secrets, .env files, sudo, delete/destroy operations, or network transfers.
+explicit_sensitive: true ONLY if the user explicitly asks to handle credentials, SSH keys, secrets, .env files, sudo, delete/destroy operations, or network transfers. \`security\` or \`destructive\` category implies explicit_sensitive=true.
 
 summary: one-line description of what the user actually wants (e.g. "writing unit tests for auth module", "deploying to staging server"). This helps detect deviation later.
 

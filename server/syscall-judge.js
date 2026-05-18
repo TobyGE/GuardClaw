@@ -35,7 +35,9 @@ SAFE:
 - No syscalls (idle period)
 
 Output ONLY valid JSON:
-{"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences explaining what happened and why this verdict"}`;
+{"verdict":"SAFE|WARNING|BLOCK","reason":"1-2 sentences explaining what happened and why this verdict","riskScore":N}
+
+riskScore: 1-3 SAFE, 4-7 WARNING, 8-10 BLOCK. Reading sensitive paths AND making network connections = 9. Reading sensitive paths only = 7-8. Spawning a shell or netcat from a server that should not need them = 8.`;
 
 export class SyscallJudge {
   constructor(safeguardService) {
@@ -193,9 +195,11 @@ ${summary}`;
       const verdict = (parsed.verdict || 'WARNING').toUpperCase();
       const reason = parsed.reason || 'No reason provided';
 
-      const riskScore = verdict === 'BLOCK' ? 9
-        : verdict === 'WARNING' ? 6
-        : 1;
+      // Prefer the LLM-emitted riskScore when present; fall back to verdict-based default.
+      const llmScore = (typeof parsed.riskScore === 'number' && parsed.riskScore >= 1 && parsed.riskScore <= 10)
+        ? Math.round(parsed.riskScore)
+        : null;
+      const riskScore = llmScore ?? (verdict === 'BLOCK' ? 9 : verdict === 'WARNING' ? 6 : 1);
 
       return { verdict, reason, riskScore };
     } catch (err) {

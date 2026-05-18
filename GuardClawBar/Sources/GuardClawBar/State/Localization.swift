@@ -3,6 +3,9 @@ import Foundation
 /// Lightweight i18n for GuardClaw Bar.
 /// Access via `Loc.shared.t("key")` — SwiftUI views will auto-update when language changes
 /// because `Loc` is @Observable and `t()` reads the tracked `lang` property.
+// Loc is read from many non-MainActor sites (enum localizedName, actor APIs, value types),
+// so @MainActor is impractical. Storage is just `lang: String` + UserDefaults; both are
+// thread-safe by Apple's contract, hence @unchecked Sendable is justified.
 @Observable
 final class Loc: @unchecked Sendable {
     static let shared = Loc()

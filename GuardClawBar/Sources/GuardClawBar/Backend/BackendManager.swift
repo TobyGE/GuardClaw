@@ -5,7 +5,7 @@ import Foundation
 ///   1. Embedded Node.js inside app bundle (production .app)
 ///   2. System node + source server/index.js (development via swift run)
 @MainActor
-final class BackendManager: @unchecked Sendable {
+final class BackendManager {
     static let shared = BackendManager()
 
     private var process: Process?

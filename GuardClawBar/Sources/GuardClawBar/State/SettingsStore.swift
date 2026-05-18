@@ -1,5 +1,9 @@
 import Foundation
 
+// SettingsStore is a thin wrapper over UserDefaults, which Apple documents as thread-safe.
+// We mark @unchecked Sendable rather than @MainActor because callers (Loc, GuardClawAPI actor,
+// non-isolated enum properties) span concurrency domains; routing all of them through MainActor
+// would cascade `await` through the entire UI layer for no real safety win.
 final class SettingsStore: @unchecked Sendable {
     static let shared = SettingsStore()
 

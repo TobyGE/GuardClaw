@@ -7,10 +7,19 @@
 
 GUARDCLAW_PORT="${GUARDCLAW_PORT:-3002}"
 GUARDCLAW_URL="http://127.0.0.1:${GUARDCLAW_PORT}"
-GUARDCLAW_LOG="/tmp/guardclaw-codex-hook.log"
 
+# Logging: opt-in via GUARDCLAW_HOOK_LOG=1. Writes to ~/.guardclaw/logs/ with 0600 perms,
+# rotates the file once it grows past ~1 MB. Never logs raw stdin payload.
 INPUT=$(cat)
-echo "[$(date)] invoked hook_event=$(echo "$INPUT" | python3 -c "import sys,json,os; d=json.load(sys.stdin); print(d.get('hook_event_name','?'), d.get('tool_name','?'))" 2>/dev/null)" >> "$GUARDCLAW_LOG"
+if [ "${GUARDCLAW_HOOK_LOG:-0}" = "1" ]; then
+  LOG_DIR="${HOME}/.guardclaw/logs"
+  mkdir -p "$LOG_DIR" 2>/dev/null
+  GUARDCLAW_LOG="$LOG_DIR/codex-hook.log"
+  if [ -f "$GUARDCLAW_LOG" ] && [ "$(wc -c <"$GUARDCLAW_LOG" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+    mv "$GUARDCLAW_LOG" "$GUARDCLAW_LOG.1" 2>/dev/null
+  fi
+  ( umask 077; echo "[$(date)] hook=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('hook_event_name','?'), d.get('tool_name','?'))" 2>/dev/null)" >> "$GUARDCLAW_LOG" )
+fi
 
 HOOK_EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name','PreToolUse'))" 2>/dev/null)
 

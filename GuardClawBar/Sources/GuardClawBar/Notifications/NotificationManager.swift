@@ -5,7 +5,8 @@ import AppKit
 let kModelReadyNotificationCategory = "MODEL_READY"
 let kModelReadyNotificationAction = "OPEN_JUDGE"
 
-final class NotificationManager: @unchecked Sendable {
+@MainActor
+final class NotificationManager {
     /// Lazily initialized — UNUserNotificationCenter crashes without a proper .app bundle
     private var center: UNUserNotificationCenter? {
         guard Bundle.main.bundleIdentifier != nil else { return nil }
