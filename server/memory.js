@@ -378,14 +378,21 @@ export class MemoryStore {
   /**
    * Find related patterns for LLM context injection.
    * Returns top patterns by the same tool, sorted by relevance.
+   *
+   * Filters out patterns with approveCount === 0. Pure-deny patterns are
+   * almost always built from inferred-timeout denials (the user never actually
+   * said no), and even with neutral framing the LLM tends to latch onto them
+   * as "prior denied → block this too". Real user denials still influence
+   * scoring via getScoreAdjustment(); this filter only affects what gets
+   * injected into the prompt as observational context.
    */
   lookupRelated(toolName, command, limit = 5) {
     const exactPattern = this.extractPattern(toolName, command);
     const allPatterns = this._stmtGetPatternsByTool.all(toolName);
-    
+
     // Score each pattern by relevance
     const scored = allPatterns
-      .filter(p => (p.approveCount + p.denyCount) > 0) // only patterns with decisions
+      .filter(p => p.approveCount > 0) // require at least one real approve signal
       .map(p => {
         let relevance = 0;
         // Exact match gets highest relevance

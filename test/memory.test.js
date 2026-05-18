@@ -83,6 +83,30 @@ describe('MemoryStore — stats do not auto-flip suggestedAction', () => {
   });
 });
 
+describe('lookupRelated — filters pure-deny patterns', () => {
+  test('pattern with denies but no approves is dropped from LLM context', () => {
+    const dir = tempDir();
+    const store = new MemoryStore(dir);
+    try {
+      // Pure-deny pattern (likely inferred-timeout, even if 'deny' label was real-looking).
+      for (let i = 0; i < 5; i++) {
+        store.recordDecision('exec', 'git push origin main 2>&1', 9, 'deny', 'sess-1');
+      }
+      // Mixed pattern with at least one approve — should survive.
+      store.recordDecision('exec', 'git status', 1, 'approve', 'sess-1');
+      store.recordDecision('exec', 'git status', 1, 'deny', 'sess-1');
+
+      const related = store.lookupRelated('exec', 'git push something');
+      const patterns = related.map(p => p.pattern);
+      assert.ok(!patterns.some(p => p.includes('push')), 'pure-deny push pattern is filtered');
+      assert.ok(patterns.some(p => p.includes('status')), 'mixed pattern with approves survives');
+    } finally {
+      store.shutdown();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('formatMemoryLine — neutral observational format', () => {
   test('no "user marked safe/risky" verdict in output', () => {
     const line = formatMemoryLine({
