@@ -186,9 +186,15 @@ function _fallbackBrief(sessionState, sessionSignals, eventStore, sessionKey) {
     }
   }
 
-  const denied = (events || []).filter(e => e.safeguard?.allowed === false);
+  // Only count REAL user denials — `verdict='expired'` and `pass-through` carry
+  // `allowed=false` but aren't user decisions (timeout cleanup / monitor-only mode).
+  // Including them here would surface inferred denials as "do not retry" instructions
+  // and poison downstream security-context.md via summarizeSession.
+  const denied = (events || []).filter(e =>
+    e.safeguard?.allowed === false && e.safeguard?.verdict === 'user-denied'
+  );
   if (denied.length > 0) {
-    lines.push(`🚫 ${denied.length} operation(s) denied — do not retry:`);
+    lines.push(`🚫 ${denied.length} operation(s) denied by user — do not retry:`);
     for (const e of denied.slice(-3)) {
       lines.push(`  - ${e.tool || '?'}: ${(e.description || e.command || '').slice(0, 100)}`);
     }

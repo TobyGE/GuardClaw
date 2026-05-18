@@ -48,7 +48,12 @@ Your job: update the security-context.md with lessons learned from this session.
 Rules:
 - Identify SAFE BASELINE patterns (operations that were consistently safe, score 1-3)
 - Identify TRUSTED domains/services the project uses
-- Note any USER DECISIONS (approve/deny) and what they imply
+- USER DECISIONS: only record approve/deny when the event explicitly carries the
+  label [USER-APPROVED] or [USER-DENIED]. Do NOT infer "user prefers X" from
+  patterns of repeated high-risk gating, score distributions, or absence of an
+  approval — those are agent-side judgments, not user preferences. If the user
+  hasn't explicitly approved or denied a pattern, leave that pattern out of
+  this section entirely.
 - Note any RISKS observed (high scores, suspicious patterns)
 - Keep entries concise — one line per rule
 - Merge with existing content, don't duplicate
@@ -94,17 +99,25 @@ export async function summarizeSession(briefOrEvents, cloudJudge, sessionSignals
     // Level 1 brief (preferred path)
     sessionContent = `Session security brief (AI-generated):\n${briefOrEvents}`;
   } else if (Array.isArray(briefOrEvents)) {
-    // Fallback: raw events array
-    if (briefOrEvents.length < 3) return;
-    const eventSummary = briefOrEvents.slice(-100).map(e => {
+    // Fallback: raw events array.
+    // Drop verdict='expired' (timeout-inferred, not a real user decision) — those
+    // would otherwise show up as [DENIED] and get encoded into security-context.md
+    // as "user prefers X" by the cloud judge, poisoning every future session.
+    const cleaned = briefOrEvents.filter(e => e.safeguard?.verdict !== 'expired');
+    if (cleaned.length < 3) return;
+    const eventSummary = cleaned.slice(-100).map(e => {
       const tool = e.toolName || e.tool || '?';
       const score = e.safeguard?.riskScore ?? e.riskScore ?? '?';
-      const verdict = e.safeguard?.verdict || (score >= 8 ? 'BLOCK' : score >= 4 ? 'WARNING' : 'SAFE');
+      const v = e.safeguard?.verdict || (score >= 8 ? 'BLOCK' : score >= 4 ? 'WARNING' : 'SAFE');
       const desc = (e.description || e.command || '').slice(0, 120);
-      const approved = e.safeguard?.allowed === true ? '' : e.safeguard?.allowed === false ? ' [DENIED]' : ' [USER-APPROVED]';
-      return `- [${verdict} ${score}] ${tool}: ${desc}${approved}`;
+      // Only label as [DENIED] for real user denials. Other allowed=false rows
+      // (expired filtered above, pass-through, etc.) just show no label.
+      const label = v === 'user-denied' ? ' [USER-DENIED]'
+        : v === 'user-approved' ? ' [USER-APPROVED]'
+        : '';
+      return `- [${v} ${score}] ${tool}: ${desc}${label}`;
     }).join('\n');
-    sessionContent = `Session tool calls (${briefOrEvents.length} total):\n${eventSummary}`;
+    sessionContent = `Session tool calls (${cleaned.length} total, ${briefOrEvents.length - cleaned.length} expired-pending dropped):\n${eventSummary}`;
   } else {
     return;
   }
