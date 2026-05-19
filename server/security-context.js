@@ -13,9 +13,14 @@ const CONTEXT_DIR = path.join(os.homedir(), '.guardclaw');
 const CONTEXT_FILE = path.join(CONTEXT_DIR, 'security-context.md');
 const MAX_CONTEXT_SIZE = 10000; // chars, ~2.5K tokens
 
+function consolidatedMemoryEnabled() {
+  return /^(1|true|yes)$/i.test(process.env.GUARDCLAW_CONSOLIDATED_MEMORY || '');
+}
+
 // ─── Read / Write ──────────────────────────────────────────────────────────
 
 export function loadSecurityContext() {
+  if (!consolidatedMemoryEnabled()) return null;
   try {
     const content = fs.readFileSync(CONTEXT_FILE, 'utf8');
     // Truncate if too large
@@ -28,6 +33,7 @@ export function loadSecurityContext() {
 }
 
 export function saveSecurityContext(content) {
+  if (!consolidatedMemoryEnabled()) return;
   try {
     fs.mkdirSync(CONTEXT_DIR, { recursive: true });
     fs.writeFileSync(CONTEXT_FILE, content, 'utf8');
@@ -89,6 +95,7 @@ Use this structure:
  * @param {object} sessionSignals - signals for this session
  */
 export async function summarizeSession(briefOrEvents, cloudJudge, sessionSignals) {
+  if (!consolidatedMemoryEnabled()) return;
   if (!briefOrEvents) return;
   if (!cloudJudge?.isConfigured) return;
 

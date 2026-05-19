@@ -10,7 +10,12 @@ const KNOWLEDGE_DIR = path.join(os.homedir(), '.guardclaw');
 const KNOWLEDGE_FILE = path.join(KNOWLEDGE_DIR, 'global-knowledge.md');
 const MAX_SIZE = 8000; // chars, ~2K tokens
 
+function consolidatedMemoryEnabled() {
+  return /^(1|true|yes)$/i.test(process.env.GUARDCLAW_CONSOLIDATED_MEMORY || '');
+}
+
 export function loadGlobalKnowledge() {
+  if (!consolidatedMemoryEnabled()) return null;
   try {
     const content = fs.readFileSync(KNOWLEDGE_FILE, 'utf8');
     return content.length > MAX_SIZE
@@ -22,6 +27,7 @@ export function loadGlobalKnowledge() {
 }
 
 export function saveGlobalKnowledge(content) {
+  if (!consolidatedMemoryEnabled()) return;
   try {
     fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true });
     fs.writeFileSync(KNOWLEDGE_FILE, content, 'utf8');
@@ -71,6 +77,7 @@ Keep under 7000 characters. Use this structure:
  * @param {object} cloudJudge - CloudJudge instance
  */
 export async function updateGlobalKnowledge(sessionBrief, cloudJudge) {
+  if (!consolidatedMemoryEnabled()) return;
   if (!sessionBrief || !cloudJudge?.isConfigured) return;
 
   // Only run if brief contains high-severity signals

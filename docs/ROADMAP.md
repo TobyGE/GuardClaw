@@ -51,6 +51,6 @@ Current focus and planned features. For detailed notes see the [full roadmap doc
 ### Memory & Learning
 - ✅ Adaptive memory (approve/deny pattern store)
 - ✅ Memory-based score adjustment
-- ✅ Auto-approve by memory (high-confidence patterns)
+- ✅ Explicit trusted-memory auto-approve (opt-in)
 - ✅ Human feedback buttons in dashboard
 - ✅ Memory dashboard with pattern table

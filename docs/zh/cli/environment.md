@@ -79,6 +79,8 @@ guardclaw config set <KEY> <VALUE>
 | `GUARDCLAW_AUTO_ALLOW_THRESHOLD` | `6` | 评分 ≤ 此值则自动允许 |
 | `GUARDCLAW_ASK_THRESHOLD` | `8` | 评分 ≤ 此值（prompt 模式）触发用户确认 |
 | `GUARDCLAW_AUTO_BLOCK_THRESHOLD` | `9` | 评分 ≥ 此值则自动阻断 |
+| `GUARDCLAW_MEMORY_AUTO_APPROVE` | 未设置 | 设为 `1` 后，显式信任的记忆可以跳过 judge 评估 |
+| `GUARDCLAW_CONSOLIDATED_MEMORY` | 未设置 | 设为 `1` 后，加载/更新 LLM 生成的项目级和全局长期摘要 |
 
 ### 审批模式
 

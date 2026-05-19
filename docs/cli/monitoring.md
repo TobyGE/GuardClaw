@@ -269,7 +269,7 @@ guardclaw memory
 
 Alias: `patterns`
 
-GuardClaw's adaptive memory system observes your approval decisions and generalizes them into patterns. Over time, frequently approved patterns are auto-approved without LLM evaluation.
+GuardClaw's adaptive memory system observes your approval decisions and generalizes them into patterns. Memory is treated as weak evidence: it can add neutral context and make small score adjustments, but it does not skip LLM evaluation by default. Set `GUARDCLAW_MEMORY_AUTO_APPROVE=1` only if you want explicit trusted-memory entries to bypass the judge.
 
 Output:
 
@@ -288,7 +288,7 @@ Output:
 
 Shows up to 20 patterns with their:
 
-- **Icon** — ✅ auto-approve, 🚫 auto-deny, ⚪ undecided
+- **Icon** — ✅ explicitly trusted, ⚪ undecided
 - **Pattern** — the generalized command pattern
 - **Confidence** — score from 0.00 to 1.00
 

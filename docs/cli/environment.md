@@ -79,6 +79,8 @@ guardclaw config set <KEY> <VALUE>
 | `GUARDCLAW_AUTO_ALLOW_THRESHOLD` | `6` | Scores at or below this are auto-allowed |
 | `GUARDCLAW_ASK_THRESHOLD` | `8` | Scores at or below this (in prompt mode) trigger user confirmation |
 | `GUARDCLAW_AUTO_BLOCK_THRESHOLD` | `9` | Scores at or above this are auto-blocked |
+| `GUARDCLAW_MEMORY_AUTO_APPROVE` | unset | Set to `1` to let explicit trusted-memory entries skip judge evaluation |
+| `GUARDCLAW_CONSOLIDATED_MEMORY` | unset | Set to `1` to load/update LLM-generated project/global memory summaries |
 
 ### Approval modes
 

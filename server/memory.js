@@ -323,12 +323,15 @@ export class MemoryStore {
 
   /**
    * Get score adjustment based on memory.
-   * Returns a value to ADD to the risk score (negative = lower risk).
-   * Never adjusts score below 3 or for score >= 9.
+   * Returns a small value to ADD to the risk score (negative = lower risk).
+   *
+   * Memory is only weak evidence. It must not move an action across the main
+   * decision bands (safe/warn/ask), because the pattern is a lossy abstraction
+   * of past episodes and can over-generalize.
    */
   getScoreAdjustment(toolName, command, originalScore) {
-    // Never adjust truly dangerous commands
-    if (originalScore >= 9) return 0;
+    // Never soften actions that are already in the ask/block band.
+    if (originalScore >= 8) return 0;
 
     const memory = this.lookup(toolName, command);
     if (!memory.found) return 0;
@@ -346,17 +349,18 @@ export class MemoryStore {
 
     let adjustment = 0;
     if (memory.confidence > 0.5) {
-      // User frequently approves: lower score by up to 3
-      adjustment = -Math.round(memory.confidence * 3 * decayFactor);
+      // User frequently approves: lower score by at most one point.
+      adjustment = -Math.round(memory.confidence * decayFactor);
     } else if (memory.confidence < -0.3) {
-      // User frequently denies: raise score by up to 2
-      adjustment = Math.round(Math.abs(memory.confidence) * 2 * decayFactor);
+      // User frequently denies: raise score by at most one point.
+      adjustment = Math.round(Math.abs(memory.confidence) * decayFactor);
     }
 
-    // Never adjust below score 3 (keep it at least in safe range)
-    if (originalScore + adjustment < 3) {
-      adjustment = 3 - originalScore;
-    }
+    adjustment = Math.max(-1, Math.min(1, adjustment));
+
+    const adjustedScore = originalScore + adjustment;
+    const decisionBand = (score) => score <= 3 ? 'safe' : score < 8 ? 'warn' : 'ask';
+    if (decisionBand(adjustedScore) !== decisionBand(originalScore)) return 0;
 
     return adjustment;
   }

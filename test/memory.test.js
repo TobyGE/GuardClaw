@@ -132,3 +132,50 @@ describe('formatMemoryLine — neutral observational format', () => {
     assert.match(line, /3 approves, 0 denies$/);
   });
 });
+
+describe('getScoreAdjustment — memory cannot cross decision bands', () => {
+  test('approvals do not lower warning into safe', () => {
+    const dir = tempDir();
+    const store = new MemoryStore(dir);
+    try {
+      for (let i = 0; i < 5; i++) {
+        store.recordDecision('exec', 'npm run build', 4, 'approve', 'sess-1');
+      }
+      assert.equal(store.getScoreAdjustment('exec', 'npm run build', 4), 0);
+      assert.equal(store.getScoreAdjustment('exec', 'npm run build', 5), -1);
+    } finally {
+      store.shutdown();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('denials do not raise warning into ask/block', () => {
+    const dir = tempDir();
+    const store = new MemoryStore(dir);
+    try {
+      for (let i = 0; i < 5; i++) {
+        store.recordDecision('exec', 'git push origin main', 7, 'deny', 'sess-1');
+      }
+      assert.equal(store.getScoreAdjustment('exec', 'git push origin main', 7), 0);
+      assert.equal(store.getScoreAdjustment('exec', 'git push origin main', 6), 1);
+    } finally {
+      store.shutdown();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('memory never softens ask/block-band actions', () => {
+    const dir = tempDir();
+    const store = new MemoryStore(dir);
+    try {
+      for (let i = 0; i < 5; i++) {
+        store.recordDecision('exec', 'chmod 777 ~/.ssh/id_rsa', 8, 'approve', 'sess-1');
+      }
+      assert.equal(store.getScoreAdjustment('exec', 'chmod 777 ~/.ssh/id_rsa', 8), 0);
+      assert.equal(store.getScoreAdjustment('exec', 'chmod 777 ~/.ssh/id_rsa', 9), 0);
+    } finally {
+      store.shutdown();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

