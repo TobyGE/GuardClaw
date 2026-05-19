@@ -41,12 +41,11 @@ guardclaw setup
 guardclaw config setup
 ```
 
-Re-runs the 4-step first-run wizard:
+Re-runs the 3-step first-run wizard:
 
-1. **Evaluation mode** — how risk scoring is performed
-2. **LLM backend** — which LLM to use for scoring
-3. **Response mode** — how to respond to risky tool calls
-4. **Agent connections** — detect and connect AI agents
+1. **Cloud judge** — provider, OAuth/API key, and model
+2. **Response mode** — how to respond to risky tool calls
+3. **Agent connections** — detect and connect AI agents
 
 ## Evaluation mode {#eval}
 

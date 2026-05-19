@@ -7,7 +7,8 @@
  * Supported providers:
  *   - gemini  : Google Gemini via OAuth (PKCE) or API key
  *   - claude  : Anthropic via OAuth (PKCE, same flow as Claude Code) or API key
- *   - openai  : OpenAI via OAuth (PKCE) or API key
+ *   - openai  : OpenAI via API key
+ *   - openai-codex: OpenAI Codex via ChatGPT OAuth (GuardClaw or Codex CLI)
  *   - custom  : any OpenAI-compatible endpoint with API key
  *
  * OAuth tokens stored in: ~/.guardclaw/oauth-tokens.json
@@ -56,11 +57,11 @@ const PROVIDERS = {
     authURL: 'https://auth.openai.com/oauth/authorize',
     tokenURL: 'https://auth.openai.com/oauth/token',
     clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
-    scopes: ['openid', 'profile', 'email', 'offline_access'],
+    scopes: ['openid', 'profile', 'email', 'offline_access', 'api.connectors.read', 'api.connectors.invoke'],
     callbackPort: 1455,
     callbackPath: '/auth/callback',
     baseURL: 'https://chatgpt.com/backend-api',
-    defaultModel: 'gpt-4o-mini',
+    defaultModel: 'gpt-5.4-mini',
     oauthSupported: true,
   },
   openrouter: {
@@ -112,6 +113,8 @@ function savePersistedConfig(cfg) {
 // ─── Token storage ───────────────────────────────────────────────────────────
 
 const TOKEN_FILE = path.join(os.homedir(), '.guardclaw', 'oauth-tokens.json');
+const CODEX_AUTH_FILE = path.join(os.homedir(), '.codex', 'auth.json');
+const CODEX_CONFIG_FILE = path.join(os.homedir(), '.codex', 'config.toml');
 
 function loadTokens() {
   try {
@@ -147,6 +150,97 @@ function clearToken(provider) {
   const tokens = loadTokens();
   delete tokens[provider];
   saveTokens(tokens);
+}
+
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getJwtExpiresAt(token) {
+  const exp = decodeJwtPayload(token)?.exp;
+  return typeof exp === 'number' ? exp * 1000 : 0;
+}
+
+function getOpenAICodexAccountId(tokenData = {}) {
+  return tokenData.account_id
+    || tokenData.chatgpt_account_id
+    || decodeJwtPayload(tokenData.access_token)?.['https://api.openai.com/auth']?.chatgpt_account_id
+    || decodeJwtPayload(tokenData.id_token)?.['https://api.openai.com/auth']?.chatgpt_account_id
+    || '';
+}
+
+function normalizeOpenAICodexToken(tokenData, { source = 'guardclaw', lastRefresh } = {}) {
+  if (!tokenData?.access_token || !tokenData?.refresh_token) return null;
+  const savedAt = tokenData.savedAt
+    || (lastRefresh ? Date.parse(lastRefresh) : 0)
+    || Date.now();
+  return {
+    ...tokenData,
+    account_id: getOpenAICodexAccountId(tokenData),
+    savedAt,
+    _source: source,
+  };
+}
+
+function loadCodexCliToken() {
+  try {
+    const auth = JSON.parse(fs.readFileSync(CODEX_AUTH_FILE, 'utf8'));
+    if (auth.auth_mode !== 'chatgpt' || !auth.tokens) return null;
+    return normalizeOpenAICodexToken(auth.tokens, {
+      source: 'codex-cli',
+      lastRefresh: auth.last_refresh,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function saveCodexCliToken(tokenData) {
+  const auth = JSON.parse(fs.readFileSync(CODEX_AUTH_FILE, 'utf8'));
+  const tokens = auth.tokens || {};
+  auth.auth_mode = auth.auth_mode || 'chatgpt';
+  auth.tokens = {
+    ...tokens,
+    ...(tokenData.id_token ? { id_token: tokenData.id_token } : {}),
+    ...(tokenData.access_token ? { access_token: tokenData.access_token } : {}),
+    ...(tokenData.refresh_token ? { refresh_token: tokenData.refresh_token } : {}),
+    ...(tokenData.account_id ? { account_id: tokenData.account_id } : {}),
+  };
+  auth.last_refresh = new Date().toISOString();
+  fs.writeFileSync(CODEX_AUTH_FILE, JSON.stringify(auth, null, 2), { mode: 0o600 });
+}
+
+function loadCodexCliModel() {
+  try {
+    const config = fs.readFileSync(CODEX_CONFIG_FILE, 'utf8');
+    const match = /^model\s*=\s*["']([^"']+)["']/m.exec(config);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+function getDefaultModel(provider) {
+  if (provider === 'openai-codex') {
+    return process.env.CLOUD_JUDGE_CODEX_MODEL
+      || (process.env.GUARDCLAW_USE_CODEX_CLI_MODEL === 'true' ? loadCodexCliModel() : null)
+      || PROVIDERS['openai-codex'].defaultModel;
+  }
+  return PROVIDERS[provider]?.defaultModel ?? 'default';
+}
+
+function getEffectiveToken(provider) {
+  const token = getToken(provider);
+  if (token) return token;
+  if (provider === 'openai-codex') return loadCodexCliToken();
+  return null;
 }
 
 function inferProviderFromApiKey(apiKey = '') {
@@ -251,6 +345,21 @@ async function exchangeCode(provider, code, verifier, state) {
 
 async function refreshAccessToken(provider, refreshToken) {
   const cfg = PROVIDERS[provider];
+  if (provider === 'openai-codex') {
+    const resp = await fetch(cfg.tokenURL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: cfg.clientId,
+      }),
+    });
+
+    if (!resp.ok) throw new Error(`Token refresh failed: ${resp.status}`);
+    return resp.json();
+  }
+
   const resp = await fetch(cfg.tokenURL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -620,7 +729,7 @@ export class CloudJudge {
   constructor(config = {}) {
     const persisted = loadPersistedConfig();
     this.enabled = config.enabled ?? persisted.enabled ?? (process.env.CLOUD_JUDGE_ENABLED === 'true');
-    this.provider = config.provider ?? persisted.provider ?? process.env.CLOUD_JUDGE_PROVIDER ?? 'claude';
+    this.provider = config.provider ?? persisted.provider ?? process.env.CLOUD_JUDGE_PROVIDER ?? 'openai-codex';
     this.apiKey = config.apiKey ?? persisted.apiKey ?? process.env.CLOUD_JUDGE_API_KEY ?? '';
     this.model = config.model ?? persisted.model ?? process.env.CLOUD_JUDGE_MODEL ?? '';
     this.baseURL = config.baseURL ?? persisted.baseURL ?? process.env.CLOUD_JUDGE_BASE_URL ?? '';
@@ -630,20 +739,28 @@ export class CloudJudge {
     // Set to e.g. 'claude-sonnet-4-6' for deeper analysis on suspicious ops.
     this.stage2Model = config.stage2Model ?? persisted.stage2Model ?? process.env.CLOUD_JUDGE_STAGE2_MODEL ?? '';
 
+    const providerExplicit = !!(config.provider || process.env.CLOUD_JUDGE_PROVIDER);
+    if (!providerExplicit && this.provider === 'claude' && !this.apiKey && !getToken('claude') && loadCodexCliToken()) {
+      this.provider = 'openai-codex';
+      this.model = getDefaultModel('openai-codex');
+      this.baseURL = PROVIDERS['openai-codex'].baseURL;
+      this.stage2Model = '';
+    }
+
     const defaults = PROVIDERS[this.provider] ?? {};
-    if (!this.model) this.model = defaults.defaultModel ?? 'default';
+    if (!this.model) this.model = getDefaultModel(this.provider);
     if (!this.baseURL) this.baseURL = defaults.baseURL ?? '';
   }
 
   get isConfigured() {
     if (!this.enabled) return false;
     if (this.apiKey) return true;
-    if (PROVIDERS[this.provider]) return !!getToken(this.provider);
+    if (PROVIDERS[this.provider]) return !!getEffectiveToken(this.provider);
     return false;
   }
 
   get isOAuthConnected() {
-    return !!getToken(this.provider);
+    return !!getEffectiveToken(this.provider);
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -698,7 +815,7 @@ export class CloudJudge {
     const callbackPort = cfg.callbackPort ?? DEFAULT_CALLBACK_PORT;
     const callbackPath = cfg.callbackPath ?? DEFAULT_CALLBACK_PATH;
     const { code, state: returnedState } = await waitForCallback(120000, callbackPort, callbackPath);
-    if (provider !== 'openai-codex' && returnedState !== state) throw new Error('OAuth state mismatch (possible CSRF)');
+    if (returnedState !== state) throw new Error('OAuth state mismatch (possible CSRF)');
     console.log(`[CloudJudge] Callback received, exchanging code...`);
 
     // Exchange code for tokens
@@ -710,7 +827,7 @@ export class CloudJudge {
       console.error(`[CloudJudge] Token exchange FAILED:`, err.message);
       throw err;
     }
-    setToken(provider, tokenData);
+    setToken(provider, provider === 'openai-codex' ? normalizeOpenAICodexToken(tokenData) : tokenData);
 
     // For Claude: exchange OAuth token for API key
     if (provider === 'claude' && tokenData.access_token) {
@@ -937,11 +1054,17 @@ export class CloudJudge {
       return result;
     } catch (err) {
       // On 401, try token refresh once
-      if (err.message.includes('401') && getToken(this.provider)?.refresh_token) {
+      if (err.message.includes('401') && getEffectiveToken(this.provider)?.refresh_token) {
         try {
-          const t = getToken(this.provider);
+          const t = getEffectiveToken(this.provider);
           const refreshed = await refreshAccessToken(this.provider, t.refresh_token);
-          setToken(this.provider, { ...t, ...refreshed });
+          const refreshedToken = this.provider === 'openai-codex'
+            ? normalizeOpenAICodexToken({ ...t, ...refreshed }, { source: t._source || 'guardclaw' })
+            : { ...t, ...refreshed };
+          if (this.provider === 'openai-codex' && refreshedToken._source === 'codex-cli') {
+            saveCodexCliToken(refreshedToken);
+          }
+          setToken(this.provider, refreshedToken);
           // Retry as single-stage (don't redo two-stage on refresh)
           const text = await this._callProvider(userContent);
           if (!text) return null;
@@ -1094,7 +1217,7 @@ export class CloudJudge {
     }
 
     // OAuth token path
-    const token = getToken(this.provider);
+    const token = getEffectiveToken(this.provider);
     if (!token) throw new Error(`No credentials for ${this.provider}`);
     const accessToken = token.access_token;
 
@@ -1108,7 +1231,7 @@ export class CloudJudge {
     if (this.provider === 'openai-codex') {
       // Auto-refresh token if expired
       const refreshedToken = await this._ensureOpenAICodexToken(token);
-      return this._callOpenAICodex(userContent, refreshedToken.access_token, sysPr, opts);
+      return this._callOpenAICodex(userContent, refreshedToken, sysPr, opts);
     }
 
     if (this.provider === 'minimax') {
@@ -1153,29 +1276,38 @@ export class CloudJudge {
   // ─── OpenAI Codex (ChatGPT OAuth) ──────────────────────────────────────────
 
   async _ensureOpenAICodexToken(token) {
-    const expiresAt = token.savedAt + (token.expires_in ?? 3600) * 1000;
+    const jwtExpiresAt = getJwtExpiresAt(token.access_token);
+    const expiresAt = jwtExpiresAt || (token.savedAt + (token.expires_in ?? 3600) * 1000);
     if (Date.now() < expiresAt - 60000) return token; // still valid
+
+    if (!token.refresh_token) {
+      throw new Error('OpenAI Codex token expired and no refresh token is available');
+    }
+
     // Refresh
     console.log('[CloudJudge] OpenAI Codex token expired, refreshing...');
     const refreshed = await refreshAccessToken('openai-codex', token.refresh_token);
-    const updated = { ...refreshed, savedAt: Date.now() };
+    const updated = normalizeOpenAICodexToken(
+      { ...token, ...refreshed },
+      { source: token._source || 'guardclaw' },
+    );
+
+    if (updated._source === 'codex-cli') {
+      saveCodexCliToken(updated);
+    }
+
     setToken('openai-codex', updated);
     return updated;
   }
 
-  async _callOpenAICodex(userContent, accessToken, systemPromptOverride = null, opts = {}) {
-    const model = opts.modelOverride || this.model || PROVIDERS['openai-codex'].defaultModel;
+  async _callOpenAICodex(userContent, tokenData, systemPromptOverride = null, opts = {}) {
+    const accessToken = tokenData.access_token;
+    const model = opts.modelOverride || this.model || getDefaultModel('openai-codex');
     const timeout = opts.timeout || 30000;
     const sysPr = systemPromptOverride || SYSTEM_PROMPT;
 
-    // Extract ChatGPT account ID from JWT
-    let accountId = '';
-    try {
-      const payload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64').toString('utf8'));
-      accountId = payload?.['https://api.openai.com/auth']?.chatgpt_account_id ?? '';
-    } catch {
-      throw new Error('OpenAI Codex: failed to extract account ID from token');
-    }
+    const accountId = getOpenAICodexAccountId(tokenData);
+    if (!accountId) throw new Error('OpenAI Codex: failed to determine ChatGPT account ID from token');
 
     const body = {
       model,
@@ -1192,6 +1324,7 @@ export class CloudJudge {
         'Authorization': `Bearer ${accessToken}`,
         'ChatGPT-Account-ID': accountId,
         'OpenAI-Beta': 'responses=experimental',
+        'originator': 'codex_cli_rs',
         'accept': 'text/event-stream',
         'content-type': 'application/json',
       },
@@ -1485,7 +1618,7 @@ export class CloudJudge {
     if (next.provider && PROVIDERS[next.provider]) {
       this.provider = next.provider;
       const cfg = PROVIDERS[this.provider];
-      if (!next.model) this.model = cfg.defaultModel;
+      if (!next.model) this.model = getDefaultModel(this.provider);
       if (!next.baseURL) this.baseURL = cfg.baseURL;
     }
     if (next.apiKey !== undefined) this.apiKey = next.apiKey;
@@ -1510,13 +1643,14 @@ export class CloudJudge {
 
   _providerStatuses() {
     const tokens = loadTokens();
+    const codexCliToken = loadCodexCliToken();
     return Object.entries(PROVIDERS).map(([id, cfg]) => {
-      const connected = !!tokens[id];
+      const connected = !!tokens[id] || (id === 'openai-codex' && !!codexCliToken);
       const hasApiKey = id === this.provider && !!this.apiKey;
       return {
         id,
         displayName: cfg.displayName,
-        defaultModel: cfg.defaultModel,
+        defaultModel: getDefaultModel(id),
         connected,
         hasApiKey,
         ready: connected || hasApiKey,
@@ -1530,11 +1664,12 @@ export class CloudJudge {
    */
   static getProviders() {
     const tokens = loadTokens();
+    const codexCliToken = loadCodexCliToken();
     return Object.entries(PROVIDERS).map(([id, cfg]) => ({
       id,
       displayName: cfg.displayName,
-      defaultModel: cfg.defaultModel,
-      connected: !!tokens[id],
+      defaultModel: getDefaultModel(id),
+      connected: !!tokens[id] || (id === 'openai-codex' && !!codexCliToken),
       oauthSupported: cfg.oauthSupported ?? false,
     }));
   }

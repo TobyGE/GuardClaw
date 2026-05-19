@@ -13,12 +13,11 @@ Takes about 30 seconds. First launch opens an interactive setup wizard.
 
 ## Setup Wizard
 
-The wizard walks you through four choices:
+The wizard walks you through three choices:
 
-1. **Evaluation mode** — local, mixed, or cloud
-2. **LLM backend** — pick a local model (LM Studio, Ollama, built-in MLX) or a cloud provider (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini)
-3. **Response mode** — `Auto` (flag and block risky calls) or `Monitor only` (log without blocking)
-4. **Agent connections** — auto-detects installed agents and installs hooks/plugins with one confirm
+1. **Cloud judge** — pick a cloud provider, auth method, and model
+2. **Response mode** — `Auto` (flag and block risky calls) or `Monitor only` (log without blocking)
+3. **Agent connections** — auto-detects installed agents and installs hooks/plugins with one confirm
 
 Re-run any time with:
 

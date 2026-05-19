@@ -2,7 +2,7 @@
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { createInterface } from 'readline';
+import readline, { createInterface } from 'readline';
 import fs from 'fs';
 import os from 'os';
 
@@ -137,30 +137,69 @@ function ask(rl, question) {
   return new Promise(resolve => rl.question(question, a => resolve(a.trim())));
 }
 
+async function selectSimple(options, { title, defaultIndex = 0 } = {}) {
+  if (title) console.log(title);
+  const safeDefault = Math.max(0, Math.min(defaultIndex, options.length - 1));
+  for (let i = 0; i < options.length; i++) {
+    const opt = options[i];
+    const hint = opt.hint ? `  ${opt.hint}` : '';
+    const marker = i === safeDefault ? '*' : ' ';
+    console.log(`  ${marker} ${i + 1}. ${opt.label}${hint}`);
+  }
+
+  const rl = createPrompt();
+  while (true) {
+    const answer = await ask(rl, `  Choose [${safeDefault + 1}]: `);
+    if (!answer) {
+      rl.close();
+      return options[safeDefault].value;
+    }
+    const idx = Number.parseInt(answer, 10);
+    if (Number.isInteger(idx) && idx >= 1 && idx <= options.length) {
+      rl.close();
+      return options[idx - 1].value;
+    }
+    console.log(`  Enter a number from 1 to ${options.length}.`);
+  }
+}
+
 /**
  * Arrow-key menu selector. Returns the value of the chosen option.
  * options: [{ label: 'display text', value: 'return value', hint?: 'gray hint' }]
  */
 function select(options, { title, defaultIndex = 0 } = {}) {
+  if (process.env.GUARDCLAW_SIMPLE_MENU === '1' || !process.stdin.isTTY || !process.stdout.isTTY || !process.stdin.setRawMode) {
+    return selectSimple(options, { title, defaultIndex });
+  }
+
   return new Promise((resolve) => {
     let cursor = defaultIndex;
     let offset = 0;
     const { stdin, stdout } = process;
     const wasRaw = stdin.isRaw;
+    let renderedLines = 0;
     const titleLines = title ? title.split('\n').length : 0;
     const pageSize = getMenuPageSize(options.length, stdout.rows, titleLines);
     const hasOverflow = options.length > pageSize;
-    const renderLines = pageSize + 1 + (hasOverflow ? 2 : 0);
 
     function render() {
       const viewport = getMenuViewport(options.length, cursor, pageSize, offset);
       offset = viewport.offset;
 
-      stdout.write(`\x1b[${renderLines}A`);
+      if (renderedLines > 0) {
+        readline.moveCursor(stdout, 0, -renderedLines);
+        for (let i = 0; i < renderedLines; i++) {
+          readline.clearLine(stdout, 0);
+          if (i < renderedLines - 1) readline.moveCursor(stdout, 0, 1);
+        }
+        readline.moveCursor(stdout, 0, -(renderedLines - 1));
+      }
+
+      const lines = [];
 
       if (hasOverflow) {
         const topLine = viewport.above ? `  \x1b[90m↑ ${viewport.above} more\x1b[0m` : '';
-        stdout.write(`\x1b[2K${topLine}\n`);
+        lines.push(topLine);
       }
 
       for (let i = viewport.start; i < viewport.end; i++) {
@@ -169,20 +208,20 @@ function select(options, { title, defaultIndex = 0 } = {}) {
         const pointer = selected ? '\x1b[36m❯\x1b[0m' : ' ';
         const label = selected ? `\x1b[1m${opt.label}\x1b[0m` : opt.label;
         const hint = opt.hint ? `  \x1b[90m${opt.hint}\x1b[0m` : '';
-        stdout.write(`\x1b[2K  ${pointer} ${label}${hint}\n`);
+        lines.push(`  ${pointer} ${label}${hint}`);
       }
 
       if (hasOverflow) {
         const bottomLine = viewport.below ? `  \x1b[90m↓ ${viewport.below} more\x1b[0m` : '';
-        stdout.write(`\x1b[2K${bottomLine}\n`);
+        lines.push(bottomLine);
       }
 
-      const footer = `  \x1b[90m${cursor + 1}/${options.length} · ↑↓ to scroll · Enter to select\x1b[0m`;
-      stdout.write(`\x1b[2K${footer}\n`);
+      lines.push(`  \x1b[90m${cursor + 1}/${options.length} · ↑↓ to scroll · Enter to select\x1b[0m`);
+      stdout.write(lines.join('\n') + '\n');
+      renderedLines = lines.length;
     }
 
     if (title) stdout.write(`${title}\n`);
-    for (let i = 0; i < renderLines; i++) stdout.write('\n');
     render();
 
     stdin.setRawMode(true);
@@ -209,6 +248,7 @@ function select(options, { title, defaultIndex = 0 } = {}) {
       stdin.removeListener('data', onKey);
       stdin.setRawMode(wasRaw ?? false);
       stdin.pause();
+      stdout.write('\n');
     }
 
     stdin.on('data', onKey);
@@ -356,6 +396,7 @@ function markOnboardingDone() {
 // before the server is even running.
 
 const CLOUD_JUDGE_CONFIG_FILE = join(os.homedir(), '.guardclaw', 'cloud-judge-config.json');
+const CODEX_AUTH_FILE = join(os.homedir(), '.codex', 'auth.json');
 
 function writePersistedCloudJudgeConfig(patch) {
   try {
@@ -366,6 +407,25 @@ function writePersistedCloudJudgeConfig(patch) {
     fs.writeFileSync(CLOUD_JUDGE_CONFIG_FILE, JSON.stringify(merged, null, 2), { mode: 0o600 });
   } catch (e) {
     console.error(`  ⚠️  Could not save cloud-judge config: ${e.message}`);
+  }
+}
+
+function readPersistedCloudJudgeConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CLOUD_JUDGE_CONFIG_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function hasCodexOAuth() {
+  try {
+    const auth = JSON.parse(fs.readFileSync(CODEX_AUTH_FILE, 'utf8'));
+    return auth.auth_mode === 'chatgpt'
+      && !!auth.tokens?.access_token
+      && !!auth.tokens?.refresh_token;
+  } catch {
+    return false;
   }
 }
 
@@ -607,11 +667,26 @@ const KNOWN_MODELS = {
     'claude-3-5-sonnet-20241022',
   ],
   openai: [
+    'gpt-5.4-mini',
+    'gpt-5.4',
     'gpt-4o',
     'gpt-4o-mini',
     'o1',
     'o1-mini',
     'gpt-3.5-turbo',
+  ],
+  'openai-codex': [
+    'gpt-5.4-mini',
+    'gpt-5.3-codex-spark',
+    'gpt-5.4',
+    'gpt-5.5',
+  ],
+  claude: [
+    'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'claude-3-5-haiku-20241022',
+    'claude-3-5-sonnet-20241022',
   ],
   gemini: [
     'gemini-2.0-flash',
@@ -638,6 +713,30 @@ const KNOWN_MODELS = {
     'MiniMax-Text-01',
   ],
 };
+
+function defaultCloudModel(provider) {
+  if (provider === 'openai-codex') return 'gpt-5.4-mini';
+  if (provider === 'claude') return 'claude-haiku-4-5-20251001';
+  return KNOWN_MODELS[provider]?.[0] || '';
+}
+
+function cloudProviderOptions() {
+  return [
+    { label: 'OpenAI Codex (ChatGPT)',    value: 'openai-codex',  hint: hasCodexOAuth() ? 'Codex OAuth detected' : 'OAuth login (ChatGPT Plus/Pro)' },
+    { label: 'Anthropic Claude',          value: 'claude',        hint: 'OAuth login or API key' },
+    { label: 'MiniMax',                   value: 'minimax',       hint: 'OAuth login or API key' },
+    { label: 'Kimi (Moonshot)',           value: 'kimi',          hint: 'API key' },
+    { label: 'OpenRouter',                value: 'openrouter',    hint: '400+ models, API key' },
+    { label: 'Google Gemini',             value: 'gemini',        hint: 'API key' },
+    { label: 'OpenAI',                    value: 'openai',        hint: 'API key' },
+  ];
+}
+
+async function fetchCloudModels(provider, apiKey) {
+  if (provider === 'claude') return fetchModels('anthropic', null, apiKey);
+  if (provider === 'openai-codex') return KNOWN_MODELS['openai-codex'];
+  return fetchModels(provider, null, apiKey);
+}
 
 /** Fetch available models for a backend. Returns [] on failure. */
 async function fetchModels(backend, baseUrl, apiKey) {
@@ -759,182 +858,107 @@ async function runOnboarding() {
   console.log('  • Auto-approves safe operations, blocks dangerous ones');
   console.log('  • Learns from your decisions to reduce interruptions over time');
   console.log('  • Supports Claude Code, Codex, Gemini CLI, and more\n');
-  console.log('  Let\'s get you set up in 4 quick steps.\n');
-  console.log('Use ↑↓ arrow keys to navigate, Enter to select.\n');
+  console.log('  Let\'s get you set up in 3 quick steps.\n');
+  console.log('Use ↑↓ arrow keys to navigate, Enter to select.');
+  console.log('Set GUARDCLAW_SIMPLE_MENU=1 if your terminal needs numbered choices.\n');
 
   let env = readEnvFile();
 
-  // ── Step 1: Evaluation mode ─────────────────────────────────────────────────
-  console.log('── Step 1 of 4: Evaluation mode ────────────────────────────────────\n');
+  const judgeMode = 'cloud-only';
 
-  const judgeMode = await select([
-    { label: 'Local only',     value: 'local-only',  hint: 'private, fast, single LLM' },
-    { label: 'Mixed',          value: 'mixed',       hint: 'local first, cloud escalates risky calls (recommended)' },
-    { label: 'Cloud only',     value: 'cloud-only',  hint: 'all evaluation via cloud API' },
-  ], { defaultIndex: 1 });
-  console.log(`  → ${judgeMode}\n`);
-
-  // ── Step 2: LLM backend(s) ───────────────────────────────────────────────────
+  // ── Step 1: Cloud judge ─────────────────────────────────────────────────────
   let cloudProvider = null;
   let cloudApiKey = '';
+  let cloudModel = '';
   let pendingOAuth = null;
 
-  if (judgeMode === 'local-only') {
-    console.log('── Step 2 of 4: Local LLM backend ──────────────────────────────────\n');
-  } else if (judgeMode === 'cloud-only') {
-    console.log('── Step 2 of 4: Cloud LLM provider ─────────────────────────────────\n');
-  } else {
-    console.log('── Step 2 of 4: Local LLM backend ──────────────────────────────────\n');
-    console.log('  Mixed mode: first pick your local backend, then the cloud provider.\n');
-  }
+  console.log('── Step 1 of 3: Cloud judge ────────────────────────────────────────\n');
 
-  // Pick local backend (skip for cloud-only)
   let backend = 'fallback';
-  if (judgeMode !== 'cloud-only') {
-    backend = await select([
-      { label: 'LM Studio',  value: 'lmstudio',  hint: 'local, recommended' },
-      { label: 'Ollama',     value: 'ollama',     hint: 'local' },
-      { label: 'Built-in',   value: 'built-in',   hint: 'Apple Silicon, download model' },
-      { label: 'Fallback',   value: 'fallback',   hint: 'rule-based only, no LLM' },
-    ]);
-    env = setEnvVar(env, 'SAFEGUARD_BACKEND', backend);
-    console.log(`  → local: ${backend}\n`);
+  env = setEnvVar(env, 'SAFEGUARD_BACKEND', 'fallback');
+
+  cloudProvider = await select(cloudProviderOptions());
+  console.log(`  → cloud: ${cloudProvider}\n`);
+
+  // Get API key for non-OAuth providers (or optionally for OAuth providers)
+  const oauthProviders = new Set(['claude', 'openai-codex', 'minimax']);
+  if (!oauthProviders.has(cloudProvider)) {
+    const rl = createPrompt();
+    const key = await ask(rl, `  ${cloudProvider} API key: `);
+    rl.close();
+    cloudApiKey = key || '';
+    if (!key) console.log('  (skipped — configure later in Settings)\n');
   } else {
-    env = setEnvVar(env, 'SAFEGUARD_BACKEND', 'fallback');
-  }
-
-  if (backend === 'lmstudio') {
-    const rl = createPrompt();
-    const url = await ask(rl, '  LM Studio URL [http://localhost:1234/v1]: ');
-    rl.close();
-    const resolvedUrl = url || 'http://localhost:1234/v1';
-    env = setEnvVar(env, 'LMSTUDIO_URL', resolvedUrl);
-    process.stdout.write('  Fetching models...');
-    const models = await fetchModels('lmstudio', resolvedUrl);
-    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found, enter manually)\n');
-    if (models.length) {
-      const model = await pickModel(null, models, null, 'auto');
-      env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
-    } else {
-      const rl2 = createPrompt();
-      const model = await ask(rl2, '  Model name [auto]: ');
-      rl2.close();
-      env = setEnvVar(env, 'LMSTUDIO_MODEL', model || 'auto');
+    const label = cloudProvider === 'openai-codex' ? 'OpenAI Codex' : cloudProvider === 'minimax' ? 'MiniMax' : 'Claude';
+    const authOptions = [];
+    if (cloudProvider === 'openai-codex' && hasCodexOAuth()) {
+      authOptions.push({ label: 'Use existing Codex login', value: 'codex-local', hint: '~/.codex/auth.json detected' });
     }
-  } else if (backend === 'ollama') {
-    const rl = createPrompt();
-    const url = await ask(rl, '  Ollama URL [http://localhost:11434]: ');
-    rl.close();
-    const resolvedUrl = url || 'http://localhost:11434';
-    env = setEnvVar(env, 'OLLAMA_URL', resolvedUrl);
-    process.stdout.write('  Fetching models...');
-    const models = await fetchModels('ollama', resolvedUrl);
-    process.stdout.write(models.length ? ` ${models.length} found\n` : ' (none found, enter manually)\n');
-    if (models.length) {
-      const model = await pickModel(null, models, null, 'llama3');
-      env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
-    } else {
-      const rl2 = createPrompt();
-      const model = await ask(rl2, '  Model name [llama3]: ');
-      rl2.close();
-      env = setEnvVar(env, 'OLLAMA_MODEL', model || 'llama3');
-    }
-  } else if (backend === 'built-in') {
-    // The built-in MLX engine is managed by the GuardClaw server itself, so
-    // we cannot download or load a model from inside onboarding (the server
-    // isn't up yet — that's the chicken-and-egg the user reported). Just save
-    // the backend choice and direct the user to the dashboard for the
-    // one-click model setup once the server is running.
-    console.log('');
-    console.log('  ℹ️  Built-in models are downloaded after the server starts.');
-    console.log('     After setup finishes, open the dashboard → Settings → Built-in');
-    console.log('     to download and load a model. GuardClaw will fall back to');
-    console.log('     rule-based scoring until a model is loaded.\n');
-  } else if (backend === 'fallback' && judgeMode !== 'cloud-only') {
-    console.log('  ℹ️  Rule-based only — no LLM calls. You can switch later via `guardclaw config llm`.\n');
-  }
+    authOptions.push(
+      { label: 'OAuth login', value: 'oauth', hint: `sign in with your ${label} account after server starts` },
+      { label: 'API key',     value: 'apikey', hint: 'paste key now' },
+      { label: 'Skip',        value: 'skip',   hint: 'configure later in Settings' },
+    );
+    const authMethod = await select(authOptions);
 
-  // Pick cloud provider (for mixed + cloud-only)
-  if (judgeMode === 'mixed' || judgeMode === 'cloud-only') {
-    if (judgeMode === 'mixed') {
-      console.log('\n  Now pick the cloud provider for escalation:\n');
-    }
-    if (judgeMode === 'cloud-only') {
-      console.log('');
-    }
-
-    cloudProvider = await select([
-      { label: 'Anthropic Claude',          value: 'claude',        hint: 'OAuth login or API key' },
-      { label: 'OpenAI Codex (ChatGPT)',    value: 'openai-codex',  hint: 'OAuth login (ChatGPT Plus/Pro)' },
-      { label: 'MiniMax',                   value: 'minimax',       hint: 'OAuth login or API key' },
-      { label: 'Kimi (Moonshot)',           value: 'kimi',          hint: 'API key' },
-      { label: 'OpenRouter',                value: 'openrouter',    hint: '400+ models, API key' },
-      { label: 'Google Gemini',             value: 'gemini',        hint: 'API key' },
-      { label: 'OpenAI',                    value: 'openai',        hint: 'API key' },
-    ]);
-    console.log(`  → cloud: ${cloudProvider}\n`);
-
-    // Get API key for non-OAuth providers (or optionally for Claude/OpenAI Codex)
-    const oauthProviders = new Set(['claude', 'openai-codex', 'minimax']);
-    if (!oauthProviders.has(cloudProvider)) {
+    if (authMethod === 'apikey') {
       const rl = createPrompt();
-      const key = await ask(rl, `  ${cloudProvider} API key: `);
+      const key = await ask(rl, `  ${label} API key: `);
       rl.close();
       cloudApiKey = key || '';
-      if (!key) console.log('  (skipped — configure later in Settings)\n');
-    } else {
-      const label = cloudProvider === 'openai-codex' ? 'OpenAI Codex' : cloudProvider === 'minimax' ? 'MiniMax' : 'Claude';
-      const authMethod = await select([
-        { label: 'OAuth login', value: 'oauth', hint: `sign in with your ${label} account after server starts` },
-        { label: 'API key',     value: 'apikey', hint: 'paste key now' },
-        { label: 'Skip',        value: 'skip',   hint: 'configure later in Settings' },
-      ]);
-
-      if (authMethod === 'apikey') {
-        const rl = createPrompt();
-        const key = await ask(rl, `  ${label} API key: `);
-        rl.close();
-        cloudApiKey = key || '';
-      } else if (authMethod === 'oauth') {
-        // Mark pending OAuth — server will trigger the flow on startup
-        pendingOAuth = cloudProvider;
-        console.log(`\n  OAuth login will open in your browser after the server starts.\n`);
-      }
-    }
-
-    // Apply cloud judge config via API (silent: server may not be up yet
-    // during the start-time onboarding — that's the whole point of running
-    // this wizard before the server spawns).
-    try {
-      await gcApi('/api/config/cloud-judge', 'POST', {
-        enabled: true,
-        judgeMode,
-        provider: cloudProvider,
-        ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
-      }, { silent: true });
-      console.log('  ✅ Cloud judge configured\n');
-    } catch (e) {
-      // Server isn't up yet — write the persisted config file directly so it
-      // takes effect the moment the server boots.
-      writePersistedCloudJudgeConfig({
-        enabled: true,
-        judgeMode,
-        provider: cloudProvider,
-        ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
-      });
-      console.log('  ✅ Cloud judge saved (will activate on server start)\n');
-    }
-  } else {
-    // local-only: disable cloud judge
-    try {
-      await gcApi('/api/config/cloud-judge', 'POST', { enabled: false, judgeMode: 'local-only' }, { silent: true });
-    } catch {
-      writePersistedCloudJudgeConfig({ enabled: false, judgeMode: 'local-only' });
+    } else if (authMethod === 'oauth') {
+      // Mark pending OAuth — server will trigger the flow on startup
+      pendingOAuth = cloudProvider;
+      console.log(`\n  OAuth login will open in your browser after the server starts.\n`);
+    } else if (authMethod === 'codex-local') {
+      console.log('\n  Using your existing Codex OAuth login.\n');
     }
   }
 
-  // ── Step 3: Approval mode ────────────────────────────────────────────────────
-  console.log('── Step 3 of 4: Response mode ───────────────────────────────────────\n');
+  const persistedCloud = readPersistedCloudJudgeConfig();
+  const currentCloudModel = persistedCloud.provider === cloudProvider ? persistedCloud.model : null;
+  const fallbackCloudModel = defaultCloudModel(cloudProvider);
+  process.stdout.write('  Fetching cloud models...');
+  const cloudModels = await fetchCloudModels(cloudProvider, cloudApiKey);
+  const cloudModelList = cloudModels.length ? cloudModels : (KNOWN_MODELS[cloudProvider] || [fallbackCloudModel]).filter(Boolean);
+  process.stdout.write(cloudModelList.length ? ` ${cloudModelList.length} available\n` : ' (enter manually)\n');
+  if (cloudModelList.length) {
+    cloudModel = await pickModel(null, cloudModelList, currentCloudModel, fallbackCloudModel);
+  } else {
+    const rl = createPrompt();
+    cloudModel = await ask(rl, `  Cloud model [${fallbackCloudModel || 'default'}]: `);
+    rl.close();
+    cloudModel ||= fallbackCloudModel;
+  }
+  if (cloudModel) console.log(`  → model: ${cloudModel}\n`);
+
+  // Apply cloud judge config via API (silent: server may not be up yet
+  // during the start-time onboarding — that's the whole point of running
+  // this wizard before the server spawns).
+  try {
+    await gcApi('/api/config/cloud-judge', 'POST', {
+      enabled: true,
+      judgeMode,
+      provider: cloudProvider,
+      ...(cloudModel ? { model: cloudModel } : {}),
+      ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
+    }, { silent: true });
+    console.log('  ✅ Cloud judge configured\n');
+  } catch (e) {
+    // Server isn't up yet — write the persisted config file directly so it
+    // takes effect the moment the server boots.
+    writePersistedCloudJudgeConfig({
+      enabled: true,
+      judgeMode,
+      provider: cloudProvider,
+      ...(cloudModel ? { model: cloudModel } : {}),
+      ...(cloudApiKey ? { apiKey: cloudApiKey } : {}),
+    });
+    console.log('  ✅ Cloud judge saved (will activate on server start)\n');
+  }
+
+  // ── Step 2: Approval mode ────────────────────────────────────────────────────
+  console.log('── Step 2 of 3: Response mode ───────────────────────────────────────\n');
   console.log('  How should GuardClaw respond to risky tool calls?\n');
 
   const mode = await select([
@@ -948,7 +972,7 @@ async function runOnboarding() {
   const agents = detectAgents();
 
   if (agents.length > 0) {
-    console.log('\n── Step 4 of 4: Agent connections ──────────────────────────────────\n');
+    console.log('\n── Step 3 of 3: Agent connections ──────────────────────────────────\n');
     console.log('  Detected on your system:\n');
 
     for (const agent of agents) {
@@ -1268,11 +1292,109 @@ async function configEvalMode() {
   }
 }
 
+async function configCloudJudge() {
+  console.log('\n── Cloud Judge ─────────────────────────────────────────────────────\n');
+
+  let cfg = readPersistedCloudJudgeConfig();
+  try {
+    cfg = await gcApi('/api/config/cloud-judge', 'GET', undefined, { silent: true });
+  } catch {}
+
+  const currentMode = cfg.judgeMode || (cfg.enabled ? 'mixed' : 'local-only');
+  const currentProvider = cfg.provider || 'openai-codex';
+  const currentModel = cfg.model || defaultCloudModel(currentProvider);
+
+  console.log(`  Current mode:     ${currentMode}`);
+  console.log(`  Current provider: ${currentProvider}`);
+  console.log(`  Current model:    ${currentModel || 'not set'}\n`);
+
+  const modes = [
+    { label: 'Mixed',       value: 'mixed',       hint: 'local + cloud escalation for risky calls' },
+    { label: 'Cloud only',  value: 'cloud-only',  hint: 'all evaluation via cloud API' },
+    { label: 'Local only',  value: 'local-only',  hint: 'disable cloud judge' },
+  ];
+  const mode = await select(modes, {
+    defaultIndex: Math.max(0, modes.findIndex(m => m.value === currentMode)),
+  });
+
+  if (mode === 'local-only') {
+    const patch = { enabled: false, judgeMode: 'local-only' };
+    try {
+      await gcApi('/api/config/cloud-judge', 'POST', patch, { silent: true });
+      console.log('\n✅ Cloud judge disabled\n');
+    } catch {
+      writePersistedCloudJudgeConfig(patch);
+      console.log('\n✅ Cloud judge disabled  (will activate on next start)\n');
+    }
+    return;
+  }
+
+  const providers = cloudProviderOptions();
+  const provider = await select(providers, {
+    defaultIndex: Math.max(0, providers.findIndex(p => p.value === currentProvider)),
+  });
+
+  let apiKey = '';
+  const oauthProviders = new Set(['claude', 'openai-codex', 'minimax']);
+  if (oauthProviders.has(provider)) {
+    if (provider === 'openai-codex' && hasCodexOAuth()) {
+      console.log('\n  Existing Codex OAuth login detected and will be reused.\n');
+    } else {
+      const authMethod = await select([
+        { label: 'Keep current auth', value: 'keep', hint: 'use existing OAuth/API key if present' },
+        { label: 'OAuth login',       value: 'oauth', hint: 'open browser after server starts' },
+        { label: 'API key',           value: 'apikey', hint: 'paste key now' },
+      ]);
+      if (authMethod === 'oauth') {
+        try {
+          await gcApi(`/api/config/cloud-judge/oauth/${provider}`, 'POST');
+        } catch {
+          console.log('  OAuth can be started after the server is running.');
+        }
+      } else if (authMethod === 'apikey') {
+        const rl = createPrompt();
+        apiKey = await ask(rl, `  ${provider} API key: `);
+        rl.close();
+      }
+    }
+  } else {
+    const rl = createPrompt();
+    apiKey = await ask(rl, `  ${provider} API key (Enter to keep current): `);
+    rl.close();
+  }
+
+  process.stdout.write('  Fetching cloud models...');
+  const models = await fetchCloudModels(provider, apiKey);
+  const fallback = defaultCloudModel(provider);
+  const modelList = models.length ? models : (KNOWN_MODELS[provider] || [fallback]).filter(Boolean);
+  process.stdout.write(modelList.length ? ` ${modelList.length} available\n` : ' (enter manually)\n');
+  const model = modelList.length
+    ? await pickModel(null, modelList, provider === currentProvider ? currentModel : null, fallback)
+    : fallback;
+
+  const patch = {
+    enabled: true,
+    judgeMode: mode,
+    provider,
+    ...(model ? { model } : {}),
+    ...(apiKey ? { apiKey } : {}),
+  };
+
+  try {
+    await gcApi('/api/config/cloud-judge', 'POST', patch, { silent: true });
+    console.log(`\n✅ Cloud judge set to ${provider}${model ? ` / ${model}` : ''}\n`);
+  } catch {
+    writePersistedCloudJudgeConfig(patch);
+    console.log(`\n✅ Cloud judge saved: ${provider}${model ? ` / ${model}` : ''}  (will activate on next start)\n`);
+  }
+}
+
 async function runInteractiveConfig() {
   console.log('\n⚙️  GuardClaw Configuration\n');
 
   const choice = await select([
     { label: 'Evaluation mode',    value: 'eval',       hint: 'local / mixed / cloud' },
+    { label: 'Cloud judge',        value: 'cloud',      hint: 'provider, OAuth/API key, model' },
     { label: 'LLM backend',       value: 'llm' },
     { label: 'Approval mode',     value: 'mode' },
     { label: 'Risk thresholds',   value: 'thresholds' },
@@ -1283,6 +1405,7 @@ async function runInteractiveConfig() {
 
   switch (choice) {
     case 'eval': await configEvalMode(); break;
+    case 'cloud': await configCloudJudge(); break;
     case 'llm': await configLLM(); break;
     case 'mode': await configMode(); break;
     case 'thresholds': await configThresholds(); break;
@@ -1323,6 +1446,7 @@ Config Commands:
   guardclaw config show              Show all settings
   guardclaw config set <KEY> <VAL>   Set any variable
   guardclaw config eval              Change evaluation mode (local/mixed/cloud)
+  guardclaw config cloud             Change cloud provider/auth/model
   guardclaw config llm               Change LLM backend
   guardclaw config mode              Change approval mode
   guardclaw config thresholds        Change risk thresholds
@@ -1525,6 +1649,7 @@ function configShow() {
   }
 
   const env = readEnvFile();
+  const cloudCfg = readPersistedCloudJudgeConfig();
   console.log('⚙️  GuardClaw Configuration\n');
   console.log(`📝 ${envPath}\n`);
 
@@ -1548,6 +1673,8 @@ function configShow() {
       ['CLOUD_JUDGE_ENABLED',  'Cloud judge on/off'],
       ['CLOUD_JUDGE_MODE',     'Mode (local-only/mixed/cloud-only)'],
       ['CLOUD_JUDGE_PROVIDER', 'Provider (claude/openai-codex/minimax/kimi/openrouter/gemini/openai)'],
+      ['CLOUD_JUDGE_MODEL',    'Cloud judge model'],
+      ['CLOUD_JUDGE_CODEX_MODEL', 'Default Codex OAuth cloud model override'],
     ]},
     { title: 'Approval Policy', vars: [
       ['GUARDCLAW_APPROVAL_MODE',         'Mode (auto/prompt/monitor-only)'],
@@ -1572,6 +1699,12 @@ function configShow() {
     console.log(`  ${title}`);
     for (const [key, desc] of vars) {
       let val = getEnvVar(env, key);
+      if (!val && title === 'Cloud Judge') {
+        if (key === 'CLOUD_JUDGE_ENABLED' && cloudCfg.enabled !== undefined) val = String(cloudCfg.enabled);
+        if (key === 'CLOUD_JUDGE_MODE') val = cloudCfg.judgeMode;
+        if (key === 'CLOUD_JUDGE_PROVIDER') val = cloudCfg.provider;
+        if (key === 'CLOUD_JUDGE_MODEL') val = cloudCfg.model;
+      }
       if (val) {
         if ((key.includes('KEY') || key.includes('TOKEN')) && val.length > 8)
           val = val.slice(0,8)+'...'+val.slice(-4);
@@ -1606,6 +1739,7 @@ async function handleConfigCommand() {
     case 'setup':      await runOnboarding(); break;
     case 'eval':
     case 'evaluation': await configEvalMode(); break;
+    case 'cloud':      await configCloudJudge(); break;
     case 'llm':        await configLLM(); break;
     case 'mode':       await configMode(); break;
     case 'thresholds': await configThresholds(); break;

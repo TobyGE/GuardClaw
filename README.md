@@ -71,10 +71,9 @@ Takes about 30 seconds. No account needed. Uninstall any time with `npm uninstal
 
 First launch opens an interactive wizard:
 
-1. **Evaluation mode:** local / mixed / cloud
-2. **LLM backend:** local (LM Studio, Ollama, built-in MLX) and/or cloud (Claude, OpenAI Codex, MiniMax, Kimi, OpenRouter, Gemini, OpenAI). Cloud providers support OAuth or API key.
-3. **Response mode:** `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
-4. **Agent connections:** auto-detects installed agents and installs hooks/plugins with one confirm
+1. **Cloud judge:** provider, OAuth/API key, and model
+2. **Response mode:** `Auto` (warn and flag risky calls) or `Monitor only` (log without intervention)
+3. **Agent connections:** auto-detects installed agents and installs hooks/plugins with one confirm
 
 Re-run any time with `guardclaw setup`. Restart the target agent after installing hooks.
 

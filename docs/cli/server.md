@@ -50,12 +50,11 @@ This is useful for development, debugging, or when running inside a container.
 
 ### First-run onboarding
 
-On first launch (when no `.env` file exists), the CLI runs a 4-step interactive setup wizard:
+On first launch (when no `.env` file exists), the CLI runs a 3-step interactive setup wizard:
 
-1. **Evaluation mode** — local-only, mixed, or cloud-only
-2. **LLM backend** — LM Studio, Ollama, Built-in, or Fallback (+ cloud provider for mixed/cloud)
-3. **Response mode** — auto or monitor-only
-4. **Agent connections** — auto-detects and connects installed agents
+1. **Cloud judge** — provider, OAuth/API key, and model
+2. **Response mode** — auto or monitor-only
+3. **Agent connections** — auto-detects and connects installed agents
 
 Skip this with `--no-onboarding` or by running `guardclaw setup` manually later.
 
