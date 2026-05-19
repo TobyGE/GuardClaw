@@ -7,6 +7,8 @@ node_modules/
 
 # Build artifacts
 dist/
+!client/dist/
+!client/dist/**
 
 # Workspace files (personal configuration)
 /AGENTS.md
